@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 import 'services/firebase_service.dart';
+import 'services/local_discovery_cache.dart';
 import 'screens/splash_screen.dart';
 
 void main() async {
@@ -19,6 +20,8 @@ void main() async {
   } catch (e) {
     debugPrint('Firebase startup error: $e');
   }
+
+  await LocalDiscoveryCache.init();
 
   runApp(
     const ProviderScope(

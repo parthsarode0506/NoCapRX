@@ -40,6 +40,45 @@ class ResultsScreen extends ConsumerWidget {
     }
   }
 
+  IconData _getRiskIcon(String riskLabel) {
+    switch (riskLabel.trim()) {
+      case 'Safe':
+        return Icons.check_circle;
+      case 'Adjust Dosage':
+        return Icons.tune;
+      case 'Toxic':
+        return Icons.dangerous;
+      case 'Ineffective':
+        return Icons.cancel;
+      default:
+        return Icons.help_outline;
+    }
+  }
+
+  /// Detect if this report is a "No PGx Relationship" or "Insufficient Patient Data" result.
+  _ReportCategory _categorize(PgxReport d) {
+    final gene = d.pharmacogenomicProfile.primaryGene;
+    final summary = d.llmGeneratedExplanation.summary;
+
+    if (summary.contains('INSUFFICIENT PATIENT DATA') ||
+        summary.contains('REQUIRED CLINICAL DATA MISSING') ||
+        (gene != 'UNMAPPED' &&
+            gene != 'NON-PGX' &&
+            d.riskAssessment.confidenceScore == 0.0 &&
+            d.pharmacogenomicProfile.phenotype == 'Unknown')) {
+      return _ReportCategory.insufficientData;
+    }
+    if (gene == 'NON-PGX' ||
+        summary.contains('NO KNOWN PHARMACOGENOMIC RELATIONSHIP') ||
+        summary.contains('NO ACTIONABLE PGX FINDING')) {
+      return _ReportCategory.noPgxRelationship;
+    }
+    if (gene == 'UNMAPPED') {
+      return _ReportCategory.unknown;
+    }
+    return _ReportCategory.standard;
+  }
+
   void _showRawJsonBottomSheet(BuildContext context) {
     final jsonStr = report.toFormattedJson();
 
@@ -265,6 +304,7 @@ class ResultsScreen extends ConsumerWidget {
   Widget _buildDrugResultCard(BuildContext context, WidgetRef ref, PgxReport d, bool isClinicianView) {
     final color = _getRiskColor(d.riskAssessment.riskLabel);
     final bgColor = _getRiskBgColor(d.riskAssessment.riskLabel);
+    final category = _categorize(d);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
@@ -280,44 +320,149 @@ class ResultsScreen extends ConsumerWidget {
               borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
               border: Border.all(color: color.withValues(alpha: 0.4)),
             ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(
-                      '${d.drug} (${d.pharmacogenomicProfile.primaryGene})',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: color,
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            d.drug,
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: color,
+                            ),
+                          ),
+                          if (d.pharmacogenomicProfile.primaryGene != 'NON-PGX' &&
+                              d.pharmacogenomicProfile.primaryGene != 'UNMAPPED')
+                            Text(
+                              '${d.pharmacogenomicProfile.primaryGene} • ${d.pharmacogenomicProfile.phenotype} (${d.pharmacogenomicProfile.diplotype})',
+                              style: TextStyle(fontSize: 12, color: Colors.grey.shade800),
+                            ),
+                        ],
                       ),
                     ),
-                    Text(
-                      'Phenotype: ${d.pharmacogenomicProfile.phenotype} (${d.pharmacogenomicProfile.diplotype})',
-                      style: TextStyle(fontSize: 12, color: Colors.grey.shade800),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: color,
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(_getRiskIcon(d.riskAssessment.riskLabel),
+                                  color: Colors.white, size: 14),
+                              const SizedBox(width: 4),
+                              Text(
+                                d.riskAssessment.riskLabel.toUpperCase(),
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (d.riskAssessment.confidenceScore > 0)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: Text(
+                              '${(d.riskAssessment.confidenceScore * 100).toInt()}% confidence',
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: Colors.grey.shade700,
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
                   ],
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: color,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    d.riskAssessment.riskLabel.toUpperCase(),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 12,
-                    ),
-                  ),
                 ),
               ],
             ),
           ),
+
+          // Special badge for non-PGx, insufficient data, or online-discovered
+          if (category == _ReportCategory.noPgxRelationship)
+            _buildInfoBanner(
+              icon: Icons.info_outline,
+              color: Colors.teal,
+              bgColor: Colors.teal.shade50,
+              title: 'NO KNOWN PHARMACOGENOMIC RELATIONSHIP',
+              body: 'PharmaGuard found no validated pharmacogenomic relationship that allows a genetic safety assessment for this medicine. This does NOT mean the medicine is universally safe or unsafe.',
+            ),
+          if (category == _ReportCategory.insufficientData)
+            _buildInfoBanner(
+              icon: Icons.warning_amber_rounded,
+              color: Colors.orange.shade800,
+              bgColor: Colors.orange.shade50,
+              title: d.llmGeneratedExplanation.summary.contains('REQUIRED CLINICAL DATA')
+                  ? 'ASSESSMENT INCOMPLETE — PATIENT DATA REQUIRED'
+                  : 'UNKNOWN — INSUFFICIENT PATIENT DATA',
+              body: d.llmGeneratedExplanation.summary.contains('REQUIRED CLINICAL DATA')
+                  ? d.clinicalRecommendation.dosingRecommendation
+                  : 'This medicine has known pharmacogenomic evidence, but the patient\'s uploaded VCF does not contain enough data for the relevant gene to determine phenotype.',
+            ),
+          if (category == _ReportCategory.unknown)
+            _buildInfoBanner(
+              icon: Icons.help_outline,
+              color: Colors.grey.shade700,
+              bgColor: Colors.grey.shade100,
+              title: 'UNKNOWN — UNRECOGNIZED DRUG',
+              body: 'PharmaGuard was unable to locate validated pharmacogenomic evidence for this drug in local databases or online sources.',
+            ),
+
+          // Online Evidence Badge
+          if (_isOnlineDiscovered(d))
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                border: Border(
+                  bottom: BorderSide(color: Colors.blue.shade200, width: 0.5),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.cloud_done_outlined, color: Colors.blue.shade700, size: 18),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text.rich(
+                      TextSpan(
+                        children: [
+                          TextSpan(
+                            text: '🌐 ONLINE EVIDENCE  ',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Colors.blue.shade700,
+                              fontSize: 11,
+                            ),
+                          ),
+                          TextSpan(
+                            text: 'Source: ${d.clinicalRecommendation.cpicGuidelineCitation.length > 60 ? '${d.clinicalRecommendation.cpicGuidelineCitation.substring(0, 60)}...' : d.clinicalRecommendation.cpicGuidelineCitation}',
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: Colors.blue.shade600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
 
           // Card Body Accordion Sections
           Padding(
@@ -387,47 +532,45 @@ class ResultsScreen extends ConsumerWidget {
                 ),
 
                 // Section 3: Pharmacogenomic Profile & Detected Variants
-                ExpansionTile(
-                  leading: const Icon(Icons.dns, color: Colors.teal),
-                  title: const Text('Detected Variants & Profile', style: TextStyle(fontWeight: FontWeight.bold)),
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Primary Gene: ${d.pharmacogenomicProfile.primaryGene}'),
-                          Text('Diplotype Call: ${d.pharmacogenomicProfile.diplotype}'),
-                          Text('Phenotype Class: ${d.pharmacogenomicProfile.phenotype}'),
-                          const SizedBox(height: 8),
-                          const Text('Detected rsIDs:', style: TextStyle(fontWeight: FontWeight.bold)),
-                          if (d.pharmacogenomicProfile.detectedVariants.isEmpty)
-                            const Text('No specific variant rsIDs listed (wildtype/inferred)', style: TextStyle(fontSize: 12, color: Colors.grey))
-                          else
-                            Wrap(
-                              spacing: 6,
-                              children: d.pharmacogenomicProfile.detectedVariants
-                                  .map((v) => Chip(label: Text(v.rsid, style: const TextStyle(fontSize: 11))))
-                                  .toList(),
-                            ),
-                        ],
+                if (category == _ReportCategory.standard ||
+                    category == _ReportCategory.insufficientData)
+                  ExpansionTile(
+                    leading: const Icon(Icons.dns, color: Colors.teal),
+                    title: const Text('Detected Variants & Profile', style: TextStyle(fontWeight: FontWeight.bold)),
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Primary Gene: ${d.pharmacogenomicProfile.primaryGene}'),
+                            Text('Diplotype Call: ${d.pharmacogenomicProfile.diplotype}'),
+                            Text('Phenotype Class: ${d.pharmacogenomicProfile.phenotype}'),
+                            const SizedBox(height: 8),
+                            const Text('Detected rsIDs:', style: TextStyle(fontWeight: FontWeight.bold)),
+                            if (d.pharmacogenomicProfile.detectedVariants.isEmpty)
+                              const Text('No specific variant rsIDs listed (wildtype/inferred)', style: TextStyle(fontSize: 12, color: Colors.grey))
+                            else
+                              Wrap(
+                                spacing: 6,
+                                children: d.pharmacogenomicProfile.detectedVariants
+                                    .map((v) => Chip(label: Text(v.rsid, style: const TextStyle(fontSize: 11))))
+                                    .toList(),
+                              ),
+                          ],
+                        ),
                       ),
-                    ),
-                  ],
-                ),
+                    ],
+                  ),
 
-                // A concise auditable chain; each item is produced by local
-                // parsing/rules rather than by the explanation model.
+                // Evidence Chain — always visible
                 ExpansionTile(
                   leading: const Icon(Icons.account_tree_outlined, color: Colors.indigo),
                   title: const Text('Evidence Chain', style: TextStyle(fontWeight: FontWeight.bold)),
                   children: [
                     Padding(
                       padding: const EdgeInsets.all(12),
-                      child: Text(
-                        'VCF parsed → ${d.pharmacogenomicProfile.detectedVariants.isEmpty ? 'no callable relevant variant' : d.pharmacogenomicProfile.detectedVariants.map((v) => v.rsid).join(', ')} → ${d.pharmacogenomicProfile.primaryGene} → ${d.pharmacogenomicProfile.diplotype} → ${d.pharmacogenomicProfile.phenotype} → ${d.drug} → ${d.clinicalRecommendation.cpicGuidelineCitation} → ${d.riskAssessment.riskLabel}',
-                        style: const TextStyle(fontSize: 13, height: 1.5),
-                      ),
+                      child: _buildEvidenceChain(d, category),
                     ),
                   ],
                 ),
@@ -458,4 +601,155 @@ class ResultsScreen extends ConsumerWidget {
       ),
     );
   }
+
+  Widget _buildInfoBanner({
+    required IconData icon,
+    required Color color,
+    required Color bgColor,
+    required String title,
+    required String body,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: bgColor,
+        border: Border(
+          bottom: BorderSide(color: color.withValues(alpha: 0.3), width: 0.5),
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12,
+                    color: color,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  body,
+                  style: TextStyle(fontSize: 11, color: color, height: 1.4),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEvidenceChain(PgxReport d, _ReportCategory category) {
+    if (category == _ReportCategory.noPgxRelationship) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _chainStep('💊', 'Drug', d.drug),
+          _chainArrow(),
+          _chainStep('🔍', 'Database Search', 'CPIC / PharmGKB / FDA'),
+          _chainArrow(),
+          _chainStep('📋', 'Result', 'No validated PGx relationship found'),
+          _chainArrow(),
+          _chainStep('⚖️', 'Classification', 'No pharmacogenomic assessment possible'),
+        ],
+      );
+    }
+
+    if (category == _ReportCategory.insufficientData) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _chainStep('💊', 'Drug', d.drug),
+          _chainArrow(),
+          _chainStep('🧬', 'Required Gene', d.pharmacogenomicProfile.primaryGene),
+          _chainArrow(),
+          _chainStep('📂', 'Patient VCF', 'Insufficient data for ${d.pharmacogenomicProfile.primaryGene}'),
+          _chainArrow(),
+          _chainStep('⚠️', 'Classification', 'Unknown — cannot determine phenotype'),
+        ],
+      );
+    }
+
+    // Standard evidence chain
+    final variants = d.pharmacogenomicProfile.detectedVariants.isEmpty
+        ? 'no callable variant'
+        : d.pharmacogenomicProfile.detectedVariants.map((v) => v.rsid).join(', ');
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _chainStep('📂', 'VCF Parsed', variants),
+        _chainArrow(),
+        _chainStep('🧬', 'Gene', d.pharmacogenomicProfile.primaryGene),
+        _chainArrow(),
+        _chainStep('🔬', 'Diplotype', d.pharmacogenomicProfile.diplotype),
+        _chainArrow(),
+        _chainStep('📊', 'Phenotype', d.pharmacogenomicProfile.phenotype),
+        _chainArrow(),
+        _chainStep('💊', 'Drug', d.drug),
+        _chainArrow(),
+        _chainStep('📚', 'Guideline', d.clinicalRecommendation.cpicGuidelineCitation.length > 50
+            ? '${d.clinicalRecommendation.cpicGuidelineCitation.substring(0, 50)}...'
+            : d.clinicalRecommendation.cpicGuidelineCitation),
+        _chainArrow(),
+        _chainStep('⚖️', 'Risk', d.riskAssessment.riskLabel),
+      ],
+    );
+  }
+
+  Widget _chainStep(String emoji, String label, String value) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(emoji, style: const TextStyle(fontSize: 14)),
+        const SizedBox(width: 8),
+        Text('$label: ', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+        Expanded(child: Text(value, style: const TextStyle(fontSize: 12))),
+      ],
+    );
+  }
+
+  Widget _chainArrow() {
+    return const Padding(
+      padding: EdgeInsets.only(left: 6, top: 2, bottom: 2),
+      child: Text('  ↓', style: TextStyle(fontSize: 12, color: Colors.grey)),
+    );
+  }
+
+  bool _isOnlineDiscovered(PgxReport d) {
+    if (d.evidence != null) {
+      return d.evidence!.isOnlineDiscovered;
+    }
+
+    // Heuristic: if the citation mentions "FDA" or "PharmGKB" or "Online" and the gene is not
+    // from the core 6-drug panel, mark as online-discovered
+    final coreDrugs = {'CODEINE', 'CLOPIDOGREL', 'WARFARIN', 'SIMVASTATIN', 'AZATHIOPRINE', 'FLUOROURACIL'};
+    final gene = d.pharmacogenomicProfile.primaryGene;
+    final drug = d.drug.toUpperCase();
+
+    if (coreDrugs.contains(drug)) return false;
+    if (gene == 'NON-PGX' || gene == 'UNMAPPED') {
+      // These are non-PGx or unknown drugs, check if evidence was found
+      return d.clinicalRecommendation.cpicGuidelineCitation.contains('FDA') ||
+          d.clinicalRecommendation.cpicGuidelineCitation.contains('PharmGKB');
+    }
+    // If it's a gene not in the core panel or a drug not in the core panel
+    return !coreDrugs.contains(drug);
+  }
+}
+
+enum _ReportCategory {
+  standard,
+  noPgxRelationship,
+  insufficientData,
+  unknown,
 }

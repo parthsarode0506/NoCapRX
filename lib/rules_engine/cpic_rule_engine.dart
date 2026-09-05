@@ -1,3 +1,4 @@
+import '../models/drug_evidence.dart';
 import '../models/pgx_report.dart';
 import '../parser/vcf_parser.dart';
 
@@ -31,17 +32,27 @@ class CpicRule {
 
 class CpicRuleEngine {
   static const Map<String, String> drugToGeneMap = {
+    // Local Core Panel (6 drugs)
     'CODEINE': 'CYP2D6',
     'CLOPIDOGREL': 'CYP2C19',
     'WARFARIN': 'CYP2C9',
     'SIMVASTATIN': 'SLCO1B1',
     'AZATHIOPRINE': 'TPMT',
     'FLUOROURACIL': 'DPYD',
+    // Extended Online / Curated CPIC Panel
+    'TACROLIMUS': 'CYP3A5',
+    'ABACAVIR': 'HLA-B',
+    'CARBAMAZEPINE': 'HLA-B',
+    'PHENYTOIN': 'CYP2C9',
+    'TAMOXIFEN': 'CYP2D6',
+    'ONDANSETRON': 'CYP2D6',
+    'IRINOTECAN': 'UGT1A1',
+    'CELECOXIB': 'CYP2C9',
+    'IBUPROFEN': 'CYP2C9',
+    'AMITRIPTYLINE': 'CYP2D6',
   };
 
-  /// Common generic, brand, and spelling variants that resolve to a drug for
-  /// which this on-device rule set contains a validated recommendation.  AI is
-  /// used to explain a result, never to invent a clinical gene/drug mapping.
+  /// Common generic, brand, and spelling variants.
   static const Map<String, String> _drugAliases = {
     'CODEINE PHOSPHATE': 'CODEINE',
     'TYLENOL 3': 'CODEINE',
@@ -61,10 +72,26 @@ class CpicRuleEngine {
     'ADRUCIL': 'FLUOROURACIL',
     'CAPECITABINE': 'FLUOROURACIL',
     'XELODA': 'FLUOROURACIL',
+    'PROGRAF': 'TACROLIMUS',
+    'ENVARSUS': 'TACROLIMUS',
+    'ZIAGEN': 'ABACAVIR',
+    'TRIUMEQ': 'ABACAVIR',
+    'TEGRETOL': 'CARBAMAZEPINE',
+    'CARBATROL': 'CARBAMAZEPINE',
+    'DILANTIN': 'PHENYTOIN',
+    'EPANUTIN': 'PHENYTOIN',
+    'NOLVADEX': 'TAMOXIFEN',
+    'SOLTAMOX': 'TAMOXIFEN',
+    'ZOFRAN': 'ONDANSETRON',
+    'ZUPLENZ': 'ONDANSETRON',
+    'CAMPTOSAR': 'IRINOTECAN',
+    'CELEBREX': 'CELECOXIB',
+    'ADVIL': 'IBUPROFEN',
+    'MOTRIN': 'IBUPROFEN',
+    'ELAVIL': 'AMITRIPTYLINE',
   };
 
-  /// Resolves a user-entered drug to a validated canonical rule name.
-  /// Returns null when the local clinical catalogue has no safe mapping.
+  /// Resolves a user-entered drug to a canonical rule name.
   static String? resolveDrugName(String drugName) {
     final normalized = drugName
         .trim()
@@ -372,26 +399,562 @@ class CpicRuleEngine {
       alternativeDrugs: [],
       monitoringAdvice: 'Standard routine oncology monitoring for fluoropyrimidine toxicity.',
     ),
+
+    // --- CYP3A5 : TACROLIMUS ---
+    const CpicRule(
+      gene: 'CYP3A5',
+      drug: 'TACROLIMUS',
+      phenotype: 'PM',
+      riskLabel: 'Safe',
+      severity: 'none',
+      baseConfidence: 0.96,
+      mechanism: 'CYP3A5 non-expressor (*3/*3). Standard clearance rate for conventional starting doses.',
+      cpicGuidelineCitation: 'CPIC Guideline for CYP3A5 and Tacrolimus (2015 update).',
+      dosingRecommendation: 'Initiate tacrolimus with standard recommended starting dose.',
+      alternativeDrugs: ['Cyclosporine'],
+      monitoringAdvice: 'Standard therapeutic drug monitoring (TDM) of trough blood concentrations.',
+    ),
+    const CpicRule(
+      gene: 'CYP3A5',
+      drug: 'TACROLIMUS',
+      phenotype: 'IM',
+      riskLabel: 'Adjust Dosage',
+      severity: 'moderate',
+      baseConfidence: 0.94,
+      mechanism: 'CYP3A5 intermediate expressor (*1/*3). Increased tacrolimus clearance requiring higher starting dose.',
+      cpicGuidelineCitation: 'CPIC Guideline for CYP3A5 and Tacrolimus (2015 update).',
+      dosingRecommendation: 'Increase starting dose 1.5 to 2 times standard recommended dose, then adjust based on TDM.',
+      alternativeDrugs: ['Cyclosporine'],
+      monitoringAdvice: 'Perform frequent early TDM to achieve target therapeutic blood level.',
+    ),
+    const CpicRule(
+      gene: 'CYP3A5',
+      drug: 'TACROLIMUS',
+      phenotype: 'NM',
+      riskLabel: 'Adjust Dosage',
+      severity: 'high',
+      baseConfidence: 0.95,
+      mechanism: 'CYP3A5 normal expressor (*1/*1). Rapid tacrolimus metabolism leading to delayed achievement of target concentration.',
+      cpicGuidelineCitation: 'CPIC Guideline for CYP3A5 and Tacrolimus (2015 update).',
+      dosingRecommendation: 'Increase starting dose 1.5 to 2 times standard recommended dose, followed by close TDM.',
+      alternativeDrugs: ['Cyclosporine'],
+      monitoringAdvice: 'Intensive early TDM is mandatory to prevent organ allograft rejection.',
+    ),
+
+    // --- HLA-B : ABACAVIR ---
+    const CpicRule(
+      gene: 'HLA-B',
+      drug: 'ABACAVIR',
+      phenotype: 'Positive',
+      riskLabel: 'Toxic',
+      severity: 'critical',
+      baseConfidence: 0.99,
+      mechanism: 'HLA-B*57:01 allele present. High risk of severe, life-threatening immunological hypersensitivity reaction.',
+      cpicGuidelineCitation: 'CPIC Guideline for HLA-B Genotype and Abacavir Dosing (2014).',
+      dosingRecommendation: 'Abacavir is strictly contraindicated. Select an alternative non-abacavir antiretroviral.',
+      alternativeDrugs: ['Tenofovir alafenamide', 'Tenofovir disoproxil', 'Zidovudine'],
+      monitoringAdvice: 'Document HLA-B*57:01 positivity in patient allergy records. Never rechallenge.',
+    ),
+    const CpicRule(
+      gene: 'HLA-B',
+      drug: 'ABACAVIR',
+      phenotype: 'Negative',
+      riskLabel: 'Safe',
+      severity: 'none',
+      baseConfidence: 0.98,
+      mechanism: 'HLA-B*57:01 absent. Low risk of abacavir hypersensitivity reaction.',
+      cpicGuidelineCitation: 'CPIC Guideline for HLA-B Genotype and Abacavir Dosing (2014).',
+      dosingRecommendation: 'Initiate abacavir at standard recommended dose according to HIV treatment guidelines.',
+      alternativeDrugs: [],
+      monitoringAdvice: 'Routine clinical monitoring during therapy.',
+    ),
+    const CpicRule(
+      gene: 'HLA-B',
+      drug: 'ABACAVIR',
+      phenotype: 'NM',
+      riskLabel: 'Safe',
+      severity: 'none',
+      baseConfidence: 0.98,
+      mechanism: 'HLA-B*57:01 absent. Low risk of abacavir hypersensitivity reaction.',
+      cpicGuidelineCitation: 'CPIC Guideline for HLA-B Genotype and Abacavir Dosing (2014).',
+      dosingRecommendation: 'Initiate abacavir at standard recommended dose.',
+      alternativeDrugs: [],
+      monitoringAdvice: 'Routine clinical monitoring.',
+    ),
+
+    // --- HLA-B : CARBAMAZEPINE ---
+    const CpicRule(
+      gene: 'HLA-B',
+      drug: 'CARBAMAZEPINE',
+      phenotype: 'Positive',
+      riskLabel: 'Toxic',
+      severity: 'critical',
+      baseConfidence: 0.99,
+      mechanism: 'HLA-B*15:02 allele present. Significant risk of Stevens-Johnson syndrome (SJS) and toxic epidermal necrolysis (TEN).',
+      cpicGuidelineCitation: 'CPIC Guideline for HLA-B and Carbamazepine Therapy (2017).',
+      dosingRecommendation: 'Avoid carbamazepine and consider alternative antiepileptic agent.',
+      alternativeDrugs: ['Valproic acid', 'Levetiracetam', 'Lamotrigine (with caution)'],
+      monitoringAdvice: 'Document severe cutaneous adverse reaction risk.',
+    ),
+    const CpicRule(
+      gene: 'HLA-B',
+      drug: 'CARBAMAZEPINE',
+      phenotype: 'Negative',
+      riskLabel: 'Safe',
+      severity: 'none',
+      baseConfidence: 0.98,
+      mechanism: 'HLA-B*15:02 absent. Standard risk for cutaneous adverse reactions.',
+      cpicGuidelineCitation: 'CPIC Guideline for HLA-B and Carbamazepine Therapy (2017).',
+      dosingRecommendation: 'Initiate carbamazepine per standard dosing guidelines.',
+      alternativeDrugs: [],
+      monitoringAdvice: 'Monitor for common adverse effects.',
+    ),
+    const CpicRule(
+      gene: 'HLA-B',
+      drug: 'CARBAMAZEPINE',
+      phenotype: 'NM',
+      riskLabel: 'Safe',
+      severity: 'none',
+      baseConfidence: 0.98,
+      mechanism: 'HLA-B*15:02 absent. Standard risk for cutaneous adverse reactions.',
+      cpicGuidelineCitation: 'CPIC Guideline for HLA-B and Carbamazepine Therapy (2017).',
+      dosingRecommendation: 'Initiate carbamazepine per standard dosing guidelines.',
+      alternativeDrugs: [],
+      monitoringAdvice: 'Monitor for standard adverse effects.',
+    ),
+
+    // --- CYP2C9 : PHENYTOIN ---
+    const CpicRule(
+      gene: 'CYP2C9',
+      drug: 'PHENYTOIN',
+      phenotype: 'PM',
+      riskLabel: 'Toxic',
+      severity: 'critical',
+      baseConfidence: 0.96,
+      mechanism: 'CYP2C9 poor metabolism markedly decreases phenytoin clearance, causing drug accumulation and toxicity.',
+      cpicGuidelineCitation: 'CPIC Guideline for CYP2C9 and Phenytoin Dosing (2020).',
+      dosingRecommendation: 'Reduce starting dose by 50% or consider alternative non-CYP2C9 antiepileptic.',
+      alternativeDrugs: ['Levetiracetam', 'Valproate', 'Topiramate'],
+      monitoringAdvice: 'Therapeutic drug monitoring of total and free serum phenytoin levels.',
+    ),
+    const CpicRule(
+      gene: 'CYP2C9',
+      drug: 'PHENYTOIN',
+      phenotype: 'IM',
+      riskLabel: 'Adjust Dosage',
+      severity: 'high',
+      baseConfidence: 0.92,
+      mechanism: 'CYP2C9 intermediate metabolism leads to reduced phenytoin clearance.',
+      cpicGuidelineCitation: 'CPIC Guideline for CYP2C9 and Phenytoin Dosing (2020).',
+      dosingRecommendation: 'Reduce starting maintenance dose by 25-50%.',
+      alternativeDrugs: ['Levetiracetam'],
+      monitoringAdvice: 'Serum concentration monitoring.',
+    ),
+    const CpicRule(
+      gene: 'CYP2C9',
+      drug: 'PHENYTOIN',
+      phenotype: 'NM',
+      riskLabel: 'Safe',
+      severity: 'none',
+      baseConfidence: 0.98,
+      mechanism: 'Normal CYP2C9 metabolic rate for phenytoin.',
+      cpicGuidelineCitation: 'CPIC Guideline for CYP2C9 and Phenytoin Dosing (2020).',
+      dosingRecommendation: 'Initiate phenytoin with standard recommended dosing.',
+      alternativeDrugs: [],
+      monitoringAdvice: 'Routine phenytoin serum concentration monitoring.',
+    ),
+
+    // --- CYP2D6 : TAMOXIFEN ---
+    const CpicRule(
+      gene: 'CYP2D6',
+      drug: 'TAMOXIFEN',
+      phenotype: 'PM',
+      riskLabel: 'Ineffective',
+      severity: 'critical',
+      baseConfidence: 0.95,
+      mechanism: 'CYP2D6 poor metabolism prevents activation of tamoxifen to endoxifen, increasing risk of breast cancer recurrence.',
+      cpicGuidelineCitation: 'CPIC Guideline for CYP2D6 and Tamoxifen Therapy (2018).',
+      dosingRecommendation: 'Avoid tamoxifen and consider alternative endocrine therapy (e.g. aromatase inhibitor).',
+      alternativeDrugs: ['Anastrozole', 'Letrozole', 'Exemestane'],
+      monitoringAdvice: 'Consult oncology for alternative hormonal therapy selection.',
+    ),
+    const CpicRule(
+      gene: 'CYP2D6',
+      drug: 'TAMOXIFEN',
+      phenotype: 'IM',
+      riskLabel: 'Adjust Dosage',
+      severity: 'moderate',
+      baseConfidence: 0.90,
+      mechanism: 'CYP2D6 intermediate metabolism leads to lower active endoxifen concentrations.',
+      cpicGuidelineCitation: 'CPIC Guideline for CYP2D6 and Tamoxifen Therapy (2018).',
+      dosingRecommendation: 'Consider dose escalation (40 mg/day) or alternative endocrine therapy.',
+      alternativeDrugs: ['Aromatase inhibitors'],
+      monitoringAdvice: 'Oncology specialist review.',
+    ),
+    const CpicRule(
+      gene: 'CYP2D6',
+      drug: 'TAMOXIFEN',
+      phenotype: 'NM',
+      riskLabel: 'Safe',
+      severity: 'none',
+      baseConfidence: 0.98,
+      mechanism: 'Standard CYP2D6 bioactivation of tamoxifen to active endoxifen metabolite.',
+      cpicGuidelineCitation: 'CPIC Guideline for CYP2D6 and Tamoxifen Therapy (2018).',
+      dosingRecommendation: 'Initiate tamoxifen at standard 20 mg/day dose.',
+      alternativeDrugs: [],
+      monitoringAdvice: 'Standard oncology monitoring for endocrine therapy.',
+    ),
+
+    // --- CYP2D6 : ONDANSETRON ---
+    const CpicRule(
+      gene: 'CYP2D6',
+      drug: 'ONDANSETRON',
+      phenotype: 'URM',
+      riskLabel: 'Ineffective',
+      severity: 'high',
+      baseConfidence: 0.94,
+      mechanism: 'Ultra-rapid CYP2D6 metabolism clears ondansetron prematurely, causing antiemetic failure.',
+      cpicGuidelineCitation: 'CPIC Guideline for CYP2D6 and Ondansetron (2016).',
+      dosingRecommendation: 'Avoid ondansetron. Prescribe alternative 5-HT3 antagonist not predominantly metabolized by CYP2D6 (e.g. Granisetron).',
+      alternativeDrugs: ['Granisetron', 'Palonosetron'],
+      monitoringAdvice: 'Monitor for nausea and vomiting breakthrough.',
+    ),
+    const CpicRule(
+      gene: 'CYP2D6',
+      drug: 'ONDANSETRON',
+      phenotype: 'NM',
+      riskLabel: 'Safe',
+      severity: 'none',
+      baseConfidence: 0.98,
+      mechanism: 'CYP2D6 normal metabolism produces expected therapeutic ondansetron levels.',
+      cpicGuidelineCitation: 'CPIC Guideline for CYP2D6 and Ondansetron (2016).',
+      dosingRecommendation: 'Initiate ondansetron at standard recommended dosage.',
+      alternativeDrugs: [],
+      monitoringAdvice: 'Standard antiemetic efficacy monitoring.',
+    ),
+
+    // --- UGT1A1 : IRINOTECAN ---
+    const CpicRule(
+      gene: 'UGT1A1',
+      drug: 'IRINOTECAN',
+      phenotype: 'PM',
+      riskLabel: 'Toxic',
+      severity: 'critical',
+      baseConfidence: 0.96,
+      mechanism: 'UGT1A1*28 homozygosity reduces SN-38 glucuronidation, precipitating severe life-threatening neutropenia and diarrhea.',
+      cpicGuidelineCitation: 'CPIC Guideline for UGT1A1 and Irinotecan Dosing (2020).',
+      dosingRecommendation: 'Reduce initial irinotecan dose by 30% for high-dose regimens.',
+      alternativeDrugs: ['Alternative oncology regimens'],
+      monitoringAdvice: 'Frequent CBC monitoring and aggressive antidiarrheal management.',
+    ),
+    const CpicRule(
+      gene: 'UGT1A1',
+      drug: 'IRINOTECAN',
+      phenotype: 'IM',
+      riskLabel: 'Adjust Dosage',
+      severity: 'moderate',
+      baseConfidence: 0.92,
+      mechanism: 'UGT1A1 intermediate metabolism increases risk of SN-38 toxicity with high irinotecan doses.',
+      cpicGuidelineCitation: 'CPIC Guideline for UGT1A1 and Irinotecan Dosing (2020).',
+      dosingRecommendation: 'Standard initial dose for low/medium regimens; consider reduction for high dose.',
+      alternativeDrugs: [],
+      monitoringAdvice: 'Monitor CBC and gastrointestinal adverse events.',
+    ),
+    const CpicRule(
+      gene: 'UGT1A1',
+      drug: 'IRINOTECAN',
+      phenotype: 'NM',
+      riskLabel: 'Safe',
+      severity: 'none',
+      baseConfidence: 0.98,
+      mechanism: 'Normal UGT1A1 glucuronidation of SN-38.',
+      cpicGuidelineCitation: 'CPIC Guideline for UGT1A1 and Irinotecan Dosing (2020).',
+      dosingRecommendation: 'Initiate irinotecan per standard oncology protocols.',
+      alternativeDrugs: [],
+      monitoringAdvice: 'Routine oncology monitoring.',
+    ),
+
+    // --- CYP2C9 : CELECOXIB ---
+    const CpicRule(
+      gene: 'CYP2C9',
+      drug: 'CELECOXIB',
+      phenotype: 'PM',
+      riskLabel: 'Toxic',
+      severity: 'high',
+      baseConfidence: 0.94,
+      mechanism: 'CYP2C9 poor metabolism markedly increases celecoxib exposure, raising cardiovascular and gastrointestinal bleeding risks.',
+      cpicGuidelineCitation: 'CPIC Guideline for CYP2C9 and Nonsteroidal Anti-Inflammatory Drugs (2020).',
+      dosingRecommendation: 'Initiate with 25-50% of standard lowest recommended dose.',
+      alternativeDrugs: ['Acetaminophen', 'Non-CYP2C9 analgesics'],
+      monitoringAdvice: 'Monitor for blood pressure changes and GI bleeding.',
+    ),
+    const CpicRule(
+      gene: 'CYP2C9',
+      drug: 'CELECOXIB',
+      phenotype: 'IM',
+      riskLabel: 'Adjust Dosage',
+      severity: 'moderate',
+      baseConfidence: 0.90,
+      mechanism: 'CYP2C9 intermediate metabolism moderately reduces celecoxib clearance.',
+      cpicGuidelineCitation: 'CPIC Guideline for CYP2C9 and Nonsteroidal Anti-Inflammatory Drugs (2020).',
+      dosingRecommendation: 'Initiate with lowest recommended dose; titrate with caution.',
+      alternativeDrugs: [],
+      monitoringAdvice: 'Routine monitoring for NSAID adverse effects.',
+    ),
+    const CpicRule(
+      gene: 'CYP2C9',
+      drug: 'CELECOXIB',
+      phenotype: 'NM',
+      riskLabel: 'Safe',
+      severity: 'none',
+      baseConfidence: 0.98,
+      mechanism: 'Normal CYP2C9 clearance of celecoxib.',
+      cpicGuidelineCitation: 'CPIC Guideline for CYP2C9 and Nonsteroidal Anti-Inflammatory Drugs (2020).',
+      dosingRecommendation: 'Initiate celecoxib at standard recommended dosage.',
+      alternativeDrugs: [],
+      monitoringAdvice: 'Routine clinical monitoring.',
+    ),
+
+    // --- CYP2C9 : IBUPROFEN ---
+    const CpicRule(
+      gene: 'CYP2C9',
+      drug: 'IBUPROFEN',
+      phenotype: 'PM',
+      riskLabel: 'Adjust Dosage',
+      severity: 'high',
+      baseConfidence: 0.93,
+      mechanism: 'CYP2C9 poor metabolism significantly reduces clearance of S-ibuprofen.',
+      cpicGuidelineCitation: 'CPIC Guideline for CYP2C9 and NSAIDs (2020).',
+      dosingRecommendation: 'Initiate with lowest recommended dose and extend dosing interval, or use alternative.',
+      alternativeDrugs: ['Acetaminophen'],
+      monitoringAdvice: 'Monitor for GI and renal toxicity with prolonged use.',
+    ),
+    const CpicRule(
+      gene: 'CYP2C9',
+      drug: 'IBUPROFEN',
+      phenotype: 'NM',
+      riskLabel: 'Safe',
+      severity: 'none',
+      baseConfidence: 0.98,
+      mechanism: 'Normal CYP2C9 clearance of ibuprofen.',
+      cpicGuidelineCitation: 'CPIC Guideline for CYP2C9 and NSAIDs (2020).',
+      dosingRecommendation: 'Initiate ibuprofen per standard clinical indication.',
+      alternativeDrugs: [],
+      monitoringAdvice: 'Routine clinical monitoring.',
+    ),
+
+    // --- CYP2D6 : AMITRIPTYLINE ---
+    const CpicRule(
+      gene: 'CYP2D6',
+      drug: 'AMITRIPTYLINE',
+      phenotype: 'PM',
+      riskLabel: 'Toxic',
+      severity: 'critical',
+      baseConfidence: 0.95,
+      mechanism: 'CYP2D6 poor metabolism leads to high amitriptyline and nortriptyline concentrations, increasing cardiotoxicity risk.',
+      cpicGuidelineCitation: 'CPIC Guideline for CYP2D6/CYP2C19 and Tricyclic Antidepressants (2016).',
+      dosingRecommendation: 'Avoid amitriptyline or reduce starting dose by 50% with therapeutic drug monitoring.',
+      alternativeDrugs: ['SSRIs (e.g. Sertraline, Citalopram)'],
+      monitoringAdvice: 'ECG monitoring and plasma drug levels if amitriptyline is used.',
+    ),
+    const CpicRule(
+      gene: 'CYP2D6',
+      drug: 'AMITRIPTYLINE',
+      phenotype: 'URM',
+      riskLabel: 'Ineffective',
+      severity: 'high',
+      baseConfidence: 0.92,
+      mechanism: 'CYP2D6 ultra-rapid metabolism leads to subtherapeutic amitriptyline concentrations.',
+      cpicGuidelineCitation: 'CPIC Guideline for CYP2D6/CYP2C19 and Tricyclic Antidepressants (2016).',
+      dosingRecommendation: 'Avoid amitriptyline due to potential lack of efficacy. Select non-CYP2D6 antidepressant.',
+      alternativeDrugs: ['SSRIs'],
+      monitoringAdvice: 'Monitor depression/pain response.',
+    ),
+    const CpicRule(
+      gene: 'CYP2D6',
+      drug: 'AMITRIPTYLINE',
+      phenotype: 'NM',
+      riskLabel: 'Safe',
+      severity: 'none',
+      baseConfidence: 0.98,
+      mechanism: 'Normal CYP2D6 metabolism of amitriptyline.',
+      cpicGuidelineCitation: 'CPIC Guideline for CYP2D6/CYP2C19 and Tricyclic Antidepressants (2016).',
+      dosingRecommendation: 'Initiate amitriptyline at standard starting dose.',
+      alternativeDrugs: [],
+      monitoringAdvice: 'Routine psychiatric and clinical monitoring.',
+    ),
   ];
 
-  /// Evaluates risk for a given drug using the parsed VCF result.
+  /// Evaluates risk for a given drug using the parsed VCF result and optional dynamic evidence.
   static PgxReport evaluateDrug({
     required String drugName,
     required VcfParseResult parseResult,
+    DrugEvidence? evidence,
     Map<String, dynamic>? customLlmExplanation,
+    Map<String, String>? clinicalData,
   }) {
     final enteredDrug = drugName.trim().toUpperCase();
-    final cleanDrug = resolveDrugName(drugName);
-    final primaryGene = cleanDrug == null ? null : drugToGeneMap[cleanDrug];
+    final cleanDrug = resolveDrugName(drugName) ?? (evidence?.genericName.toUpperCase() ?? enteredDrug);
 
-    if (primaryGene == null || cleanDrug == null) {
-      // Free-text unmapped/unsupported drug
+    // Case 1: Dynamic online/offline evidence is provided
+    if (evidence != null) {
+      if (!evidence.verifiedMedicine) {
+        return _generateUnverifiedMedicineReport(
+          drugName: drugName,
+          parseResult: parseResult,
+        );
+      }
+
+      if (!evidence.hasPgxRelationship) {
+        final missingClinicalData = evidence.requiredClinicalData
+            .where((field) => clinicalData?[field]?.trim().isNotEmpty != true)
+            .toList();
+        if (missingClinicalData.isNotEmpty) {
+          return _generateMissingClinicalDataReport(
+            drugName: evidence.displayName.isNotEmpty ? evidence.displayName : cleanDrug,
+            primaryGene: 'NON-PGX',
+            parseResult: parseResult,
+            evidence: evidence,
+            missingFields: missingClinicalData,
+          );
+        }
+        return _generateNoPgxRelationshipReport(
+          drugName: evidence.displayName.isNotEmpty ? evidence.displayName : drugName,
+          evidence: evidence,
+          parseResult: parseResult,
+        );
+      }
+
+      final primaryGene = evidence.genes.isNotEmpty
+          ? evidence.genes.first.toUpperCase()
+          : (drugToGeneMap[cleanDrug] ?? 'UNMAPPED');
+
+      if (primaryGene == 'UNMAPPED' || primaryGene == 'NONE') {
+        return _generateUnknownDrugReport(enteredDrug, parseResult);
+      }
+
+      // Special check for Warfarin with missing clinical inputs
+      if (cleanDrug == 'WARFARIN' && (clinicalData == null || clinicalData.isEmpty)) {
+        return _generateWarfarinInsufficientDataReport(parseResult);
+      }
+
+      final geneData = parseResult.geneProfiles[primaryGene];
+      final phenotype = geneData?.phenotype ?? 'Unknown';
+
+      // If patient's VCF does not contain the gene or has unconfirmed genotype
+      if (geneData == null ||
+          phenotype == 'Unknown' ||
+          (geneData.isInferred && geneData.variants.isEmpty)) {
+        return _generateInsufficientPatientDataReport(
+          drugName: evidence.displayName.isNotEmpty ? evidence.displayName : cleanDrug,
+          primaryGene: primaryGene,
+          parseResult: parseResult,
+          geneData: geneData,
+          evidence: evidence,
+        );
+      }
+
+      final missingClinicalData = evidence.requiredClinicalData
+          .where((field) => clinicalData?[field]?.trim().isNotEmpty != true)
+          .toList();
+      if (missingClinicalData.isNotEmpty) {
+        return _generateMissingClinicalDataReport(
+          drugName: evidence.displayName.isNotEmpty ? evidence.displayName : cleanDrug,
+          primaryGene: primaryGene,
+          parseResult: parseResult,
+          evidence: evidence,
+          missingFields: missingClinicalData,
+        );
+      }
+
+      // Patient genotype is available, but only an explicit local rule may
+      // classify risk. Online evidence can identify a relationship without
+      // providing enough validated phenotype-specific logic for this engine.
+      final matchingRules = _rules.where(
+        (r) =>
+            (r.gene.toUpperCase() == primaryGene.toUpperCase() || primaryGene.contains(r.gene)) &&
+            (r.drug.toUpperCase() == cleanDrug.toUpperCase() || r.drug.toUpperCase() == evidence.genericName.toUpperCase()) &&
+            (r.phenotype.toUpperCase() == phenotype.toUpperCase() ||
+                (r.phenotype.toLowerCase().contains('poor') && phenotype.toLowerCase().contains('poor')) ||
+                (r.phenotype.toLowerCase().contains('normal') && phenotype.toLowerCase().contains('normal')) ||
+                (r.phenotype.toLowerCase().contains('decreased') && phenotype.toLowerCase().contains('decreased'))),
+      ).toList();
+      if (matchingRules.isEmpty) {
+        return _generateEvidenceWithoutDeterministicRuleReport(
+          drugName: evidence.displayName.isNotEmpty ? evidence.displayName : cleanDrug,
+          primaryGene: primaryGene,
+          phenotype: phenotype,
+          parseResult: parseResult,
+          geneData: geneData,
+          evidence: evidence,
+        );
+      }
+      final matchedRule = matchingRules.first;
+
+      double finalConfidence = matchedRule.baseConfidence;
+      if (geneData.isInferred) {
+        finalConfidence = (finalConfidence - 0.20).clamp(0.50, 0.99);
+      }
+
+      final riskAssessment = RiskAssessment(
+        riskLabel: matchedRule.riskLabel,
+        confidenceScore: finalConfidence,
+        severity: matchedRule.severity,
+      );
+
+      final pgxProfile = PharmacogenomicProfile(
+        primaryGene: primaryGene,
+        diplotype: geneData.diplotype,
+        phenotype: phenotype,
+        detectedVariants: geneData.variants,
+      );
+
+      final clinicalRec = ClinicalRecommendation(
+        cpicGuidelineCitation: matchedRule.cpicGuidelineCitation.isNotEmpty
+            ? matchedRule.cpicGuidelineCitation
+            : evidence.guidelineCitation,
+        dosingRecommendation: matchedRule.dosingRecommendation.isNotEmpty
+            ? matchedRule.dosingRecommendation
+            : evidence.dosingRecommendation,
+        alternativeDrugs: matchedRule.alternativeDrugs.isNotEmpty
+            ? matchedRule.alternativeDrugs
+            : evidence.alternativeDrugs,
+        monitoringAdvice: matchedRule.monitoringAdvice.isNotEmpty
+            ? matchedRule.monitoringAdvice
+            : evidence.monitoringAdvice,
+        evidenceLevel: evidence.evidenceLevel,
+        evidenceSource: evidence.source,
+        evidenceRetrievedAt: evidence.retrievalTimestamp,
+      );
+
+      final llmExplanation = customLlmExplanation != null
+          ? LlmExplanation.fromJson(customLlmExplanation)
+          : LlmExplanation(
+              summary: '${matchedRule.gene} $phenotype phenotype assessed for ${evidence.displayName.isNotEmpty ? evidence.displayName : cleanDrug}.',
+              mechanism: matchedRule.mechanism.isNotEmpty ? matchedRule.mechanism : evidence.mechanism,
+              patientFriendly: 'Your genetic test results for $primaryGene ($phenotype) suggest that ${evidence.displayName.isNotEmpty ? evidence.displayName : cleanDrug} is labeled as ${matchedRule.riskLabel}. ${matchedRule.dosingRecommendation}',
+              clinicianNote: 'CPIC/PharmGKB clinical evidence evaluation: $primaryGene diplotype ${geneData.diplotype} ($phenotype). ${matchedRule.dosingRecommendation}',
+            );
+
+      return PgxReport(
+        patientId: parseResult.patientId,
+        drug: evidence.displayName.isNotEmpty ? evidence.displayName : cleanDrug,
+        timestamp: DateTime.now().toIso8601String(),
+        riskAssessment: riskAssessment,
+        pharmacogenomicProfile: pgxProfile,
+        clinicalRecommendation: clinicalRec,
+        llmGeneratedExplanation: llmExplanation,
+        qualityMetrics: parseResult.qualityMetrics,
+        evidence: evidence,
+      );
+    }
+
+    // Case 2: Standard Evaluation without explicit evidence instance
+    final primaryGene = drugToGeneMap[cleanDrug];
+    if (primaryGene == null) {
       return _generateUnknownDrugReport(enteredDrug, parseResult);
     }
 
-    // Warfarin dosing is multivariable. This panel does not yet call VKORC1
-    // and has no validated clinical-input dosing algorithm, so CYP2C9 alone
-    // must never produce Safe/Adjust Dosage/Toxic output.
     if (cleanDrug == 'WARFARIN') {
       return _generateWarfarinInsufficientDataReport(parseResult);
     }
@@ -399,9 +962,8 @@ class CpicRuleEngine {
     final geneData = parseResult.geneProfiles[primaryGene];
     final phenotype = geneData?.phenotype ?? 'Unknown';
 
-    // Never convert missing or inferred-without-variant VCF data into a
-    // normal-metabolizer "Safe" result.
-    if (geneData == null || phenotype == 'Unknown' ||
+    if (geneData == null ||
+        phenotype == 'Unknown' ||
         (geneData.isInferred && geneData.variants.isEmpty)) {
       return _generateInsufficientGenotypeReport(
         drugName: cleanDrug,
@@ -412,12 +974,18 @@ class CpicRuleEngine {
     }
 
     final matchedRule = _rules.firstWhere(
-      (r) => r.gene == primaryGene && (r.phenotype == phenotype || (r.phenotype.contains('Poor') && phenotype.contains('Poor'))),
+      (r) =>
+          r.gene == primaryGene &&
+          r.drug == cleanDrug &&
+          (r.phenotype == phenotype ||
+              (r.phenotype.contains('Poor') && phenotype.contains('Poor')) ||
+              (r.phenotype.contains('Normal') && phenotype.contains('Normal')) ||
+              (r.phenotype.contains('Decreased') && phenotype.contains('Decreased'))),
       orElse: () => _createFallbackRule(primaryGene, cleanDrug, phenotype),
     );
 
     double finalConfidence = matchedRule.baseConfidence;
-    if (geneData.isInferred == true) {
+    if (geneData.isInferred) {
       finalConfidence = (finalConfidence - 0.20).clamp(0.50, 0.99);
     }
 
@@ -462,6 +1030,226 @@ class CpicRuleEngine {
     );
   }
 
+  /// Transparent report for drugs with NO known PGx relationship in CPIC / PharmGKB / FDA.
+  static PgxReport _generateNoPgxRelationshipReport({
+    required String drugName,
+    required DrugEvidence evidence,
+    required VcfParseResult parseResult,
+  }) {
+    return PgxReport(
+      patientId: parseResult.patientId,
+      drug: drugName,
+      timestamp: DateTime.now().toIso8601String(),
+      riskAssessment: RiskAssessment(
+        riskLabel: 'No major risk identified',
+        confidenceScore: 0.70,
+        severity: 'none',
+      ),
+      pharmacogenomicProfile: PharmacogenomicProfile(
+        primaryGene: 'NON-PGX',
+        diplotype: 'N/A',
+        phenotype: 'No Established PGx Association',
+        detectedVariants: [],
+      ),
+      clinicalRecommendation: ClinicalRecommendation(
+        cpicGuidelineCitation: evidence.guidelineCitation.isNotEmpty
+            ? evidence.guidelineCitation
+            : 'No established pharmacogenomic guidelines for this drug in CPIC, PharmGKB, or FDA biomarker tables.',
+        dosingRecommendation: evidence.dosingRecommendation.isNotEmpty
+            ? evidence.dosingRecommendation
+            : 'Prescribe according to standard clinical dosing guidelines and manufacturer monograph.',
+        alternativeDrugs: evidence.alternativeDrugs,
+        monitoringAdvice: evidence.monitoringAdvice.isNotEmpty
+            ? evidence.monitoringAdvice
+            : 'Standard routine clinical monitoring for therapeutic response and known adverse reactions.',
+        evidenceLevel: evidence.evidenceLevel,
+        evidenceSource: evidence.source,
+        evidenceRetrievedAt: evidence.retrievalTimestamp,
+      ),
+      llmGeneratedExplanation: LlmExplanation(
+        summary: 'NO KNOWN PHARMACOGENOMIC RELATIONSHIP FOUND for $drugName. NO ACTIONABLE PGX FINDING; clinical safety checks completed with the information provided.',
+        mechanism: evidence.mechanism.isNotEmpty
+            ? evidence.mechanism
+            : 'Current CPIC guidelines, PharmGKB databases, and FDA pharmacogenomic biomarker tables show no established germline genetic associations affecting metabolism or clinical risk for $drugName.',
+        patientFriendly: 'No major medication-specific risk was identified from the patient information and validated evidence available to PharmaGuard. This does not mean the medicine is 100% safe.',
+        clinicianNote: 'Comprehensive review of CPIC / PharmGKB / FDA pharmacogenomic databases identified no actionable germline biomarkers for $drugName. Dosing should follow standard clinical parameters (e.g. renal/hepatic function, weight, drug interactions).',
+      ),
+      qualityMetrics: parseResult.qualityMetrics,
+      evidence: evidence,
+    );
+  }
+
+  static PgxReport _generateUnverifiedMedicineReport({
+    required String drugName,
+    required VcfParseResult parseResult,
+  }) {
+    return PgxReport(
+      patientId: parseResult.patientId,
+      drug: drugName,
+      timestamp: DateTime.now().toIso8601String(),
+      riskAssessment: RiskAssessment(
+        riskLabel: 'Medicine not verified',
+        confidenceScore: 0.0,
+        severity: 'none',
+      ),
+      pharmacogenomicProfile: PharmacogenomicProfile(
+        primaryGene: 'UNMAPPED',
+        diplotype: 'N/A',
+        phenotype: 'Not assessed',
+        detectedVariants: const [],
+      ),
+      clinicalRecommendation: ClinicalRecommendation(
+        cpicGuidelineCitation: 'Medicine identity could not be verified.',
+        dosingRecommendation: 'Please enter the exact medicine name or provide package details before assessment.',
+        alternativeDrugs: const [],
+        monitoringAdvice: 'No safety assessment was performed.',
+      ),
+      llmGeneratedExplanation: LlmExplanation(
+        summary: 'MEDICINE NOT VERIFIED.',
+        mechanism: 'The submitted name did not resolve to a verified medicine identity.',
+        patientFriendly: 'PharmaGuard could not reliably identify this medicine, so it did not make a safety claim.',
+        clinicianNote: 'Identity verification failed; stop assessment until the active ingredient is confirmed.',
+      ),
+      qualityMetrics: parseResult.qualityMetrics,
+    );
+  }
+
+  /// Report for drugs with valid PGx relationships, but patient's VCF lacks data for the required gene.
+  static PgxReport _generateInsufficientPatientDataReport({
+    required String drugName,
+    required String primaryGene,
+    required VcfParseResult parseResult,
+    required ParsedGeneData? geneData,
+    required DrugEvidence evidence,
+  }) {
+    final message = geneData?.variants.isNotEmpty == true
+        ? 'The VCF contains variant calls for $primaryGene, but no definitive star-allele diplotype. Raw calls cannot be translated into a CPIC phenotype without a validated variant-to-star-allele mapping.'
+        : 'The patient\'s uploaded VCF file does not contain callable sequence or genotype data for $primaryGene.';
+
+    return PgxReport(
+      patientId: parseResult.patientId,
+      drug: drugName,
+      timestamp: DateTime.now().toIso8601String(),
+      riskAssessment: RiskAssessment(
+        riskLabel: 'Unknown',
+        confidenceScore: 0.0,
+        severity: 'none',
+      ),
+      pharmacogenomicProfile: PharmacogenomicProfile(
+        primaryGene: primaryGene,
+        diplotype: geneData?.diplotype ?? 'Not determined',
+        phenotype: 'Unknown',
+        detectedVariants: geneData?.variants ?? [],
+      ),
+      clinicalRecommendation: ClinicalRecommendation(
+        cpicGuidelineCitation: evidence.guidelineCitation.isNotEmpty
+            ? evidence.guidelineCitation
+            : 'CPIC Guideline Reference for $primaryGene.',
+        dosingRecommendation: 'Do NOT assume this drug is Safe. Confirm the patient\'s $primaryGene genotype before applying pharmacogenomic dosing adjustments.',
+        alternativeDrugs: evidence.alternativeDrugs,
+        monitoringAdvice: 'Conduct targeted $primaryGene pharmacogenetic testing or apply conventional clinical monitoring.',
+        evidenceLevel: evidence.evidenceLevel,
+        evidenceSource: evidence.source,
+        evidenceRetrievedAt: evidence.retrievalTimestamp,
+      ),
+      llmGeneratedExplanation: LlmExplanation(
+        summary: 'UNKNOWN — INSUFFICIENT PATIENT DATA for $drugName ($primaryGene).',
+        mechanism: '$message Actionable guidelines exist for $drugName ($primaryGene) via ${evidence.source}, but cannot be evaluated without the patient\'s $primaryGene genotype.',
+        patientFriendly: 'Your uploaded genetic file does not contain confirmed data for the $primaryGene gene, which is critical for checking $drugName safety. Please ask your clinician about targeted genetic testing.',
+        clinicianNote: '$message CPIC / PharmGKB Level A/B evidence exists for $drugName and $primaryGene. Normal function (*1/*1) cannot be assumed from an uncalled gene.',
+      ),
+      qualityMetrics: parseResult.qualityMetrics,
+      evidence: evidence,
+    );
+  }
+
+  static PgxReport _generateMissingClinicalDataReport({
+    required String drugName,
+    required String primaryGene,
+    required VcfParseResult parseResult,
+    required DrugEvidence evidence,
+    required List<String> missingFields,
+  }) {
+    final fields = missingFields.join(', ');
+    return PgxReport(
+      patientId: parseResult.patientId,
+      drug: drugName,
+      timestamp: DateTime.now().toIso8601String(),
+      riskAssessment: RiskAssessment(
+        riskLabel: 'Unknown',
+        confidenceScore: 0.0,
+        severity: 'none',
+      ),
+      pharmacogenomicProfile: PharmacogenomicProfile(
+        primaryGene: primaryGene,
+        diplotype: 'Not determined',
+        phenotype: 'Unknown',
+        detectedVariants: const [],
+      ),
+      clinicalRecommendation: ClinicalRecommendation(
+        cpicGuidelineCitation: evidence.guidelineCitation,
+        dosingRecommendation:
+            'Do not classify this medicine until the required clinical data are supplied: $fields.',
+        alternativeDrugs: evidence.alternativeDrugs,
+        monitoringAdvice: evidence.monitoringAdvice,
+        evidenceLevel: evidence.evidenceLevel,
+        evidenceSource: evidence.source,
+        evidenceRetrievedAt: evidence.retrievalTimestamp,
+      ),
+      llmGeneratedExplanation: LlmExplanation(
+        summary: 'UNKNOWN — REQUIRED CLINICAL DATA MISSING for $drugName.',
+        mechanism: 'The validated evidence requires additional clinical inputs before a deterministic assessment can be made.',
+        patientFriendly: 'The genetic result alone is not enough for this medicine. The following information is needed: $fields.',
+        clinicianNote: 'Required clinical data missing: $fields. No risk classification was generated.',
+      ),
+      qualityMetrics: parseResult.qualityMetrics,
+      evidence: evidence,
+    );
+  }
+
+  static PgxReport _generateEvidenceWithoutDeterministicRuleReport({
+    required String drugName,
+    required String primaryGene,
+    required String phenotype,
+    required VcfParseResult parseResult,
+    required ParsedGeneData geneData,
+    required DrugEvidence evidence,
+  }) {
+    return PgxReport(
+      patientId: parseResult.patientId,
+      drug: drugName,
+      timestamp: DateTime.now().toIso8601String(),
+      riskAssessment: RiskAssessment(
+        riskLabel: 'Unknown',
+        confidenceScore: 0.0,
+        severity: 'none',
+      ),
+      pharmacogenomicProfile: PharmacogenomicProfile(
+        primaryGene: primaryGene,
+        diplotype: geneData.diplotype,
+        phenotype: phenotype,
+        detectedVariants: geneData.variants,
+      ),
+      clinicalRecommendation: ClinicalRecommendation(
+        cpicGuidelineCitation: evidence.guidelineCitation,
+        dosingRecommendation: 'No risk classification was generated because this build has no validated deterministic rule for $primaryGene $phenotype and $drugName.',
+        alternativeDrugs: evidence.alternativeDrugs,
+        monitoringAdvice: evidence.monitoringAdvice,
+        evidenceLevel: evidence.evidenceLevel,
+        evidenceSource: evidence.source,
+        evidenceRetrievedAt: evidence.retrievalTimestamp,
+      ),
+      llmGeneratedExplanation: LlmExplanation(
+        summary: 'UNKNOWN — DETERMINISTIC RULE NOT AVAILABLE for $drugName.',
+        mechanism: 'Evidence was found for $primaryGene, but an online evidence mention alone cannot be converted into a patient-specific risk classification.',
+        patientFriendly: 'Pharmacogenomic evidence exists for this medicine, but PharmaGuard does not yet have a validated local rule to classify your result.',
+        clinicianNote: 'Do not infer Safe, Toxic, Ineffective, or Adjust Dosage from the discovered evidence without a validated phenotype-specific rule.',
+      ),
+      qualityMetrics: parseResult.qualityMetrics,
+      evidence: evidence,
+    );
+  }
+
   static PgxReport _generateUnknownDrugReport(String drugName, VcfParseResult parseResult) {
     return PgxReport(
       patientId: parseResult.patientId,
@@ -479,14 +1267,14 @@ class CpicRuleEngine {
         detectedVariants: [],
       ),
       clinicalRecommendation: ClinicalRecommendation(
-        cpicGuidelineCitation: 'No validated local deterministic PGx rule mapping is available for $drugName in this panel.',
-        dosingRecommendation: 'Consult a clinical pharmacologist or clinical pharmacist for expert evaluation of $drugName.',
+        cpicGuidelineCitation: 'No validated local or online PGx rule mapping is available for $drugName.',
+        dosingRecommendation: 'Consult a clinical pharmacologist or pharmacist for expert evaluation of $drugName.',
         alternativeDrugs: [],
         monitoringAdvice: 'Standard clinical monitoring per drug package insert guidelines.',
       ),
       llmGeneratedExplanation: LlmExplanation(
-        summary: 'Pharmacogenomic rules for $drugName are not included in the current 6-gene panel.',
-        mechanism: 'PharmaGuard currently validates CYP2D6, CYP2C19, CYP2C9, SLCO1B1, TPMT, and DPYD. $drugName is not mapped to these 6 genes.',
+        summary: 'Pharmacogenomic rules for $drugName are not available in current evidence databases.',
+        mechanism: 'PharmaGuard evaluated local guidelines and authoritative online PGx databases, but found no verified CPIC/PharmGKB mapping for "$drugName".',
         patientFriendly: 'We currently do not have automated genomic risk rules for "$drugName". Please consult your prescribing physician or pharmacist.',
         clinicianNote: 'Unrecognized or unmapped drug target "$drugName". Automated rule engine score defaulted to Unknown.',
       ),
@@ -501,8 +1289,8 @@ class CpicRuleEngine {
     required ParsedGeneData? geneData,
   }) {
     final message = geneData?.variants.isNotEmpty == true
-      ? 'The VCF contains variant calls for $primaryGene, but no star-allele diplotype. Raw FORMAT/GT calls cannot be translated into a CPIC phenotype without a validated variant-to-star-allele mapping.'
-      : 'The VCF does not contain a confirmed, callable genotype for the relevant pharmacogene.';
+        ? 'The VCF contains variant calls for $primaryGene, but no star-allele diplotype. Raw FORMAT/GT calls cannot be translated into a CPIC phenotype without a validated variant-to-star-allele mapping.'
+        : 'The VCF does not contain a confirmed, callable genotype for the relevant pharmacogene.';
     return PgxReport(
       patientId: parseResult.patientId,
       drug: drugName,
@@ -536,15 +1324,15 @@ class CpicRuleEngine {
 
   static PgxReport _generateWarfarinInsufficientDataReport(VcfParseResult parseResult) {
     final geneData = parseResult.geneProfiles['CYP2C9'];
-    const message = 'Warfarin dosing requires a validated multivariable algorithm, including VKORC1 status and clinical factors such as age, body size, indication, interacting medicines, and INR. This local panel does not yet implement that complete algorithm.';
+    const message = 'Warfarin dosing requires a validated multivariable algorithm, including VKORC1 status and clinical factors such as age, body size, indication, interacting medicines, and INR. Complete multivariable data must be supplied.';
     return PgxReport(
       patientId: parseResult.patientId,
       drug: 'WARFARIN',
       timestamp: DateTime.now().toIso8601String(),
       riskAssessment: RiskAssessment(riskLabel: 'Unknown', confidenceScore: 0.0, severity: 'none'),
       pharmacogenomicProfile: PharmacogenomicProfile(primaryGene: 'CYP2C9', diplotype: geneData?.diplotype ?? 'Not determined', phenotype: geneData?.phenotype ?? 'Unknown', detectedVariants: geneData?.variants ?? []),
-      clinicalRecommendation: ClinicalRecommendation(cpicGuidelineCitation: 'CPIC Guideline for Pharmacogenomics-Guided Warfarin Dosing (2017).', dosingRecommendation: 'Do not derive a warfarin dose from this report. Use a validated clinical dosing tool with complete genetic and clinical inputs.', alternativeDrugs: const [], monitoringAdvice: 'Obtain the missing required inputs and manage INR under clinician supervision.'),
-      llmGeneratedExplanation: LlmExplanation(summary: 'No warfarin classification was generated because the required dosing inputs are incomplete.', mechanism: message, patientFriendly: 'Genetic information in this file alone is not enough to determine a warfarin dose or safety category. Please discuss complete dosing assessment with your clinician.', clinicianNote: message),
+      clinicalRecommendation: ClinicalRecommendation(cpicGuidelineCitation: 'CPIC Guideline for Pharmacogenomics-Guided Warfarin Dosing (2017).', dosingRecommendation: 'Do not derive a warfarin dose from this report alone. Use a validated clinical dosing tool with complete genetic and clinical inputs.', alternativeDrugs: const [], monitoringAdvice: 'Obtain the missing required inputs and manage INR under clinician supervision.'),
+      llmGeneratedExplanation: LlmExplanation(summary: 'No warfarin classification was generated because required multivariable inputs are incomplete.', mechanism: message, patientFriendly: 'Genetic information in this file alone is not enough to determine a warfarin dose or safety category. Please discuss complete dosing assessment with your clinician.', clinicianNote: message),
       qualityMetrics: parseResult.qualityMetrics,
     );
   }

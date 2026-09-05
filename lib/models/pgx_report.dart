@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'drug_evidence.dart';
+
 /// Represents a single variant detected in the patient's VCF.
 class DetectedVariant {
   final String rsid;
@@ -100,12 +102,18 @@ class ClinicalRecommendation {
   final String dosingRecommendation;
   final List<String> alternativeDrugs;
   final String monitoringAdvice;
+  final String evidenceLevel;
+  final String evidenceSource;
+  final String evidenceRetrievedAt;
 
   ClinicalRecommendation({
     required this.cpicGuidelineCitation,
     required this.dosingRecommendation,
     required this.alternativeDrugs,
     required this.monitoringAdvice,
+    this.evidenceLevel = '',
+    this.evidenceSource = '',
+    this.evidenceRetrievedAt = '',
   });
 
   Map<String, dynamic> toJson() {
@@ -114,6 +122,10 @@ class ClinicalRecommendation {
       'dosing_recommendation': dosingRecommendation,
       'alternative_drugs': alternativeDrugs,
       'monitoring_advice': monitoringAdvice,
+      if (evidenceLevel.isNotEmpty) 'evidence_level': evidenceLevel,
+      if (evidenceSource.isNotEmpty) 'evidence_source': evidenceSource,
+      if (evidenceRetrievedAt.isNotEmpty)
+        'evidence_retrieved_at': evidenceRetrievedAt,
     };
   }
 
@@ -124,6 +136,9 @@ class ClinicalRecommendation {
       dosingRecommendation: json['dosing_recommendation'] as String? ?? '',
       alternativeDrugs: rawAlts.map((e) => e.toString()).toList(),
       monitoringAdvice: json['monitoring_advice'] as String? ?? '',
+      evidenceLevel: json['evidence_level'] as String? ?? '',
+      evidenceSource: json['evidence_source'] as String? ?? '',
+      evidenceRetrievedAt: json['evidence_retrieved_at'] as String? ?? '',
     );
   }
 }
@@ -210,6 +225,7 @@ class PgxReport {
   final ClinicalRecommendation clinicalRecommendation;
   final LlmExplanation llmGeneratedExplanation;
   final QualityMetrics qualityMetrics;
+  final DrugEvidence? evidence;
 
   PgxReport({
     required this.patientId,
@@ -220,18 +236,45 @@ class PgxReport {
     required this.clinicalRecommendation,
     required this.llmGeneratedExplanation,
     required this.qualityMetrics,
+    this.evidence,
   });
 
   Map<String, dynamic> toJson() {
+    final missingInformation = evidence?.requiredClinicalData ?? const <String>[];
+    final finalStatus = riskAssessment.riskLabel == 'No major risk identified'
+        ? 'NO_MAJOR_RISK_IDENTIFIED'
+        : riskAssessment.riskLabel.toUpperCase().replaceAll(' ', '_');
     return {
       'patient_id': patientId,
       'drug': drug,
+      if (evidence != null)
+        'medicine_identity': {
+          'verified': evidence!.verifiedMedicine,
+          'generic_name': evidence!.genericName,
+          'display_name': evidence!.displayName,
+          'active_ingredients': evidence!.activeIngredients,
+          'strength': evidence!.strength,
+          'dosage_form': evidence!.dosageForm,
+          'confidence': evidence!.identityConfidence,
+        },
       'timestamp': timestamp,
       'risk_assessment': riskAssessment.toJson(),
       'pharmacogenomic_profile': pharmacogenomicProfile.toJson(),
       'clinical_recommendation': clinicalRecommendation.toJson(),
       'llm_generated_explanation': llmGeneratedExplanation.toJson(),
       'quality_metrics': qualityMetrics.toJson(),
+      if (evidence != null) 'evidence': evidence!.toJson(),
+      if (evidence != null)
+        'pgx_assessment': {
+          'has_pgx_relationship': evidence!.hasPgxRelationship,
+          'status': evidence!.hasPgxRelationship
+              ? 'PGX_EVALUATED_OR_INCOMPLETE'
+              : 'NO_ACTIONABLE_PGX_FINDING',
+        },
+      'missing_information': riskAssessment.confidenceScore == 0.0
+          ? missingInformation
+          : const <String>[],
+      'final_assessment': {'status': finalStatus},
     };
   }
 
@@ -250,6 +293,9 @@ class PgxReport {
           json['llm_generated_explanation'] as Map<String, dynamic>? ?? {}),
       qualityMetrics: QualityMetrics.fromJson(
           json['quality_metrics'] as Map<String, dynamic>? ?? {}),
+        evidence: json['evidence'] is Map<String, dynamic>
+          ? DrugEvidence.fromJson(json['evidence'] as Map<String, dynamic>)
+          : null,
     );
   }
 }

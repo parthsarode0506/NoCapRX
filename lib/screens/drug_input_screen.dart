@@ -8,7 +8,9 @@ import '../services/llm_service.dart';
 import '../services/firebase_service.dart';
 import '../services/drug_repository.dart';
 import '../services/online_evidence_service.dart';
+import '../services/medicine_normalization_service.dart';
 import '../models/pgx_report.dart';
+import '../models/drug_evidence.dart';
 import 'results_screen.dart';
 
 class DrugInputScreen extends ConsumerStatefulWidget {
@@ -21,9 +23,13 @@ class DrugInputScreen extends ConsumerStatefulWidget {
 class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
   final TextEditingController _customDrugController = TextEditingController();
   bool _isAnalyzing = false;
-  String _analysisProgressStatus = '';
+  final List<_ProgressStep> _progressSteps = [];
   String? _onlineEvidenceMessage;
   Uri? _onlineEvidenceUrl;
+
+  // Map to hold discovered evidence per drug for the current analysis run
+  final Map<String, DrugEvidence> _discoveredEvidence = {};
+  final Map<String, String> _clinicalData = {};
 
   static const List<Map<String, String>> supportedDrugs = [
     {'drug': 'CODEINE', 'gene': 'CYP2D6', 'type': 'Opioid Analgesic'},
@@ -38,6 +44,24 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
   void dispose() {
     _customDrugController.dispose();
     super.dispose();
+  }
+
+  void _addProgress(String emoji, String text, {bool done = false}) {
+    if (!mounted) return;
+    setState(() {
+      _progressSteps.add(_ProgressStep(emoji: emoji, text: text, done: done));
+    });
+  }
+
+  void _markLastDone() {
+    if (!mounted || _progressSteps.isEmpty) return;
+    setState(() {
+      _progressSteps.last = _ProgressStep(
+        emoji: '✓',
+        text: _progressSteps.last.text,
+        done: true,
+      );
+    });
   }
 
   Future<void> _runPipeline() async {
@@ -55,33 +79,91 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
     }
 
     final drugsToEvaluate = List<String>.from(selectedDrugs);
+    _discoveredEvidence.clear();
+    _clinicalData.clear();
+
     if (customDrugText.isNotEmpty) {
       setState(() {
         _isAnalyzing = true;
-        _analysisProgressStatus =
-            'Matching $customDrugText to validated medication rules...';
+        _progressSteps.clear();
       });
 
-      // Medicine identity must come from the local, validated catalogue. An
-      // LLM is never used to map a medicine or create a clinical rule.
+      _addProgress('🔎', 'Searching local medicine database...');
+      await Future.delayed(const Duration(milliseconds: 300));
+
+      // Step 1: Normalize and resolve locally
+      final identity = MedicineNormalizationService.identify(customDrugText);
+
+      // Check if ambiguous — prompt user to pick
+      if (identity.isAmbiguous && mounted) {
+        _markLastDone();
+        setState(() => _isAnalyzing = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Ambiguous medicine name: "$customDrugText". Please enter a more specific name.',
+            ),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        return;
+      }
+
       final metadata = DrugRepository.resolve(customDrugText);
-      final resolvedLocal =
-          CpicRuleEngine.resolveDrugName(customDrugText) ??
+      final resolvedLocal = CpicRuleEngine.resolveDrugName(customDrugText) ??
           metadata?.genericName;
-      if (resolvedLocal == null || metadata?.ruleAvailable == false) {
+
+      if (resolvedLocal != null && metadata?.ruleAvailable == true) {
+        // Found locally with a validated rule
+        _markLastDone();
+        _addProgress('✓', 'Found in local validated database', done: true);
+        drugsToEvaluate.add(resolvedLocal);
+
+        // If metadata exists, convert to DrugEvidence for the engine
+        if (metadata != null) {
+          _discoveredEvidence[resolvedLocal] = DrugRepository.toDrugEvidence(metadata);
+        }
+      } else {
+        // Not found locally — go online
+        _markLastDone();
+        _addProgress('🌐', 'Identifying medicine online...');
+        await Future.delayed(const Duration(milliseconds: 200));
+
         final online = await OnlineEvidenceService.discover(customDrugText);
+
         if (mounted) {
-          setState(() {
-            _onlineEvidenceMessage = online.message;
-            _onlineEvidenceUrl = online.sourceUrl;
-          });
+          _markLastDone();
+
+          if (online.evidence != null) {
+            final evidence = online.evidence!;
+            final drugKey = evidence.genericName.toUpperCase();
+
+            if (evidence.hasPgxRelationship && evidence.genes.isNotEmpty) {
+              _addProgress('🧬', 'Pharmacogenomic evidence found: ${evidence.genes.join(", ")}', done: true);
+              _addProgress('📚', 'Source: ${evidence.source}', done: true);
+            } else {
+              _addProgress('📋', 'No pharmacogenomic relationship found', done: true);
+            }
+
+            _discoveredEvidence[drugKey] = evidence;
+            drugsToEvaluate.add(drugKey);
+
+            setState(() {
+              _onlineEvidenceMessage = online.message;
+              _onlineEvidenceUrl = online.sourceUrl;
+            });
+          } else {
+            // Fully unknown — still add it for a transparent Unknown report
+            _addProgress('⚠️', online.message, done: true);
+            drugsToEvaluate.add(customDrugText.toUpperCase());
+          }
         }
       }
-      drugsToEvaluate.add(resolvedLocal ?? customDrugText.toUpperCase());
     }
 
     if (!mounted) return;
     if (drugsToEvaluate.isEmpty) {
+      setState(() => _isAnalyzing = false);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Please select at least one drug to analyze.'),
@@ -92,29 +174,52 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
 
     setState(() {
       _isAnalyzing = true;
-      _analysisProgressStatus =
-          'Cross-referencing genes against CPIC guidelines...';
     });
+
+    if (_progressSteps.isEmpty) {
+      _addProgress('⚙️', 'Starting pharmacogenomic analysis...');
+    }
 
     try {
       final List<PgxReport> generatedReports = [];
 
       for (int i = 0; i < drugsToEvaluate.length; i++) {
         final drug = drugsToEvaluate[i];
-        if (mounted) {
-          setState(() {
-            _analysisProgressStatus =
-                'Evaluating $drug (${i + 1}/${drugsToEvaluate.length})...';
-          });
+        _addProgress('🔒', 'Analyzing $drug on device (${i + 1}/${drugsToEvaluate.length})...');
+        await Future.delayed(const Duration(milliseconds: 200));
+
+        // Look up evidence: from online discovery, from local metadata, or null
+        DrugEvidence? evidence = _discoveredEvidence[drug];
+        if (evidence == null) {
+          // For panel drugs selected via checkbox, build evidence from metadata
+          final meta = DrugRepository.resolve(drug);
+          if (meta != null) {
+            evidence = DrugRepository.toDrugEvidence(meta);
+          }
         }
 
-        // 1. CPIC Rule Engine Evaluation
+        if (evidence != null && evidence.requiredClinicalData.isNotEmpty) {
+          _addProgress('🩺', 'Collecting required clinical inputs...');
+          final collected = await _collectClinicalData(evidence);
+          if (collected != null) {
+            _clinicalData.addAll(collected);
+          }
+          _markLastDone();
+        }
+
+        // CPIC Rule Engine Evaluation — now with DrugEvidence
         final initialReport = CpicRuleEngine.evaluateDrug(
           drugName: drug,
           parseResult: parseResult,
+          evidence: evidence,
+          clinicalData: _clinicalData,
         );
 
-        // 2. LLM Explanation Generation (with offline asset fallback)
+        _markLastDone();
+        _addProgress('⚙️', 'Applying clinical rule for $drug...');
+        await Future.delayed(const Duration(milliseconds: 150));
+
+        // LLM Explanation Generation (with offline asset fallback)
         final gene = initialReport.pharmacogenomicProfile.primaryGene;
         final phenotype = initialReport.pharmacogenomicProfile.phenotype;
         final riskLabel = initialReport.riskAssessment.riskLabel;
@@ -140,10 +245,15 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
           clinicalRecommendation: initialReport.clinicalRecommendation,
           llmGeneratedExplanation: LlmExplanation.fromJson(llmResultMap),
           qualityMetrics: initialReport.qualityMetrics,
+          evidence: evidence,
         );
 
         generatedReports.add(fullReport);
+        _markLastDone();
       }
+
+      _addProgress('✓', 'Analysis complete!', done: true);
+      await Future.delayed(const Duration(milliseconds: 400));
 
       final reportId = 'PGX_${DateTime.now().millisecondsSinceEpoch}';
       final vcfFilename =
@@ -181,6 +291,64 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
         setState(() {
           _isAnalyzing = false;
         });
+      }
+    }
+  }
+
+  Future<Map<String, String>?> _collectClinicalData(DrugEvidence evidence) async {
+    final controllers = <String, TextEditingController>{
+      for (final field in evidence.requiredClinicalData)
+        field: TextEditingController(text: _clinicalData[field] ?? ''),
+    };
+
+    try {
+      if (!mounted) return null;
+      return await showDialog<Map<String, String>>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) {
+          return AlertDialog(
+            title: Text('Clinical inputs for ${evidence.displayName}'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: evidence.requiredClinicalData.map((field) {
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: TextField(
+                      controller: controllers[field],
+                      decoration: InputDecoration(
+                        labelText: field,
+                        border: const OutlineInputBorder(),
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('Skip'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  final values = <String, String>{};
+                  for (final entry in controllers.entries) {
+                    final value = entry.value.text.trim();
+                    if (value.isNotEmpty) values[entry.key] = value;
+                  }
+                  Navigator.of(dialogContext).pop(values);
+                },
+                child: const Text('Continue'),
+              ),
+            ],
+          );
+        },
+      );
+    } finally {
+      for (final controller in controllers.values) {
+        controller.dispose();
       }
     }
   }
@@ -285,10 +453,15 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
 
                   // Optional Custom Free-Text Drug Field
                   Text(
-                    'Other Drug (Generic or Brand Name)',
+                    'Any Medicine (Generic or Brand Name)',
                     style: theme.textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.bold,
                     ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Enter any medicine — PharmaGuard will search local & online pharmacogenomic evidence.',
+                    style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
                   ),
                   const SizedBox(height: 8),
                   TextField(
@@ -298,10 +471,10 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
                       _onlineEvidenceUrl = null;
                     }),
                     decoration: InputDecoration(
-                      hintText: 'e.g. Aspirin, Ibuprofen, Tacrolimus',
+                      hintText: 'e.g. Tacrolimus, Plavix, Ibuprofen, Azithromycin',
                       prefixIcon: const Icon(Icons.medication_outlined),
                       helperText:
-                          'Recognizes supported generic and brand names. Unmapped drugs remain Unknown; the app will never guess a Safe result.',
+                          'Supports generic names, brand names, and aliases. Online evidence discovery for unlisted drugs.',
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
@@ -328,14 +501,25 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
                     if (DrugRepository.search(
                       _customDrugController.text,
                     ).isEmpty)
-                      const ListTile(
-                        dense: true,
-                        leading: Icon(Icons.search_off_outlined),
-                        title: Text(
-                          'Not in the offline validated evidence database',
+                      Container(
+                        margin: const EdgeInsets.symmetric(vertical: 4),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.shade50,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.blue.shade200),
                         ),
-                        subtitle: Text(
-                          'A clinical classification will remain Unknown unless a validated backend evidence service is configured.',
+                        child: const Row(
+                          children: [
+                            Icon(Icons.cloud_outlined, color: Colors.blue, size: 20),
+                            SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Not in local database. Online pharmacogenomic evidence discovery will be attempted.',
+                                style: TextStyle(fontSize: 12, color: Colors.blue),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                   ],
@@ -383,7 +567,7 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
                           Icon(Icons.bolt_rounded),
                           SizedBox(width: 8),
                           Text(
-                            'Run Risk Analysis Engine',
+                            'Check Medicine Safety',
                             style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.bold,
@@ -397,7 +581,7 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
               ),
             ),
 
-            // Fullscreen Loading Overlay during Analysis Pipeline
+            // Fullscreen Loading Overlay with Multi-Stage Progress
             if (_isAnalyzing)
               Container(
                 color: Colors.black54,
@@ -423,13 +607,48 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
                               fontWeight: FontWeight.bold,
                             ),
                           ),
-                          const SizedBox(height: 8),
-                          Text(
-                            _analysisProgressStatus,
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey,
+                          const SizedBox(height: 16),
+                          // Multi-stage progress list
+                          ConstrainedBox(
+                            constraints: const BoxConstraints(maxHeight: 280),
+                            child: SingleChildScrollView(
+                              reverse: true,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: _progressSteps.map((step) {
+                                  return Padding(
+                                    padding: const EdgeInsets.symmetric(vertical: 2),
+                                    child: Row(
+                                      children: [
+                                        Text(
+                                          step.done ? '✓' : step.emoji,
+                                          style: TextStyle(
+                                            fontSize: 14,
+                                            color: step.done
+                                                ? Colors.green
+                                                : Colors.orange,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Text(
+                                            step.text,
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: step.done
+                                                  ? Colors.grey.shade700
+                                                  : Colors.black87,
+                                              fontWeight: step.done
+                                                  ? FontWeight.normal
+                                                  : FontWeight.w500,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                }).toList(),
+                              ),
                             ),
                           ),
                         ],
@@ -443,4 +662,16 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
       ),
     );
   }
+}
+
+class _ProgressStep {
+  final String emoji;
+  final String text;
+  final bool done;
+
+  const _ProgressStep({
+    required this.emoji,
+    required this.text,
+    this.done = false,
+  });
 }
