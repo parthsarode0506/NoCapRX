@@ -5,6 +5,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'services/firebase_service.dart';
 import 'services/local_discovery_cache.dart';
 import 'screens/splash_screen.dart';
+import 'theme/app_theme.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -25,38 +26,22 @@ void main() async {
 
   runApp(
     const ProviderScope(
-      child: PharmaGuardApp(),
+      child: NoCapRxApp(),
     ),
   );
 }
 
-class PharmaGuardApp extends StatelessWidget {
-  const PharmaGuardApp({super.key});
+class NoCapRxApp extends StatelessWidget {
+  const NoCapRxApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'PharmaGuard (OnDeviceRx)',
+      title: 'NoCapRX',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: true,
-        scaffoldBackgroundColor: Colors.white,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF0D47A1), // Professional Medical Blue
-          brightness: Brightness.light,
-        ),
-        appBarTheme: const AppBarTheme(
-          centerTitle: false,
-          elevation: 0,
-        ),
-      ),
-      darkTheme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF0D47A1),
-          brightness: Brightness.dark,
-        ),
-      ),
+      theme: AppTheme.lightTheme,
+      darkTheme: AppTheme.darkTheme,
+      themeMode: ThemeMode.light,
       home: const SplashScreen(),
     );
   }

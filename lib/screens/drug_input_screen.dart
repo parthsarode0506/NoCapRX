@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../providers/app_providers.dart';
@@ -11,6 +12,7 @@ import '../services/online_evidence_service.dart';
 import '../services/medicine_normalization_service.dart';
 import '../models/pgx_report.dart';
 import '../models/drug_evidence.dart';
+import '../theme/app_theme.dart';
 import 'results_screen.dart';
 
 class DrugInputScreen extends ConsumerStatefulWidget {
@@ -27,7 +29,6 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
   String? _onlineEvidenceMessage;
   Uri? _onlineEvidenceUrl;
 
-  // Map to hold discovered evidence per drug for the current analysis run
   final Map<String, DrugEvidence> _discoveredEvidence = {};
   final Map<String, String> _clinicalData = {};
 
@@ -73,6 +74,7 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('No VCF data found. Please re-upload VCF file.'),
+          backgroundColor: AppTheme.dangerRed,
         ),
       );
       return;
@@ -91,10 +93,8 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
       _addProgress('🔎', 'Searching local medicine database...');
       await Future.delayed(const Duration(milliseconds: 300));
 
-      // Step 1: Normalize and resolve locally
       final identity = MedicineNormalizationService.identify(customDrugText);
 
-      // Check if ambiguous — prompt user to pick
       if (identity.isAmbiguous && mounted) {
         _markLastDone();
         setState(() => _isAnalyzing = false);
@@ -103,7 +103,7 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
             content: Text(
               'Ambiguous medicine name: "$customDrugText". Please enter a more specific name.',
             ),
-            backgroundColor: Colors.orange,
+            backgroundColor: AppTheme.warningAmber,
           ),
         );
         return;
@@ -114,17 +114,14 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
           metadata?.genericName;
 
       if (resolvedLocal != null && metadata?.ruleAvailable == true) {
-        // Found locally with a validated rule
         _markLastDone();
         _addProgress('✓', 'Found in local validated database', done: true);
         drugsToEvaluate.add(resolvedLocal);
 
-        // If metadata exists, convert to DrugEvidence for the engine
         if (metadata != null) {
           _discoveredEvidence[resolvedLocal] = DrugRepository.toDrugEvidence(metadata);
         }
       } else {
-        // Not found locally — go online
         _markLastDone();
         _addProgress('🌐', 'Identifying medicine online...');
         await Future.delayed(const Duration(milliseconds: 200));
@@ -139,7 +136,7 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
             final drugKey = evidence.genericName.toUpperCase();
 
             if (evidence.hasPgxRelationship && evidence.genes.isNotEmpty) {
-              _addProgress('🧬', 'Pharmacogenomic evidence found: ${evidence.genes.join(", ")}', done: true);
+              _addProgress('🧬', 'PGx evidence found: ${evidence.genes.join(", ")}', done: true);
               _addProgress('📚', 'Source: ${evidence.source}', done: true);
             } else {
               _addProgress('📋', 'No pharmacogenomic relationship found', done: true);
@@ -153,7 +150,6 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
               _onlineEvidenceUrl = online.sourceUrl;
             });
           } else {
-            // Fully unknown — still add it for a transparent Unknown report
             _addProgress('⚠️', online.message, done: true);
             drugsToEvaluate.add(customDrugText.toUpperCase());
           }
@@ -167,6 +163,7 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Please select at least one drug to analyze.'),
+          backgroundColor: AppTheme.warningAmber,
         ),
       );
       return;
@@ -188,10 +185,8 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
         _addProgress('🔒', 'Analyzing $drug on device (${i + 1}/${drugsToEvaluate.length})...');
         await Future.delayed(const Duration(milliseconds: 200));
 
-        // Look up evidence: from online discovery, from local metadata, or null
         DrugEvidence? evidence = _discoveredEvidence[drug];
         if (evidence == null) {
-          // For panel drugs selected via checkbox, build evidence from metadata
           final meta = DrugRepository.resolve(drug);
           if (meta != null) {
             evidence = DrugRepository.toDrugEvidence(meta);
@@ -207,7 +202,6 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
           _markLastDone();
         }
 
-        // CPIC Rule Engine Evaluation — now with DrugEvidence
         final initialReport = CpicRuleEngine.evaluateDrug(
           drugName: drug,
           parseResult: parseResult,
@@ -219,7 +213,6 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
         _addProgress('⚙️', 'Applying clinical rule for $drug...');
         await Future.delayed(const Duration(milliseconds: 150));
 
-        // LLM Explanation Generation (with offline asset fallback)
         final gene = initialReport.pharmacogenomicProfile.primaryGene;
         final phenotype = initialReport.pharmacogenomicProfile.phenotype;
         final riskLabel = initialReport.riskAssessment.riskLabel;
@@ -267,7 +260,6 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
         drugReports: generatedReports,
       );
 
-      // Save derived JSON report to Firestore (never raw VCF file!)
       await FirebaseService.saveReport(multiReport);
 
       ref.read(currentReportProvider.notifier).state = multiReport;
@@ -282,7 +274,7 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Analysis Pipeline Error: $e'),
-            backgroundColor: Colors.red,
+            backgroundColor: AppTheme.dangerRed,
           ),
         );
       }
@@ -308,7 +300,12 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
         barrierDismissible: false,
         builder: (dialogContext) {
           return AlertDialog(
-            title: Text('Clinical inputs for ${evidence.displayName}'),
+            backgroundColor: Colors.white,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+            title: Text(
+              'Clinical inputs for ${evidence.displayName}',
+              style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 16),
+            ),
             content: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -319,7 +316,7 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
                       controller: controllers[field],
                       decoration: InputDecoration(
                         labelText: field,
-                        border: const OutlineInputBorder(),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                       ),
                     ),
                   );
@@ -331,7 +328,7 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
                 onPressed: () => Navigator.of(dialogContext).pop(),
                 child: const Text('Skip'),
               ),
-              FilledButton(
+              ElevatedButton(
                 onPressed: () {
                   final values = <String, String>{};
                   for (final entry in controllers.entries) {
@@ -355,41 +352,79 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final selectedDrugs = ref.watch(selectedDrugsProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Select Target Drugs')),
+      backgroundColor: AppTheme.bgLight,
+      appBar: AppBar(
+        title: Text(
+          'Select Target Drugs',
+          style: GoogleFonts.inter(
+            fontWeight: FontWeight.w700,
+            fontSize: 17,
+            color: AppTheme.deepInk,
+          ),
+        ),
+      ),
       body: SafeArea(
         child: Stack(
           children: [
             SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: AppTheme.lightEmeraldPill,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          'STEP 2 OF 2',
+                          style: GoogleFonts.inter(
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w800,
+                            color: AppTheme.primaryDarkEmerald,
+                            letterSpacing: 0.8,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
                   Text(
-                    'Step 2: Select Medications',
-                    style: theme.textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: theme.colorScheme.primary,
+                    'Select Medications to Evaluate',
+                    style: GoogleFonts.inter(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.3,
+                      color: AppTheme.deepInk,
                     ),
                   ),
-                  const SizedBox(height: 6),
-                  const Text(
-                    'Select one or more supported drugs to evaluate against confirmed VCF genomic variants.',
-                    style: TextStyle(color: Colors.grey, fontSize: 13),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Evaluate against validated CPIC pharmacogenomic rules locally on-device.',
+                    style: GoogleFonts.inter(
+                      color: AppTheme.secondaryInk,
+                      fontSize: 13,
+                      height: 1.35,
+                    ),
                   ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 20),
 
-                  // Supported Drugs Selection Chips
+                  // Supported Panel Drugs List
                   Text(
                     'Supported Panel Drugs (6)',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
+                    style: GoogleFonts.inter(
+                      fontSize: 14.5,
+                      fontWeight: FontWeight.w700,
+                      color: AppTheme.deepInk,
                     ),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 10),
 
                   Column(
                     children: supportedDrugs.map((item) {
@@ -401,37 +436,58 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
                       return Container(
                         margin: const EdgeInsets.only(bottom: 8),
                         decoration: BoxDecoration(
-                          color: isSelected
-                              ? theme.colorScheme.primaryContainer.withValues(
-                                  alpha: 0.4,
-                                )
-                              : Colors.grey.shade50,
-                          borderRadius: BorderRadius.circular(12),
+                          color: isSelected ? AppTheme.mintSurface : Colors.white,
+                          borderRadius: BorderRadius.circular(14),
                           border: Border.all(
                             color: isSelected
-                                ? theme.colorScheme.primary
-                                : Colors.grey.shade300,
+                                ? AppTheme.primaryEmerald
+                                : AppTheme.cardBorder,
                             width: isSelected ? 1.5 : 1.0,
                           ),
                         ),
                         child: CheckboxListTile(
                           value: isSelected,
-                          title: Text(
-                            drug,
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: isSelected
-                                  ? theme.colorScheme.primary
-                                  : Colors.black87,
-                            ),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+                          title: Row(
+                            children: [
+                              Text(
+                                drug,
+                                style: GoogleFonts.inter(
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 14.5,
+                                  color: isSelected
+                                      ? AppTheme.primaryEmerald
+                                      : AppTheme.deepInk,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: AppTheme.lightEmeraldPill,
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  gene,
+                                  style: GoogleFonts.inter(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                    color: AppTheme.primaryDarkEmerald,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                           subtitle: Text(
-                            'Primary Gene: $gene • $type',
-                            style: const TextStyle(fontSize: 12),
+                            type,
+                            style: GoogleFonts.inter(
+                              fontSize: 11.5,
+                              color: AppTheme.secondaryInk,
+                            ),
                           ),
-                          activeColor: theme.colorScheme.primary,
+                          activeColor: AppTheme.primaryEmerald,
                           shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
+                            borderRadius: BorderRadius.circular(14),
                           ),
                           onChanged: (bool? checked) {
                             final current = Set<String>.from(
@@ -442,81 +498,111 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
                             } else {
                               current.remove(drug);
                             }
-                            ref.read(selectedDrugsProvider.notifier).state =
-                                current;
+                            ref.read(selectedDrugsProvider.notifier).state = current;
                           },
                         ),
                       );
                     }).toList(),
                   ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 20),
 
                   // Optional Custom Free-Text Drug Field
                   Text(
                     'Any Medicine (Generic or Brand Name)',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
+                    style: GoogleFonts.inter(
+                      fontSize: 14.5,
+                      fontWeight: FontWeight.w700,
+                      color: AppTheme.deepInk,
                     ),
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Enter any medicine — PharmaGuard will search local & online pharmacogenomic evidence.',
-                    style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                    'Enter any medicine — NoCapRX searches validated clinical evidence.',
+                    style: GoogleFonts.inter(
+                      color: AppTheme.secondaryInk,
+                      fontSize: 12,
+                    ),
                   ),
                   const SizedBox(height: 8),
                   TextField(
                     controller: _customDrugController,
+                    style: GoogleFonts.inter(fontSize: 14, color: AppTheme.deepInk),
                     onChanged: (_) => setState(() {
                       _onlineEvidenceMessage = null;
                       _onlineEvidenceUrl = null;
                     }),
                     decoration: InputDecoration(
                       hintText: 'e.g. Tacrolimus, Plavix, Ibuprofen, Azithromycin',
-                      prefixIcon: const Icon(Icons.medication_outlined),
-                      helperText:
-                          'Supports generic names, brand names, and aliases. Online evidence discovery for unlisted drugs.',
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
+                      prefixIcon: const Icon(
+                        Icons.medication_outlined,
+                        color: AppTheme.secondaryInk,
                       ),
                     ),
                   ),
                   if (_customDrugController.text.trim().isNotEmpty) ...[
                     const SizedBox(height: 8),
                     ...DrugRepository.search(_customDrugController.text).map(
-                      (drug) => ListTile(
-                        dense: true,
-                        leading: const Icon(Icons.medication_outlined),
-                        title: Text(drug.displayName),
-                        subtitle: Text(
-                          '${drug.aliases.join(', ')} • ${drug.genes.join(', ')}',
+                      (drug) => Container(
+                        margin: const EdgeInsets.only(bottom: 6),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: AppTheme.cardBorder),
                         ),
-                        trailing: const Icon(Icons.verified_outlined, size: 18),
-                        onTap: () => setState(() {
-                          _customDrugController.text = drug.displayName;
-                          _onlineEvidenceMessage = null;
-                          _onlineEvidenceUrl = null;
-                        }),
+                        child: ListTile(
+                          dense: true,
+                          leading: const Icon(
+                            Icons.medication_outlined,
+                            color: AppTheme.primaryEmerald,
+                          ),
+                          title: Text(
+                            drug.displayName,
+                            style: GoogleFonts.inter(
+                              fontWeight: FontWeight.w700,
+                              color: AppTheme.deepInk,
+                            ),
+                          ),
+                          subtitle: Text(
+                            '${drug.aliases.join(', ')} • ${drug.genes.join(', ')}',
+                            style: GoogleFonts.inter(fontSize: 11, color: AppTheme.secondaryInk),
+                          ),
+                          trailing: const Icon(
+                            Icons.verified_outlined,
+                            size: 18,
+                            color: AppTheme.safeGreen,
+                          ),
+                          onTap: () => setState(() {
+                            _customDrugController.text = drug.displayName;
+                            _onlineEvidenceMessage = null;
+                            _onlineEvidenceUrl = null;
+                          }),
+                        ),
                       ),
                     ),
-                    if (DrugRepository.search(
-                      _customDrugController.text,
-                    ).isEmpty)
+                    if (DrugRepository.search(_customDrugController.text).isEmpty)
                       Container(
-                        margin: const EdgeInsets.symmetric(vertical: 4),
+                        margin: const EdgeInsets.symmetric(vertical: 6),
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          color: Colors.blue.shade50,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.blue.shade200),
+                          color: AppTheme.lightEmeraldPill,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: AppTheme.accentEmerald.withValues(alpha: 0.2),
+                          ),
                         ),
-                        child: const Row(
+                        child: Row(
                           children: [
-                            Icon(Icons.cloud_outlined, color: Colors.blue, size: 20),
-                            SizedBox(width: 8),
+                            const Icon(Icons.cloud_outlined,
+                                color: AppTheme.primaryEmerald, size: 20),
+                            const SizedBox(width: 8),
                             Expanded(
                               child: Text(
-                                'Not in local database. Online pharmacogenomic evidence discovery will be attempted.',
-                                style: TextStyle(fontSize: 12, color: Colors.blue),
+                                'Not in local DB. Online pharmacogenomic evidence discovery will be attempted.',
+                                style: GoogleFonts.inter(
+                                  fontSize: 12,
+                                  color: AppTheme.primaryDarkEmerald,
+                                  fontWeight: FontWeight.w500,
+                                ),
                               ),
                             ),
                           ],
@@ -527,8 +613,8 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
                     const SizedBox(height: 8),
                     Text(
                       _onlineEvidenceMessage!,
-                      style: const TextStyle(
-                        color: Colors.orange,
+                      style: GoogleFonts.inter(
+                        color: AppTheme.warningAmber,
                         fontSize: 12,
                       ),
                     ),
@@ -542,117 +628,131 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
                         label: const Text('Open official FDA label in browser'),
                       ),
                   ],
-                  const SizedBox(height: 36),
+                  const SizedBox(height: 28),
 
                   // Analyze Button
                   SizedBox(
                     width: double.infinity,
+                    height: 50,
                     child: ElevatedButton(
-                      onPressed:
-                          selectedDrugs.isEmpty &&
+                      onPressed: selectedDrugs.isEmpty &&
                               _customDrugController.text.trim().isEmpty
                           ? null
                           : _runPipeline,
                       style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        backgroundColor: AppTheme.primaryEmerald,
+                        foregroundColor: Colors.white,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
-                        backgroundColor: theme.colorScheme.primary,
-                        foregroundColor: Colors.white,
+                        elevation: 0,
                       ),
-                      child: const Row(
+                      child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.bolt_rounded),
-                          SizedBox(width: 8),
+                          const Icon(Icons.bolt_rounded, size: 20),
+                          const SizedBox(width: 8),
                           Text(
                             'Check Medicine Safety',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
+                            style: GoogleFonts.inter(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: -0.1,
                             ),
                           ),
                         ],
                       ),
                     ),
                   ),
+                  const SizedBox(height: 20),
                 ],
               ),
             ),
 
-            // Fullscreen Loading Overlay with Multi-Stage Progress
+            // Loading Overlay with Multi-Stage Progress
             if (_isAnalyzing)
               Container(
-                color: Colors.black54,
+                color: Colors.black.withValues(alpha: 0.6),
                 child: Center(
-                  child: Card(
-                    margin: const EdgeInsets.all(32),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
+                  child: Container(
+                    margin: const EdgeInsets.all(28),
+                    padding: const EdgeInsets.all(28),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.15),
+                          blurRadius: 24,
+                          offset: const Offset(0, 8),
+                        ),
+                      ],
                     ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(28),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          CircularProgressIndicator(
-                            color: theme.colorScheme.primary,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const SizedBox(
+                          width: 36,
+                          height: 36,
+                          child: CircularProgressIndicator(
+                            color: AppTheme.primaryEmerald,
+                            strokeWidth: 3,
                           ),
-                          const SizedBox(height: 20),
-                          const Text(
-                            'Analyzing Genomic Risk...',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
+                        ),
+                        const SizedBox(height: 20),
+                        Text(
+                          'Analyzing Genomic Risk...',
+                          style: GoogleFonts.inter(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                            color: AppTheme.deepInk,
                           ),
-                          const SizedBox(height: 16),
-                          // Multi-stage progress list
-                          ConstrainedBox(
-                            constraints: const BoxConstraints(maxHeight: 280),
-                            child: SingleChildScrollView(
-                              reverse: true,
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: _progressSteps.map((step) {
-                                  return Padding(
-                                    padding: const EdgeInsets.symmetric(vertical: 2),
-                                    child: Row(
-                                      children: [
-                                        Text(
-                                          step.done ? '✓' : step.emoji,
-                                          style: TextStyle(
-                                            fontSize: 14,
+                        ),
+                        const SizedBox(height: 16),
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxHeight: 240),
+                          child: SingleChildScrollView(
+                            reverse: true,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: _progressSteps.map((step) {
+                                return Padding(
+                                  padding: const EdgeInsets.symmetric(vertical: 3),
+                                  child: Row(
+                                    children: [
+                                      Text(
+                                        step.done ? '✓' : step.emoji,
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          color: step.done
+                                              ? AppTheme.safeGreen
+                                              : AppTheme.warningAmber,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          step.text,
+                                          style: GoogleFonts.inter(
+                                            fontSize: 12.5,
                                             color: step.done
-                                                ? Colors.green
-                                                : Colors.orange,
+                                                ? AppTheme.secondaryInk
+                                                : AppTheme.deepInk,
+                                            fontWeight: step.done
+                                                ? FontWeight.w400
+                                                : FontWeight.w600,
                                           ),
                                         ),
-                                        const SizedBox(width: 8),
-                                        Expanded(
-                                          child: Text(
-                                            step.text,
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              color: step.done
-                                                  ? Colors.grey.shade700
-                                                  : Colors.black87,
-                                              fontWeight: step.done
-                                                  ? FontWeight.normal
-                                                  : FontWeight.w500,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  );
-                                }).toList(),
-                              ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              }).toList(),
                             ),
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
                   ),
                 ),

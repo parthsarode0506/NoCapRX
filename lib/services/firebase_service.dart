@@ -1,6 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 import '../models/app_user.dart';
 import '../models/chat_message.dart';
@@ -21,10 +22,28 @@ class FirebaseService {
   static Future<void> init() async {
     try {
       if (Firebase.apps.isEmpty) {
-        await Firebase.initializeApp();
+        if (kIsWeb) {
+          final apiKey = dotenv.env['FIREBASE_API_KEY'] ?? 'AIzaSyDgs2zWU4ZLAMc0th-8IezaEnQBTAm1IjQ';
+          final appId = dotenv.env['FIREBASE_APP_ID'] ?? '1:525855030557:android:9eb65b4222ae899309f5f4';
+          final projectId = dotenv.env['FIREBASE_PROJECT_ID'] ?? 'on-devicerx';
+          final messagingSenderId = dotenv.env['FIREBASE_PROJECT_NUMBER'] ?? '525855030557';
+          final storageBucket = dotenv.env['FIREBASE_STORAGE_BUCKET'] ?? 'on-devicerx.firebasestorage.app';
+
+          await Firebase.initializeApp(
+            options: FirebaseOptions(
+              apiKey: apiKey,
+              appId: appId,
+              messagingSenderId: messagingSenderId,
+              projectId: projectId,
+              storageBucket: storageBucket,
+            ),
+          );
+        } else {
+          await Firebase.initializeApp();
+        }
       }
       _initialized = true;
-      debugPrint('Firebase Auth initialized.');
+      debugPrint('Firebase Auth initialized successfully.');
     } catch (error) {
       _initialized = false;
       debugPrint('Firebase unavailable; continuing in local mode: $error');

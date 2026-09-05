@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 import '../models/pgx_report.dart';
 import '../models/chat_message.dart';
 import '../services/llm_service.dart';
 import '../services/firebase_service.dart';
+import '../theme/app_theme.dart';
 
 class ChatbotScreen extends ConsumerStatefulWidget {
   final PgxMultiReport report;
@@ -40,7 +42,8 @@ class _ChatbotScreenState extends ConsumerState<ChatbotScreen> {
       ChatMessage(
         id: 'msg_welcome',
         role: 'assistant',
-        text: 'Hello! I am PharmaGuard AI. I am strictly grounded to your Pharmacogenomic Report #${widget.report.reportId} covering [$testedDrugs]. How can I help clarify your results today?',
+        text:
+            'Hello! I am NoCapRX AI Assistant. I am strictly grounded to your Pharmacogenomic Report #${widget.report.reportId} covering [$testedDrugs]. How can I help clarify your results today?',
         timestamp: DateTime.now(),
       ),
     );
@@ -66,11 +69,9 @@ class _ChatbotScreenState extends ConsumerState<ChatbotScreen> {
 
     _scrollToBottom();
 
-    // Persist user message to Firestore
     await FirebaseService.saveChatMessage(widget.report.reportId, userMessage);
 
     try {
-      // Call grounded Chatbot API (or offline fallback)
       final botReplyText = await LlmService.askReportChatbot(
         userQuery: text,
         report: widget.report,
@@ -90,15 +91,18 @@ class _ChatbotScreenState extends ConsumerState<ChatbotScreen> {
         _scrollToBottom();
       }
 
-      // Persist assistant message to Firestore
-      await FirebaseService.saveChatMessage(widget.report.reportId, assistantMessage);
+      await FirebaseService.saveChatMessage(
+        widget.report.reportId,
+        assistantMessage,
+      );
     } catch (e) {
       if (mounted) {
         setState(() {
           _localMessages.add(ChatMessage(
             id: 'msg_err',
             role: 'assistant',
-            text: 'I am currently operating in offline mode. For your evaluated drugs (${widget.report.drugReports.map((r) => r.drug).join(', ')}), all predictions are strictly derived from CPIC rules. Please consult your physician.',
+            text:
+                'Operating in offline grounded mode. For your evaluated medications (${widget.report.drugReports.map((r) => r.drug).join(', ')}), all safety risk evaluations are strictly derived from deterministic CPIC guidelines. Please consult your physician.',
             timestamp: DateTime.now(),
           ));
         });
@@ -127,17 +131,23 @@ class _ChatbotScreenState extends ConsumerState<ChatbotScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     return Scaffold(
+      backgroundColor: AppTheme.bgLight,
       appBar: AppBar(
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Report AI Assistant', style: TextStyle(fontSize: 16)),
             Text(
-              'Grounded strictly to Report #${widget.report.reportId}',
-              style: const TextStyle(fontSize: 11, color: Colors.grey),
+              'NoCapRX AI Assistant',
+              style: GoogleFonts.inter(
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                color: AppTheme.deepInk,
+              ),
+            ),
+            Text(
+              'Grounded to Report #${widget.report.reportId}',
+              style: GoogleFonts.inter(fontSize: 11, color: AppTheme.secondaryInk),
             ),
           ],
         ),
@@ -149,11 +159,25 @@ class _ChatbotScreenState extends ConsumerState<ChatbotScreen> {
             Container(
               width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              color: Colors.blue.shade50,
-              child: const Text(
-                '🔒 Grounded Context: AI will only answer questions regarding drugs tested in this report.',
-                style: TextStyle(fontSize: 11, color: Colors.blue, fontWeight: FontWeight.w500),
-                textAlign: TextAlign.center,
+              color: AppTheme.mintSurface,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.lock_outline_rounded,
+                      size: 13, color: AppTheme.primaryEmerald),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      'Grounded Context: AI answers questions strictly regarding drugs tested in this report.',
+                      style: GoogleFonts.inter(
+                        fontSize: 11,
+                        color: AppTheme.primaryDarkEmerald,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ],
               ),
             ),
 
@@ -161,7 +185,7 @@ class _ChatbotScreenState extends ConsumerState<ChatbotScreen> {
             Expanded(
               child: ListView.builder(
                 controller: _scrollController,
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
                 itemCount: _localMessages.length,
                 itemBuilder: (context, index) {
                   final msg = _localMessages[index];
@@ -172,24 +196,34 @@ class _ChatbotScreenState extends ConsumerState<ChatbotScreen> {
                     child: Container(
                       margin: const EdgeInsets.only(bottom: 12),
                       constraints: BoxConstraints(
-                        maxWidth: MediaQuery.of(context).size.width * 0.78,
+                        maxWidth: MediaQuery.of(context).size.width * 0.80,
                       ),
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                       decoration: BoxDecoration(
-                        color: isUser ? theme.colorScheme.primary : Colors.grey.shade200,
+                        color: isUser ? AppTheme.primaryEmerald : Colors.white,
                         borderRadius: BorderRadius.only(
                           topLeft: const Radius.circular(16),
                           topRight: const Radius.circular(16),
                           bottomLeft: Radius.circular(isUser ? 16 : 4),
                           bottomRight: Radius.circular(isUser ? 4 : 16),
                         ),
+                        border: isUser
+                            ? null
+                            : Border.all(color: AppTheme.cardBorder, width: 1),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.02),
+                            blurRadius: 6,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
                       ),
                       child: Text(
                         msg.text,
-                        style: TextStyle(
-                          color: isUser ? Colors.white : Colors.black87,
-                          fontSize: 14,
-                          height: 1.35,
+                        style: GoogleFonts.inter(
+                          color: isUser ? Colors.white : AppTheme.deepInk,
+                          fontSize: 13.5,
+                          height: 1.4,
                         ),
                       ),
                     ),
@@ -199,18 +233,27 @@ class _ChatbotScreenState extends ConsumerState<ChatbotScreen> {
             ),
 
             if (_isSending)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 6),
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
+                    const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: AppTheme.primaryEmerald,
+                      ),
                     ),
-                    SizedBox(width: 8),
-                    Text('PharmaGuard AI is thinking...', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                    const SizedBox(width: 8),
+                    Text(
+                      'NoCapRX AI is explaining...',
+                      style: GoogleFonts.inter(
+                        fontSize: 12,
+                        color: AppTheme.secondaryInk,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -219,14 +262,10 @@ class _ChatbotScreenState extends ConsumerState<ChatbotScreen> {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Theme.of(context).scaffoldBackgroundColor,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.05),
-                    blurRadius: 6,
-                    offset: const Offset(0, -2),
-                  ),
-                ],
+                color: Colors.white,
+                border: const Border(
+                  top: BorderSide(color: AppTheme.cardBorder, width: 1),
+                ),
               ),
               child: Row(
                 children: [
@@ -235,19 +274,22 @@ class _ChatbotScreenState extends ConsumerState<ChatbotScreen> {
                       controller: _inputController,
                       textInputAction: TextInputAction.send,
                       onSubmitted: (_) => _sendMessage(),
+                      style: GoogleFonts.inter(fontSize: 14, color: AppTheme.deepInk),
                       decoration: InputDecoration(
                         hintText: 'Ask about your report results...',
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(24),
-                        ),
+                        contentPadding:
+                            const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                       ),
                     ),
                   ),
                   const SizedBox(width: 8),
                   IconButton.filled(
                     onPressed: _isSending ? null : _sendMessage,
-                    icon: const Icon(Icons.send),
+                    icon: const Icon(Icons.send_rounded, size: 18),
+                    style: IconButton.styleFrom(
+                      backgroundColor: AppTheme.primaryEmerald,
+                      foregroundColor: Colors.white,
+                    ),
                   ),
                 ],
               ),
