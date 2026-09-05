@@ -1,0 +1,50 @@
+[
+  {
+    "id": "profile_rahul",
+    "name": "Rahul Sharma (High Risk Profile)",
+    "description": "CYP2C19 *2/*2 (Clopidogrel PM), CYP2D6 *4/*4 (Codeine PM), CYP2C9 *1/*1",
+    "genotypes": {
+      "CYP2C19": "*2/*2",
+      "CYP2D6": "*4/*4",
+      "CYP2C9": "*1/*1",
+      "HLA-B": "*Negative",
+      "TPMT": "*1/*1",
+      "DPYD": "*1/*1",
+      "SLCO1B1": "*1/*1"
+    },
+    "parsed_markers_count": 7,
+    "vcf_source": "Demo_Rahul_Sharma_HighRisk.vcf"
+  },
+  {
+    "id": "profile_priya",
+    "name": "Priya Patel (Normal Metabolizer / Safe)",
+    "description": "Standard wild-type alleles (*1/*1) across all key drug metabolizing enzymes",
+    "genotypes": {
+      "CYP2C19": "*1/*1",
+      "CYP2D6": "*1/*1",
+      "CYP2C9": "*1/*1",
+      "HLA-B": "*Negative",
+      "TPMT": "*1/*1",
+      "DPYD": "*1/*1",
+      "SLCO1B1": "*1/*1"
+    },
+    "parsed_markers_count": 7,
+    "vcf_source": "Demo_Priya_Patel_Normal.vcf"
+  },
+  {
+    "id": "profile_anand",
+    "name": "Anand Verma (Warfarin & Carbamazepine Risk)",
+    "description": "CYP2C9 *3/*3 (Warfarin PM) + HLA-B *15:02 Positive (Carbamazepine SJS Risk)",
+    "genotypes": {
+      "CYP2C9": "*3/*3",
+      "HLA-B": "*15:02",
+      "CYP2C19": "*1/*2",
+      "CYP2D6": "*1/*1",
+      "TPMT": "*1/*3A",
+      "DPYD": "*2A/*1",
+      "SLCO1B1": "*5/*5"
+    },
+    "parsed_markers_count": 7,
+    "vcf_source": "Demo_Anand_Verma_Complex.vcf"
+  }
+]

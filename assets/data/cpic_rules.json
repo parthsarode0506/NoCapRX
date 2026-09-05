@@ -1,0 +1,338 @@
+{
+  "version": "2026.1",
+  "source": "CPIC Guidelines & PharmGKB Database",
+  "rules": [
+    {
+      "id": "clopidogrel_cyp2c19",
+      "drug": "Clopidogrel",
+      "aliases": ["Plavix", "Clopivas", "Deplatt"],
+      "gene": "CYP2C19",
+      "evidence_grade": "CPIC Grade A Evidence",
+      "diplotype_rules": [
+        {
+          "diplotype": "*2/*2",
+          "phenotype": "Poor Metabolizer (PM)",
+          "risk_level": "danger",
+          "headline": "High Risk — Ineffective & Increased Clot Risk",
+          "summary": "Patient exhibits severely reduced CYP2C19 enzyme activity. Clopidogrel active metabolite cannot be formed adequately.",
+          "recommendations": "Avoid Clopidogrel. Select alternative antiplatelet therapy such as Prasugrel or Ticagrelor (unless contraindicated).",
+          "translations": {
+            "en": "High Risk: Patient cannot metabolize Clopidogrel effectively. Consult physician for alternative antiplatelet medication like Prasugrel.",
+            "hi": "उच्च जोखिम: मरीज क्लोपिडोग्रेल को प्रभावी ढंग से पचा नहीं सकता। कृपया डॉक्टर से संपर्क करें और प्रसोग्रेल जैसी वैकल्पिक दवा लें।",
+            "mr": "उच्च धोका: रुग्ण क्लोपिडोग्रेल प्रभावीपणे पचवू शकत नाही. कृपया डॉक्टरांचा सल्ला घ्या आणि पर्यायी औषध घ्या."
+          }
+        },
+        {
+          "diplotype": "*1/*2",
+          "phenotype": "Intermediate Metabolizer (IM)",
+          "risk_level": "warning",
+          "headline": "Moderate Risk — Reduced Efficacy",
+          "summary": "Patient exhibits intermediate CYP2C19 enzyme activity. Reduced activation of Clopidogrel.",
+          "recommendations": "Consider alternative antiplatelet therapy (Prasugrel/Ticagrelor) or monitor antiplatelet response.",
+          "translations": {
+            "en": "Moderate Risk: Intermediate metabolism rate. Alternative drug or dosage adjustment may be needed.",
+            "hi": "मध्यम जोखिम: दवा का प्रभाव कम हो सकता है। वैकल्पिक दवा पर विचार करें।",
+            "mr": "मध्यम धोका: औषधाचा प्रभाव कमी असू शकतो. पर्यायी औषधाचा विचार करा."
+          }
+        },
+        {
+          "diplotype": "*1/*1",
+          "phenotype": "Normal Metabolizer (NM)",
+          "risk_level": "safe",
+          "headline": "Safe — Standard Dosing Recommended",
+          "summary": "Normal enzyme function detected. Standard Clopidogrel metabolism expected.",
+          "recommendations": "Initiate label-recommended dosage (75 mg daily). No pharmacogenomic dosage modification required.",
+          "translations": {
+            "en": "Safe: Normal metabolism. Standard prescribed dose of 75mg daily is safe.",
+            "hi": "सुरक्षित: सामान्य चयापचय। मानक खुराक 75mg सुरक्षित है।",
+            "mr": "सुरक्षित: सामान्य चयापचय. मानक डोस ७५mg सुरक्षित आहे."
+          }
+        }
+      ]
+    },
+    {
+      "id": "warfarin_cyp2c9",
+      "drug": "Warfarin",
+      "aliases": ["Coumadin", "Jantoven", "Warf"],
+      "gene": "CYP2C9",
+      "evidence_grade": "CPIC Grade A Evidence",
+      "diplotype_rules": [
+        {
+          "diplotype": "*3/*3",
+          "phenotype": "Poor Metabolizer (PM)",
+          "risk_level": "danger",
+          "headline": "High Bleeding Risk — Drastic Dose Reduction Required",
+          "summary": "Profoundly reduced clearance of S-warfarin. High risk of severe bleeding and elevated INR.",
+          "recommendations": "Reduce initial warfarin dosage by 60-80% or utilize non-coumarin oral anticoagulant (DOAC like Apixaban).",
+          "translations": {
+            "en": "High Bleeding Risk: Severe delay in drug clearance. Reduce dose significantly or switch to DOAC under medical supervision.",
+            "hi": "उच्च रक्तस्राव जोखिम: दवा शरीर में जमा हो सकती है। डॉक्टर की देखरेख में खुराक 60-80% कम करें।",
+            "mr": "उच्च रक्तस्त्राव धोका: औषध शरीरात साचू शकते. डॉक्टरांच्या सल्ल्याने डोस कमी करा."
+          }
+        },
+        {
+          "diplotype": "*1/*3",
+          "phenotype": "Intermediate Metabolizer (IM)",
+          "risk_level": "warning",
+          "headline": "Moderate Risk — Lower Initial Dose Needed",
+          "summary": "Moderately reduced CYP2C9 activity. Increased sensitivity to Warfarin.",
+          "recommendations": "Reduce initial daily dose by 30-50%. Monitor INR closely during initiation.",
+          "translations": {
+            "en": "Moderate Risk: Increased Warfarin sensitivity. Require lower dose and close INR monitoring.",
+            "hi": "मध्यम जोखिम: वॉरफेरिन के प्रति संवेदनशीलता अधिक है। कम खुराक और INR जांच आवश्यक है।",
+            "mr": "मध्यम धोका: वॉरफेरिनची संवेदनशीलतेचा दर जास्त आहे. कमी डोस आवश्यक आहे."
+          }
+        },
+        {
+          "diplotype": "*1/*1",
+          "phenotype": "Normal Metabolizer (NM)",
+          "risk_level": "safe",
+          "headline": "Safe — Standard Dosing Algorithm",
+          "summary": "Normal CYP2C9 enzyme clearance rate expected.",
+          "recommendations": "Use standard clinical dosing algorithms (e.g. WarfarinDosing.org).",
+          "translations": {
+            "en": "Safe: Normal clearance rate. Standard dosing protocols apply.",
+            "hi": "सुरक्षित: सामान्य दर। मानक खुराक लागू होती है।",
+            "mr": "सुरक्षित: सामान्य दर. मानक डोस लागू होतो."
+          }
+        }
+      ]
+    },
+    {
+      "id": "codeine_cyp2d6",
+      "drug": "Codeine",
+      "aliases": ["Codeine Phosphate", "Tylenol #3"],
+      "gene": "CYP2D6",
+      "evidence_grade": "CPIC Grade A Evidence",
+      "diplotype_rules": [
+        {
+          "diplotype": "*4/*4",
+          "phenotype": "Poor Metabolizer (PM)",
+          "risk_level": "danger",
+          "headline": "High Risk — Lack of Analgesic Efficacy",
+          "summary": "Inability to convert Codeine to its active metabolite Morphine. Pain relief will fail.",
+          "recommendations": "Avoid codeine use due to lack of efficacy. Select non-opioid pain relievers or non-CYP2D6 metabolized opioids (e.g., Morphine, Acetaminophen).",
+          "translations": {
+            "en": "High Risk: Codeine will not provide pain relief due to missing enzyme activation. Use alternative pain medicine.",
+            "hi": "उच्च जोखिम: कोडिन दर्द से राहत नहीं देगा क्योंकि शरीर इसे मार्फिन में नहीं बदल सकता। दूसरी दवा लें।",
+            "mr": "उच्च धोका: कोडिन वेदना कमी करणार नाही. इतर पर्यायी औषध वापरा."
+          }
+        },
+        {
+          "diplotype": "*1/*1xN",
+          "phenotype": "Ultra-Rapid Metabolizer (UM)",
+          "risk_level": "danger",
+          "headline": "High Toxicity Risk — Fatal Respiratory Depression Risk",
+          "summary": "Rapid conversion of Codeine into Morphine causing toxic systemic levels.",
+          "recommendations": "Avoid codeine use due to risk of life-threatening toxicity. Use non-opioid pain analgesics.",
+          "translations": {
+            "en": "High Toxicity Risk: Extremely rapid morphinization. Severe overdose toxicity risk.",
+            "hi": "उच्च विषाक्तता जोखिम: कोडिन बहुत तेजी से मॉर्फिन में बदल जाता है जो जानलेवा हो सकता है।",
+            "mr": "उच्च विषारीपणा धोका: कोडिन अतिशय वेगाने मॉर्फिनमध्ये बदलते, जे घातक ठरू शकते."
+          }
+        },
+        {
+          "diplotype": "*1/*1",
+          "phenotype": "Normal Metabolizer (NM)",
+          "risk_level": "safe",
+          "headline": "Safe — Standard Analgesic Dosing",
+          "summary": "Normal conversion of Codeine to Morphine.",
+          "recommendations": "Use standard age-appropriate dosing.",
+          "translations": {
+            "en": "Safe: Normal codeine metabolism.",
+            "hi": "सुरक्षित: सामान्य खुराक सुरक्षित है।",
+            "mr": "सुरक्षित: सामान्य डोस सुरक्षित आहे."
+          }
+        }
+      ]
+    },
+    {
+      "id": "carbamazepine_hlab",
+      "drug": "Carbamazepine",
+      "aliases": ["Tegretol", "Carbatrol", "Mazetol"],
+      "gene": "HLA-B",
+      "evidence_grade": "CPIC Grade A Evidence",
+      "diplotype_rules": [
+        {
+          "diplotype": "*15:02",
+          "phenotype": "HLA-B*15:02 Positive",
+          "risk_level": "danger",
+          "headline": "CRITICAL DANGER — Severe Cutaneous Adverse Reaction Risk",
+          "summary": "High susceptibility to Stevens-Johnson Syndrome (SJS) and Toxic Epidermal Necrolysis (TEN).",
+          "recommendations": "Do NOT administer Carbamazepine. Choose alternative anticonvulsant not associated with SJS (e.g. Valproate, Levetiracetam).",
+          "translations": {
+            "en": "CRITICAL DANGER: Extreme risk of life-threatening skin reactions (SJS/TEN). Avoid drug completely!",
+            "hi": "गंभीर खतरा: त्वचा की जानलेवा बीमारी (SJS) का अत्यधिक जोखिम। इस दवा का सेवन बिल्कुल न करें!",
+            "mr": "अतिधोकादायक: त्वचेच्या गंभीर आजाराचा (SJS) धोका. हे औषध अजिबात घेऊ नका!"
+          }
+        },
+        {
+          "diplotype": "*Negative",
+          "phenotype": "HLA-B*15:02 Negative",
+          "risk_level": "safe",
+          "headline": "Safe — Low Risk of SJS/TEN",
+          "summary": "HLA-B*15:02 allele not detected.",
+          "recommendations": "Use Carbamazepine according to standard neurological dosing.",
+          "translations": {
+            "en": "Safe: Standard risk profile.",
+            "hi": "सुरक्षित: सामान्य जोखिम प्रोफाइल।",
+            "mr": "सुरक्षित: सामान्य धोका नाही."
+          }
+        }
+      ]
+    },
+    {
+      "id": "azathioprine_tpmt",
+      "drug": "Azathioprine",
+      "aliases": ["Imuran", "Azasan"],
+      "gene": "TPMT",
+      "evidence_grade": "CPIC Grade A Evidence",
+      "diplotype_rules": [
+        {
+          "diplotype": "*3A/*3A",
+          "phenotype": "Poor Metabolizer (Deficient)",
+          "risk_level": "danger",
+          "headline": "High Toxicity Risk — Severe Bone Marrow Suppression",
+          "summary": "Extreme accumulation of cytotoxic thioguanine nucleotides causing fatal myelosuppression.",
+          "recommendations": "Avoid Azathioprine or reduce dose by 90% (e.g., 10% of standard dose given 3 times weekly) under hematological supervision.",
+          "translations": {
+            "en": "High Toxicity Risk: Severe bone marrow damage risk. Avoid or drastically reduce dose.",
+            "hi": "उच्च जोखिम: बोन मैरो को नुकसान पहुंच सकता है। खुराक 90% तक कम करें या वैकल्पिक दवा लें।",
+            "mr": "उच्च धोका: हाडांच्या मज्जासंस्थेला गंभीर इजा होऊ शकते. डोस खूप कमी करा."
+          }
+        },
+        {
+          "diplotype": "*1/*3A",
+          "phenotype": "Intermediate Metabolizer",
+          "risk_level": "warning",
+          "headline": "Moderate Risk — Reduced Dose Recommended",
+          "summary": "Heterozygous TPMT deficiency leads to moderate accumulation.",
+          "recommendations": "Reduce target dose by 30-50% and monitor complete blood count (CBC) weekly.",
+          "translations": {
+            "en": "Moderate Risk: Reduce dose by 30-50% and monitor CBC regularly.",
+            "hi": "मध्यम जोखिम: खुराक 30-50% कम करें और खून की जांच कराएं।",
+            "mr": "मध्यम धोका: डोस ३०-५०% कमी करा आणि रक्त तपासणी करा."
+          }
+        },
+        {
+          "diplotype": "*1/*1",
+          "phenotype": "Normal Metabolizer",
+          "risk_level": "safe",
+          "headline": "Safe — Standard Immunosuppressive Dose",
+          "summary": "Normal TPMT enzyme activity.",
+          "recommendations": "Start at standard full dosing.",
+          "translations": {
+            "en": "Safe: Standard dosage recommended.",
+            "hi": "सुरक्षित: मानक खुराक अनुशंसित है।",
+            "mr": "सुरक्षित: मानक डोस सुचवला जातो."
+          }
+        }
+      ]
+    },
+    {
+      "id": "fluorouracil_dpyd",
+      "drug": "Fluorouracil",
+      "aliases": ["5-FU", "Adrucil", "Capecitabine", "Xeloda"],
+      "gene": "DPYD",
+      "evidence_grade": "CPIC Grade A Evidence",
+      "diplotype_rules": [
+        {
+          "diplotype": "*2A/*1",
+          "phenotype": "Intermediate Metabolizer (DPD Deficient)",
+          "risk_level": "danger",
+          "headline": "High Toxicity Risk — Severe Systemic Fluoropyrimidine Toxicity",
+          "summary": "Partial DPD enzyme deficiency leads to severe neutropenia, mucositis, and neurotoxicity.",
+          "recommendations": "Reduce starting dose by 50% or choose non-fluoropyrimidine chemotherapy regimen.",
+          "translations": {
+            "en": "High Toxicity Risk: Severe toxicity risk. Reduce starting chemotherapy dose by at least 50%.",
+            "hi": "उच्च जोखिम: गंभीर टॉक्सिसिटी का खतरा। शुरुआती खुराक 50% कम करें।",
+            "mr": "उच्च धोका: गंभीर विषारीपणाचा धोका. डोस ५०% कमी करा."
+          }
+        },
+        {
+          "diplotype": "*1/*1",
+          "phenotype": "Normal Metabolizer",
+          "risk_level": "safe",
+          "headline": "Safe — Standard Chemotherapy Dosing",
+          "summary": "Normal DPYD activity.",
+          "recommendations": "Standard starting dose.",
+          "translations": {
+            "en": "Safe: Normal DPYD function.",
+            "hi": "सुरक्षित: सामान्य खुराक।",
+            "mr": "सुरक्षित: सामान्य डोस."
+          }
+        }
+      ]
+    },
+    {
+      "id": "simvastatin_slco1b1",
+      "drug": "Simvastatin",
+      "aliases": ["Zocor", "Simvotin"],
+      "gene": "SLCO1B1",
+      "evidence_grade": "CPIC Grade A Evidence",
+      "diplotype_rules": [
+        {
+          "diplotype": "*5/*5",
+          "phenotype": "Poor Function (High Myopathy Risk)",
+          "risk_level": "warning",
+          "headline": "Moderate/High Risk — Severe Muscle Toxicity / Myopathy",
+          "summary": "Decreased hepatic uptake of simvastatin resulting in elevated plasma concentrations.",
+          "recommendations": "Prescribe alternative statin (Pravastatin, Rosuvastatin) or cap Simvastatin at max 20 mg/day.",
+          "translations": {
+            "en": "Moderate Risk: High risk of muscle pain and damage (myopathy). Consider switching to Rosuvastatin.",
+            "hi": "मध्यम जोखिम: मांसपेशियों में दर्द और क्षति का जोखिम। दूसरी स्टेटिन दवा (Rosuvastatin) पर विचार करें।",
+            "mr": "मध्यम धोका: स्नायूंच्या वेदनेचा धोका. रोसुवास्टॅटिनवर स्विच करा."
+          }
+        },
+        {
+          "diplotype": "*1/*1",
+          "phenotype": "Normal Function",
+          "risk_level": "safe",
+          "headline": "Safe — Standard Statin Dosing",
+          "summary": "Normal hepatic transport of simvastatin.",
+          "recommendations": "Standard prescribed statin dosing.",
+          "translations": {
+            "en": "Safe: Normal clearance.",
+            "hi": "सुरक्षित: सामान्य खुराक।",
+            "mr": "सुरक्षित: सामान्य डोस."
+          }
+        }
+      ]
+    },
+    {
+      "id": "abacavir_hlab",
+      "drug": "Abacavir",
+      "aliases": ["Ziagen", "Epzicom", "Triumeq"],
+      "gene": "HLA-B",
+      "evidence_grade": "CPIC Grade A Evidence",
+      "diplotype_rules": [
+        {
+          "diplotype": "*57:01",
+          "phenotype": "HLA-B*57:01 Positive",
+          "risk_level": "danger",
+          "headline": "CRITICAL DANGER — Hypersensitivity Reaction (HSR)",
+          "summary": "High risk of severe multi-organ hypersensitivity reaction which can be fatal upon rechallenge.",
+          "recommendations": "Abacavir is CONTRAINDICATED. Switch to non-abacavir containing antiretroviral regimen immediately.",
+          "translations": {
+            "en": "CRITICAL DANGER: Severe multi-organ allergy risk. Abacavir must NOT be used!",
+            "hi": "गंभीर खतरा: गंभीर एलर्जिक रिएक्शन का खतरा। अबकावीर का प्रयोग पूरी तरह वर्जित है!",
+            "mr": "अतिधोकादायक: गंभीर ॲलर्जीचा धोका. हे औषध वापरू नका!"
+          }
+        },
+        {
+          "diplotype": "*Negative",
+          "phenotype": "HLA-B*57:01 Negative",
+          "risk_level": "safe",
+          "headline": "Safe — Low Risk of Hypersensitivity",
+          "summary": "HLA-B*57:01 allele negative.",
+          "recommendations": "Standard antiretroviral therapy dosing.",
+          "translations": {
+            "en": "Safe: Standard therapy.",
+            "hi": "सुरक्षित: सामान्य खुराक।",
+            "mr": "सुरक्षित: सामान्य डोस."
+          }
+        }
+      ]
+    }
+  ]
+}

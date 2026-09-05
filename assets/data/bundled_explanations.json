@@ -1,0 +1,139 @@
+{
+  "CYP2D6_PM_CODEINE": {
+    "summary": "CYP2D6 Poor Metabolizer (PM): Severe lack of Codeine bioactivation leading to therapeutic failure.",
+    "mechanism": "CYP2D6 is absent or non-functional (*4/*4 diplotype). Codeine is a prodrug requiring O-demethylation via CYP2D6 to form morphine for analgesic efficacy.",
+    "patient_friendly": "Your body cannot convert Codeine into its active pain-relieving form. Taking Codeine will not relieve your pain. Please consult your doctor for alternative non-opioid or non-CYP2D6 pain relief options.",
+    "clinician_note": "CYP2D6 PM phenotype identified. Avoid codeine use due to lack of efficacy. Select non-CYP2D6 metabolized analgesics (e.g., morphine, acetaminophen, NSAIDs) per CPIC guidelines."
+  },
+  "CYP2D6_IM_CODEINE": {
+    "summary": "CYP2D6 Intermediate Metabolizer (IM): Reduced Codeine bioactivation.",
+    "mechanism": "CYP2D6 activity is reduced (*1/*10 or *4/*10 diplotype). Conversion of Codeine to active morphine is decreased.",
+    "patient_friendly": "Your body converts Codeine into pain medication at a slower rate than normal, which may lead to reduced pain relief.",
+    "clinician_note": "CYP2D6 IM phenotype identified. Monitor for reduced analgesia. If response is inadequate, consider alternative non-CYP2D6 pain medications."
+  },
+  "CYP2D6_NM_CODEINE": {
+    "summary": "CYP2D6 Normal Metabolizer (NM): Standard Codeine metabolism and expected response.",
+    "mechanism": "CYP2D6 enzyme activity is normal (*1/*1 diplotype), allowing expected rate of codeine bioactivation to morphine.",
+    "patient_friendly": "Your body metabolizes Codeine at a normal rate. Standard label dosing is appropriate.",
+    "clinician_note": "CYP2D6 NM phenotype identified. Initiate codeine therapy at standard recommended doses per clinical guidelines."
+  },
+  "CYP2D6_RM_CODEINE": {
+    "summary": "CYP2D6 Rapid Metabolizer (RM): Increased rate of Codeine bioactivation.",
+    "mechanism": "CYP2D6 activity is elevated (*1/*2xN diplotype), accelerating conversion of codeine to morphine.",
+    "patient_friendly": "Your body processes Codeine faster than average. Use caution and watch for signs of toxicity or sedation.",
+    "clinician_note": "CYP2D6 RM phenotype identified. Increased risk of opioid toxicity. Consider starting at lower doses or utilizing non-CYP2D6 analgesics."
+  },
+  "CYP2D6_URM_CODEINE": {
+    "summary": "CYP2D6 Ultrarapid Metabolizer (URM): High risk of life-threatening morphine toxicity.",
+    "mechanism": "CYP2D6 gene duplications lead to rapid, extensive conversion of codeine into high systemic levels of morphine.",
+    "patient_friendly": "DANGER: Your body converts Codeine into active morphine extremely fast, creating a risk of overdose and dangerous drowsiness. Do not take Codeine.",
+    "clinician_note": "CYP2D6 URM phenotype identified. Toxic reaction potential high. Codeine is contraindicated per CPIC guidelines due to risk of life-threatening respiratory depression."
+  },
+
+  "CYP2C19_PM_CLOPIDOGREL": {
+    "summary": "CYP2C19 Poor Metabolizer (PM): Ineffective activation of Clopidogrel and high risk of cardiovascular events.",
+    "mechanism": "CYP2C19 loss-of-function alleles (*2/*2) prevent bioactivation of prodrug clopidogrel into active thiol metabolite, reducing antiplatelet effect.",
+    "patient_friendly": "Your genetic profile shows that Clopidogrel (Plavix) will not effectively prevent blood clots for you. Ask your doctor about alternative blood thinners like Prasugrel or Ticagrelor.",
+    "clinician_note": "CYP2C19 PM phenotype identified. Significantly reduced platelet inhibition. CPIC guidelines recommend avoiding clopidogrel and selecting prasugrel or ticagrelor."
+  },
+  "CYP2C19_IM_CLOPIDOGREL": {
+    "summary": "CYP2C19 Intermediate Metabolizer (IM): Reduced antiplatelet response to Clopidogrel.",
+    "mechanism": "CYP2C19 activity is impaired (*1/*2 diplotype), resulting in decreased active metabolite generation.",
+    "patient_friendly": "Clopidogrel may be less effective at preventing blood clots in your body. Alternative antiplatelet drugs may be recommended.",
+    "clinician_note": "CYP2C19 IM phenotype identified. Increased rate of major adverse cardiovascular events on clopidogrel. Consider alternative antiplatelet agents."
+  },
+  "CYP2C19_NM_CLOPIDOGREL": {
+    "summary": "CYP2C19 Normal Metabolizer (NM): Expected antiplatelet response to Clopidogrel.",
+    "mechanism": "CYP2C19 enzyme function is normal (*1/*1 diplotype), enabling adequate active metabolite generation.",
+    "patient_friendly": "Your body processes Clopidogrel normally to prevent blood clots. Standard dosing applies.",
+    "clinician_note": "CYP2C19 NM phenotype identified. Standard clopidogrel dosing (75 mg daily) recommended."
+  },
+  "CYP2C19_RM_CLOPIDOGREL": {
+    "summary": "CYP2C19 Rapid Metabolizer (RM): Increased activation of Clopidogrel.",
+    "mechanism": "CYP2C19 gain-of-function allele (*1/*17) increases enzyme expression and clopidogrel activation.",
+    "patient_friendly": "Your body processes Clopidogrel efficiently with normal to enhanced antiplatelet response.",
+    "clinician_note": "CYP2C19 RM phenotype identified. Standard clopidogrel therapy is appropriate; monitor for minor bleeding risk."
+  },
+  "CYP2C19_URM_CLOPIDOGREL": {
+    "summary": "CYP2C19 Ultrarapid Metabolizer (URM): Enhanced Clopidogrel activation with slight bleeding risk.",
+    "mechanism": "CYP2C19 allele duplication (*17/*17) increases active metabolite generation.",
+    "patient_friendly": "Your body activates Clopidogrel rapidly. It will be effective, but report unusual bruising or bleeding to your doctor.",
+    "clinician_note": "CYP2C19 URM phenotype identified. Standard clopidogrel dosing is effective. Monitor clinical response."
+  },
+
+  "CYP2C9_PM_WARFARIN": {
+    "summary": "CYP2C9 Poor Metabolizer (PM): Impaired Warfarin clearance leading to severe bleeding risk.",
+    "mechanism": "CYP2C9 clearance of S-warfarin is dramatically reduced (*3/*3 diplotype), causing drug accumulation and exaggerated anticoagulation.",
+    "patient_friendly": "WARNING: Your body clears Warfarin much slower than normal. Standard doses could cause severe bleeding. Lower doses and frequent INR monitoring are required.",
+    "clinician_note": "CYP2C9 PM phenotype identified. S-warfarin clearance significantly decreased. Reduce initial dose by 50-80% using CPIC pharmacogenomic dosing algorithms."
+  },
+  "CYP2C9_IM_WARFARIN": {
+    "summary": "CYP2C9 Intermediate Metabolizer (IM): Moderately reduced Warfarin clearance.",
+    "mechanism": "CYP2C9 activity is reduced (*1/*2 or *1/*3 diplotype), resulting in slower S-warfarin clearance.",
+    "patient_friendly": "Your body processes Warfarin slower than average. You will likely need a lower starting dose to avoid bleeding.",
+    "clinician_note": "CYP2C9 IM phenotype identified. Reduce starting warfarin dose by 20-40% and monitor INR closely during initiation."
+  },
+  "CYP2C9_NM_WARFARIN": {
+    "summary": "CYP2C9 Normal Metabolizer (NM): Standard Warfarin clearance.",
+    "mechanism": "CYP2C9 enzyme activity is normal (*1/*1 diplotype), resulting in expected clearance rates.",
+    "patient_friendly": "Your body processes Warfarin at a standard rate. Standard clinical dose titration applies.",
+    "clinician_note": "CYP2C9 NM phenotype identified. Calculate initial warfarin dose using standard clinical guidelines."
+  },
+
+  "SLCO1B1_POOR_SIMVASTATIN": {
+    "summary": "SLCO1B1 Poor Function: High risk of Simvastatin-induced myopathy/rhabdomyolysis.",
+    "mechanism": "OATP1B1 hepatic uptake transporter function is markedly impaired (rs4149056 CC genotype), causing high systemic simvastatin acid plasma concentrations.",
+    "patient_friendly": "DANGER: You have a high genetic risk of severe muscle damage and weakness from Simvastatin. Talk to your doctor about switching to Pravastatin or Rosuvastatin.",
+    "clinician_note": "SLCO1B1 Poor Function phenotype identified. Simvastatin 80 mg and 40 mg doses contraindicated. Prescribe lower dose (10-20 mg) or switch to alternative statin per CPIC guidelines."
+  },
+  "SLCO1B1_DECREASED_SIMVASTATIN": {
+    "summary": "SLCO1B1 Decreased Function: Moderate risk of Simvastatin muscle side effects.",
+    "mechanism": "OATP1B1 transporter activity is moderately decreased (rs4149056 TC genotype).",
+    "patient_friendly": "Your genetic profile shows a moderate risk of muscle aches with Simvastatin. A lower dose or alternative statin is recommended.",
+    "clinician_note": "SLCO1B1 Decreased Function identified. Limit simvastatin dose to ≤ 20 mg daily or consider alternative statins (e.g., rosuvastatin, atorvastatin)."
+  },
+  "SLCO1B1_NORMAL_SIMVASTATIN": {
+    "summary": "SLCO1B1 Normal Function: Standard Simvastatin transport and safety profile.",
+    "mechanism": "OATP1B1 transporter activity is normal (rs4149056 TT genotype).",
+    "patient_friendly": "Your body transports Simvastatin into the liver normally. Standard statin safety guidelines apply.",
+    "clinician_note": "SLCO1B1 Normal Function identified. Prescribe simvastatin according to standard lipid treatment guidelines."
+  },
+
+  "TPMT_PM_AZATHIOPRINE": {
+    "summary": "TPMT Poor Metabolizer (PM): Critical risk of severe, fatal bone marrow suppression.",
+    "mechanism": "TPMT enzyme activity is non-existent (*3A/*3A diplotype), leading to cytotoxic accumulation of 6-thioguanine nucleotides (6-TGN).",
+    "patient_friendly": "CRITICAL WARNING: Taking Azathioprine at normal doses will cause life-threatening low blood counts. Highly reduced dosing or alternative medication is required immediately.",
+    "clinician_note": "TPMT PM phenotype identified. Severe myelosuppression risk. Reduce dose by 10-fold (10% of standard dose) administered 3x/week, or choose non-thiopurine therapy."
+  },
+  "TPMT_IM_AZATHIOPRINE": {
+    "summary": "TPMT Intermediate Metabolizer (IM): High risk of Azathioprine bone marrow toxicity.",
+    "mechanism": "TPMT activity is reduced (*1/*3A diplotype), causing moderate 6-TGN metabolite accumulation.",
+    "patient_friendly": "Your body breaks down Azathioprine slower than average, increasing your risk of low blood cell counts. A reduced starting dose is needed.",
+    "clinician_note": "TPMT IM phenotype identified. Reduce starting dose to 30-50% of target dose and monitor CBC weekly for the first month."
+  },
+  "TPMT_NM_AZATHIOPRINE": {
+    "summary": "TPMT Normal Metabolizer (NM): Standard Azathioprine metabolism.",
+    "mechanism": "TPMT activity is normal (*1/*1 diplotype), producing standard thiopurine clearance.",
+    "patient_friendly": "Your body breaks down Azathioprine normally. Standard dosing guidelines apply.",
+    "clinician_note": "TPMT NM phenotype identified. Initiate azathioprine at standard target doses per clinical guidelines."
+  },
+
+  "DPYD_PM_FLUOROURACIL": {
+    "summary": "DPYD Poor Metabolizer (PM): Lethal toxicity risk with Fluorouracil / Capecitabine.",
+    "mechanism": "DPYD enzyme activity is completely lacking (*2A/*2A diplotype), preventing inactivation of 5-FU and causing massive toxic drug exposure.",
+    "patient_friendly": "CRITICAL WARNING: Fluorouracil (5-FU) chemotherapy is extremely dangerous for your genetic profile and could cause severe, fatal toxicity. Avoid 5-FU and ask your oncologist for alternative treatments.",
+    "clinician_note": "DPYD PM phenotype identified (DPYD activity score 0). Fluorouracil and capecitabine are strictly contraindicated per CPIC guidelines due to lethal toxicity risk."
+  },
+  "DPYD_IM_FLUOROURACIL": {
+    "summary": "DPYD Intermediate Metabolizer (IM): High risk of severe Fluorouracil toxicity.",
+    "mechanism": "DPYD activity is reduced (DPYD activity score 1.0 or 1.5), decreasing 5-FU clearance.",
+    "patient_friendly": "Your body clears Fluorouracil chemotherapy slower than normal. A dose reduction of 25-50% is required to prevent severe mouth sores, diarrhea, and low blood counts.",
+    "clinician_note": "DPYD IM phenotype identified. Reduce initial fluorouracil starting dose by 25-50% and titrate based on toxicity and therapeutic drug monitoring."
+  },
+  "DPYD_NM_FLUOROURACIL": {
+    "summary": "DPYD Normal Metabolizer (NM): Standard Fluorouracil clearance.",
+    "mechanism": "DPYD enzyme activity is normal (activity score 2.0).",
+    "patient_friendly": "Your body clears Fluorouracil normally. Standard oncology dosing protocol applies.",
+    "clinician_note": "DPYD NM phenotype identified. Prescribe fluorouracil according to standard oncology protocol."
+  }
+}
