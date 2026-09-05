@@ -9,9 +9,9 @@ import '../services/firebase_service.dart';
 import '../theme/app_theme.dart';
 
 class ChatbotScreen extends ConsumerStatefulWidget {
-  final PgxMultiReport report;
+  final PgxMultiReport? report;
 
-  const ChatbotScreen({super.key, required this.report});
+  const ChatbotScreen({super.key, this.report});
 
   @override
   ConsumerState<ChatbotScreen> createState() => _ChatbotScreenState();
@@ -22,6 +22,14 @@ class _ChatbotScreenState extends ConsumerState<ChatbotScreen> {
   final ScrollController _scrollController = ScrollController();
   final List<ChatMessage> _localMessages = [];
   bool _isSending = false;
+
+  PgxMultiReport get _report => widget.report ?? PgxMultiReport(
+        reportId: 'none',
+        patientId: 'unavailable',
+        vcfFilename: 'unavailable',
+        timestamp: DateTime.now().toIso8601String(),
+        drugReports: const [],
+      );
 
   @override
   void initState() {
@@ -37,13 +45,13 @@ class _ChatbotScreenState extends ConsumerState<ChatbotScreen> {
   }
 
   void _addInitialGreeting() {
-    final testedDrugs = widget.report.drugReports.map((d) => d.drug).join(', ');
+    final testedDrugs = _report.drugReports.map((d) => d.drug).join(', ');
     _localMessages.add(
       ChatMessage(
         id: 'msg_welcome',
         role: 'assistant',
         text:
-            'Hello! I am NoCapRX AI Assistant. I am strictly grounded to your Pharmacogenomic Report #${widget.report.reportId} covering [$testedDrugs]. How can I help clarify your results today?',
+            'Hello! I am OnCapRX AI. I explain verified OnCapRX results only. ${testedDrugs.isEmpty ? 'Run a medicine analysis first, then I can explain it.' : 'Your report covers: $testedDrugs.'}',
         timestamp: DateTime.now(),
       ),
     );
@@ -69,13 +77,12 @@ class _ChatbotScreenState extends ConsumerState<ChatbotScreen> {
 
     _scrollToBottom();
 
-    await FirebaseService.saveChatMessage(widget.report.reportId, userMessage);
+    await FirebaseService.saveChatMessage(_report.reportId, userMessage);
 
     try {
-      final botReplyText = await LlmService.askReportChatbot(
-        userQuery: text,
-        report: widget.report,
-      );
+      final botReplyText = _report.drugReports.isEmpty
+          ? 'Please run Check a Medicine first. I can explain a verified medication result after the deterministic analysis is complete.'
+          : await LlmService.askReportChatbot(userQuery: text, report: _report);
 
       final assistantMessage = ChatMessage(
         id: 'msg_${DateTime.now().millisecondsSinceEpoch + 1}',
@@ -92,7 +99,7 @@ class _ChatbotScreenState extends ConsumerState<ChatbotScreen> {
       }
 
       await FirebaseService.saveChatMessage(
-        widget.report.reportId,
+        _report.reportId,
         assistantMessage,
       );
     } catch (e) {
@@ -102,7 +109,7 @@ class _ChatbotScreenState extends ConsumerState<ChatbotScreen> {
             id: 'msg_err',
             role: 'assistant',
             text:
-                'Operating in offline grounded mode. For your evaluated medications (${widget.report.drugReports.map((r) => r.drug).join(', ')}), all safety risk evaluations are strictly derived from deterministic CPIC guidelines. Please consult your physician.',
+                'AI explanation is currently unavailable. Your medication safety result is still available. Please consult your doctor or pharmacist for medication decisions.',
             timestamp: DateTime.now(),
           ));
         });
@@ -138,7 +145,7 @@ class _ChatbotScreenState extends ConsumerState<ChatbotScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'NoCapRX AI Assistant',
+              'OnCapRX AI Assistant',
               style: GoogleFonts.inter(
                 fontSize: 16,
                 fontWeight: FontWeight.w700,
@@ -146,7 +153,7 @@ class _ChatbotScreenState extends ConsumerState<ChatbotScreen> {
               ),
             ),
             Text(
-              'Grounded to Report #${widget.report.reportId}',
+              'Explanation layer for verified OnCapRX results',
               style: GoogleFonts.inter(fontSize: 11, color: AppTheme.secondaryInk),
             ),
           ],
@@ -168,7 +175,7 @@ class _ChatbotScreenState extends ConsumerState<ChatbotScreen> {
                   const SizedBox(width: 6),
                   Flexible(
                     child: Text(
-                      'Grounded Context: AI answers questions strictly regarding drugs tested in this report.',
+                      'AI explains verified results only. It does not decide medication safety.',
                       style: GoogleFonts.inter(
                         fontSize: 11,
                         color: AppTheme.primaryDarkEmerald,
@@ -248,7 +255,7 @@ class _ChatbotScreenState extends ConsumerState<ChatbotScreen> {
                     ),
                     const SizedBox(width: 8),
                     Text(
-                      'NoCapRX AI is explaining...',
+                      'OnCapRX AI is explaining...',
                       style: GoogleFonts.inter(
                         fontSize: 12,
                         color: AppTheme.secondaryInk,

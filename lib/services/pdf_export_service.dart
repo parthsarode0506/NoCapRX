@@ -5,8 +5,24 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
 import '../models/pgx_report.dart';
+import '../models/genomic_drug_scan_report.dart';
+import 'pdf_report_service.dart';
 
 class PdfExportService {
+  static Future<void> shareGenomicScanReport(
+    GenomicDrugScanReport report,
+  ) async {
+    final file = await PdfReportService.generateGenomicDrugSafetyPdf(report);
+    await PdfReportService.sharePdf(file);
+  }
+
+  static Future<Uint8List> generateGenomicScanPdf(
+    GenomicDrugScanReport report,
+  ) async {
+    final file = await PdfReportService.generateGenomicDrugSafetyPdf(report);
+    return file.readAsBytes();
+  }
+
   /// Shares only the derived report contract. Raw VCF content is never written
   /// to the export directory or attached to a share intent.
   static Future<void> shareJsonReport(PgxMultiReport report) async {

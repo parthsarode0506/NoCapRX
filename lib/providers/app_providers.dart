@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/app_user.dart';
 import '../models/pgx_report.dart';
+import '../models/genomic_drug_scan_report.dart';
 import '../models/patient_profile.dart';
 import '../parser/vcf_parser.dart';
 import '../services/firebase_service.dart';
@@ -31,6 +32,7 @@ final customDrugTextProvider = StateProvider<String>((ref) => '');
 
 // Current Active Analysis Multi-Report
 final currentReportProvider = StateProvider<PgxMultiReport?>((ref) => null);
+final genomicScanReportProvider = StateProvider<GenomicDrugScanReport?>((ref) => null);
 
 // User Reports History Stream
 final userReportsStreamProvider = StreamProvider<List<PgxMultiReport>>((ref) {

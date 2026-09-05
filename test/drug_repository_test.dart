@@ -14,6 +14,13 @@ void main() {
     expect(DrugRepository.resolve('plavix')?.genericName, 'CLOPIDOGREL');
   });
 
+  test('resolves normalized common medicines without requiring a PGx panel rule', () {
+    expect(DrugRepository.resolve('Lipitor')?.genericName, 'ATORVASTATIN');
+    expect(DrugRepository.resolve('Glucophage')?.genericName, 'METFORMIN');
+    expect(DrugRepository.resolve('Brufen')?.genericName, 'IBUPROFEN');
+    expect(DrugRepository.resolve('Lipitor')?.ruleAvailable, isFalse);
+  });
+
   test('does not guess an unsupported medicine', () {
     expect(DrugRepository.resolve('made up medicine'), isNull);
   });

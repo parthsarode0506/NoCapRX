@@ -89,7 +89,7 @@ class FirebaseService {
     required String email,
     required String password,
     required String displayName,
-    required String role,
+    String role = 'User',
   }) async {
     if (!_initialized) {
       await init();
@@ -99,7 +99,17 @@ class FirebaseService {
       email: email.trim(),
       password: password,
     );
-    await credential.user?.updateDisplayName(displayName.trim());
+    final user = credential.user;
+    await user?.updateDisplayName(displayName.trim());
+    if (user != null) {
+      await saveUserProfile(AppUser(
+        uid: user.uid,
+        displayName: displayName.trim(),
+        email: user.email ?? email.trim(),
+        role: role,
+        createdAt: DateTime.now(),
+      ));
+    }
     return credential;
   }
 
@@ -124,9 +134,30 @@ class FirebaseService {
     }
   }
 
-  // Cloud sync stores derived reports only. Raw VCF data remains on-device.
-  static Future<void> saveUserProfile(AppUser user) async {}
-  static Future<AppUser?> getUserProfile(String uid) async => null;
+  // Cloud sync stores account metadata and derived reports only. Raw VCF data remains on-device.
+  static Future<void> saveUserProfile(AppUser user) async {
+    if (!_initialized) return;
+    try {
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .set(user.toJson(), SetOptions(merge: true));
+    } on FirebaseException catch (error) {
+      debugPrint('User profile sync unavailable: ${error.code}');
+    }
+  }
+
+  static Future<AppUser?> getUserProfile(String uid) async {
+    if (!_initialized) return null;
+    try {
+      final snapshot = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+      final data = snapshot.data();
+      return data == null ? null : AppUser.fromJson(data);
+    } on FirebaseException catch (error) {
+      debugPrint('User profile unavailable: ${error.code}');
+      return null;
+    }
+  }
   static Future<void> saveReport(PgxMultiReport report) async {
     await LocalReportService.save(report);
     final user = currentUser;

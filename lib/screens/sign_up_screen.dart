@@ -22,7 +22,6 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
 
-  String _selectedRole = 'Patient';
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
   bool _isLoading = false;
@@ -70,7 +69,7 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
         email: _emailController.text,
         password: _passwordController.text,
         displayName: _nameController.text.trim(),
-        role: _selectedRole,
+        role: 'User',
       );
 
       final user = cred.user;
@@ -83,7 +82,7 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
 
       if (mounted) {
         Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const HomeScreen()),
+              MaterialPageRoute(builder: (_) => const HomeScreen()),
           (route) => false,
         );
       }
@@ -120,7 +119,7 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
 
         if (mounted) {
           Navigator.of(context).pushAndRemoveUntil(
-            MaterialPageRoute(builder: (_) => const HomeScreen()),
+                MaterialPageRoute(builder: (_) => const HomeScreen()),
             (route) => false,
           );
         }
@@ -289,37 +288,6 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
                       ),
                       const SizedBox(height: 16),
 
-                      // Role Selector Segmented Control
-                      Text(
-                        'Account Type',
-                        style: GoogleFonts.inter(
-                          fontSize: 13.5,
-                          fontWeight: FontWeight.w600,
-                          color: AppTheme.deepInk,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      SegmentedButton<String>(
-                        segments: const [
-                          ButtonSegment(
-                            value: 'Patient',
-                            label: Text('Patient'),
-                            icon: Icon(Icons.person_outline_rounded, size: 18),
-                          ),
-                          ButtonSegment(
-                            value: 'Clinician',
-                            label: Text('Clinician'),
-                            icon: Icon(Icons.medical_services_outlined, size: 18),
-                          ),
-                        ],
-                        selected: {_selectedRole},
-                        onSelectionChanged: (Set<String> newSelection) {
-                          setState(() {
-                            _selectedRole = newSelection.first;
-                          });
-                        },
-                      ),
-                      const SizedBox(height: 16),
 
                       // Password Field
                       Text(
@@ -665,7 +633,7 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
 
         // Heading & Subtitle
         Text(
-          'Create your NoCapRX account',
+          'Create your OnCapRX account',
           style: GoogleFonts.inter(
             fontSize: 23,
             fontWeight: FontWeight.w800,

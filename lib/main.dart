@@ -4,6 +4,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 import 'services/firebase_service.dart';
 import 'services/local_discovery_cache.dart';
+import 'services/medicine_analysis_service.dart';
 import 'screens/splash_screen.dart';
 import 'theme/app_theme.dart';
 
@@ -23,21 +24,22 @@ void main() async {
   }
 
   await LocalDiscoveryCache.init();
+  await MedicineAnalysisService.instance.initialize();
 
   runApp(
     const ProviderScope(
-      child: NoCapRxApp(),
+      child: OnCapRxApp(),
     ),
   );
 }
 
-class NoCapRxApp extends StatelessWidget {
-  const NoCapRxApp({super.key});
+class OnCapRxApp extends StatelessWidget {
+  const OnCapRxApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'NoCapRX',
+      title: 'OnCapRX',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,

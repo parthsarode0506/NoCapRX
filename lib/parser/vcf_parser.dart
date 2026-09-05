@@ -48,6 +48,9 @@ class VcfParser {
     'SLCO1B1',
     'TPMT',
     'DPYD',
+    'CYP3A5',
+    'HLA-B',
+    'UGT1A1',
   };
 
   static const Map<String, Map<String, String>> _validatedVariantAlleles = {
@@ -57,6 +60,9 @@ class VcfParser {
     'SLCO1B1': {'RS4149056': '*5'},
     'TPMT': {'RS1800460': '*3B', 'RS1142345': '*3C'},
     'DPYD': {'RS3918290': '*2A', 'RS67376798': '*13'},
+    'CYP3A5': {'RS776746': '*3'},
+    'HLA-B': {'RS3909184': '*15:02'},
+    'UGT1A1': {'RS8175347': '*28'},
   };
 
   /// Parses raw VCF string content and returns structured PGx genomic data.

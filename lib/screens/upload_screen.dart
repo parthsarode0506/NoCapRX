@@ -1,15 +1,24 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
 
 import '../providers/app_providers.dart';
 import '../parser/vcf_parser.dart';
-import 'patient_profile_screen.dart';
+import '../services/genomic_drug_scan_service.dart';
+import 'genomic_scan_screen.dart';
+import 'drug_input_screen.dart';
+import 'home_screen.dart';
 
 class UploadScreen extends ConsumerStatefulWidget {
-  const UploadScreen({super.key});
+  final bool returnToMedicine;
+  final bool returnToDashboard;
+
+  const UploadScreen({
+    super.key,
+    this.returnToMedicine = false,
+    this.returnToDashboard = true,
+  });
 
   @override
   ConsumerState<UploadScreen> createState() => _UploadScreenState();
@@ -62,47 +71,28 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
         ref.read(selectedVcfFilenameProvider.notifier).state = name;
         ref.read(selectedVcfContentProvider.notifier).state = content;
         ref.read(vcfParseResultProvider.notifier).state = parseResult;
+        ref.read(genomicScanReportProvider.notifier).state = GenomicDrugScanService.scan(
+          parseResult: parseResult,
+          vcfFilename: name,
+        );
 
         setState(() {
           _isValid = true;
           _errorMessage = null;
         });
+
+        if (widget.returnToMedicine && mounted) {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => const DrugInputScreen()),
+          );
+        } else if (widget.returnToDashboard && mounted) {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => const HomeScreen()),
+          );
+        }
       }
     } catch (e) {
       _setError('VCF Parsing Error: ${e.toString()}');
-    } finally {
-      setState(() {
-        _isProcessing = false;
-      });
-    }
-  }
-
-  Future<void> _loadSampleVcf(String assetPath, String sampleName) async {
-    setState(() {
-      _errorMessage = null;
-      _isProcessing = true;
-    });
-
-    try {
-      final content = await rootBundle.loadString(assetPath);
-
-      if (sampleName.contains('malformed')) {
-        // Will throw VcfParseException
-        VcfParser.parseVcfContent(content);
-      }
-
-      final parseResult = VcfParser.parseVcfContent(content);
-
-      ref.read(selectedVcfFilenameProvider.notifier).state = sampleName;
-      ref.read(selectedVcfContentProvider.notifier).state = content;
-      ref.read(vcfParseResultProvider.notifier).state = parseResult;
-
-      setState(() {
-        _isValid = true;
-        _errorMessage = null;
-      });
-    } catch (e) {
-      _setError('Sample Error ($sampleName): ${e.toString()}');
     } finally {
       setState(() {
         _isProcessing = false;
@@ -130,6 +120,26 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
     });
   }
 
+  void _scanAllDrugRisks() {
+    final parseResult = ref.read(vcfParseResultProvider);
+    final filename = ref.read(selectedVcfFilenameProvider);
+    if (parseResult == null || filename == null) return;
+    final report = GenomicDrugScanService.scan(
+      parseResult: parseResult,
+      vcfFilename: filename,
+    );
+    ref.read(genomicScanReportProvider.notifier).state = report;
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => GenomicScanScreen(report: report)),
+    );
+  }
+
+  void _checkMedicine() {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const DrugInputScreen()),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -147,7 +157,7 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                'Step 1: Select Patient VCF File',
+                'Analyze Your Genetic Profile',
                 style: theme.textTheme.headlineSmall?.copyWith(
                   fontWeight: FontWeight.bold,
                   color: theme.colorScheme.primary,
@@ -155,7 +165,7 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
               ),
               const SizedBox(height: 6),
               const Text(
-                'PharmaGuard processes genetic data 100% on your device. Raw VCF lines are never uploaded to cloud servers.',
+                'Upload your VCF file to identify pharmacogenomic information relevant to medicines. Raw VCF data is processed on this device.',
                 style: TextStyle(color: Colors.grey, fontSize: 13),
               ),
               const SizedBox(height: 24),
@@ -283,80 +293,27 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
                 ),
                 const SizedBox(height: 24),
               ],
+              if (_isValid && filename != null) ...[
+                FilledButton.icon(
+                  onPressed: _isProcessing ? null : _checkMedicine,
+                  icon: const Icon(Icons.medication_outlined),
+                  label: const Text('CHECK A MEDICINE'),
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  onPressed: _isProcessing ? null : _scanAllDrugRisks,
+                  icon: const Icon(Icons.manage_search),
+                  label: const Text('CHECK MY MEDICATION RISKS'),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Both checks use the validated local medical engine. Raw VCF data stays on this device.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                const SizedBox(height: 20),
+              ],
 
-              // Quick Sample Files for Testing Section
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade100,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.grey.shade300),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Demo Test Samples:',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                    ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        ActionChip(
-                          avatar: const Icon(Icons.check_circle_outline, size: 16, color: Colors.green),
-                          label: const Text('Clean VCF Sample'),
-                          onPressed: () => _loadSampleVcf('assets/samples/sample_clean.vcf', 'sample_clean.vcf'),
-                        ),
-                        ActionChip(
-                          avatar: const Icon(Icons.warning_amber_outlined, size: 16, color: Colors.orange),
-                          label: const Text('Missing INFO Sample'),
-                          onPressed: () => _loadSampleVcf('assets/samples/sample_missing_info.vcf', 'sample_missing_info.vcf'),
-                        ),
-                        ActionChip(
-                          avatar: const Icon(Icons.error_outline, size: 16, color: Colors.red),
-                          label: const Text('Malformed Sample'),
-                          onPressed: () => _loadSampleVcf('assets/samples/sample_malformed.vcf', 'sample_malformed.vcf'),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 32),
-
-              // Next Button
-              ElevatedButton(
-                onPressed: _isValid
-                    ? () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => const PatientProfileScreen(isInitialSetup: true),
-                          ),
-                        );
-                      }
-                    : null,
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  backgroundColor: theme.colorScheme.primary,
-                  foregroundColor: Colors.white,
-                ),
-                child: const Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      'Next: Set Up Health Profile',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                    ),
-                    SizedBox(width: 8),
-                    Icon(Icons.arrow_forward),
-                  ],
-                ),
-              ),
             ],
           ),
         ),

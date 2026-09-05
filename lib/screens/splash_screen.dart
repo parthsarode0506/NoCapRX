@@ -38,9 +38,9 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
         if (profile != null) {
           ref.read(userProfileProvider.notifier).state = profile;
         }
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const HomeScreen()),
-        );
+        Navigator.of(context).pushReplacement(MaterialPageRoute(
+          builder: (_) => const HomeScreen(),
+        ));
       }
       return;
     }
@@ -81,7 +81,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
             ),
             const SizedBox(height: 24),
             Text(
-              'PharmaGuard',
+              'OnCapRX',
               style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                     fontWeight: FontWeight.bold,
                     color: Theme.of(context).colorScheme.onPrimaryContainer,
@@ -90,7 +90,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
             ),
             const SizedBox(height: 6),
             Text(
-              'OnDeviceRx Pharmacogenomics Safety Engine',
+              'Know your genes. Understand your medicines.',
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     color: Theme.of(context).colorScheme.onPrimaryContainer.withValues(alpha: 0.8),
                   ),

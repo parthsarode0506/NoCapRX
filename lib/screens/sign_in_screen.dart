@@ -57,9 +57,9 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
       }
 
       if (mounted) {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const HomeScreen()),
-        );
+        Navigator.of(context).pushReplacement(MaterialPageRoute(
+          builder: (_) => const HomeScreen(),
+        ));
       }
     } catch (e) {
       if (mounted) {
@@ -83,9 +83,9 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
         backgroundColor: AppTheme.primaryEmerald,
       ),
     );
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => const HomeScreen()),
-    );
+      Navigator.of(context).pushReplacement(MaterialPageRoute(
+        builder: (_) => const HomeScreen(),
+      ));
   }
 
   Future<void> _handleGoogleSignIn() async {
@@ -106,7 +106,7 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
 
         if (mounted) {
           Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (_) => const HomeScreen()),
+            MaterialPageRoute(builder: (_) => const SignUpScreen()),
           );
         }
       }

@@ -40,7 +40,7 @@ Create a `.env` file in the project root directory (copied from `.env.example`):
 ```bash
 GEMINI_API_KEY=your_actual_gemini_api_key_here
 ```
-*Note: If no API key is supplied or if offline, PharmaGuard automatically falls back to local pre-bundled JSON explanations and canned Q&A pairs for live hackathon demos.*
+*Note: If no API key is supplied or if offline, PharmaGuard keeps the deterministic medication analysis available and shows a clear AI-unavailable message.*
 
 ### 2. Firebase Configuration
 1. Register an Android/iOS app in your [Firebase Console](https://console.firebase.google.com/).
@@ -62,12 +62,6 @@ flutter run
 
 ---
 
-## 🧪 Demo Test Samples
-
-Three sample VCF test files are bundled in `assets/samples/` for demonstrating parser validation & error handling in the UI:
-1. `sample_clean.vcf` — Clean VCF with target genes (`CYP2D6`, `CYP2C19`, `CYP2C9`, `SLCO1B1`, `TPMT`, `DPYD`), star-alleles, and rsIDs.
-2. `sample_missing_info.vcf` — Missing `##INFO` header definitions to test quality metric completeness warnings.
-3. `sample_malformed.vcf` — Corrupt structure file to verify graceful inline error handling.
 
 ---
 

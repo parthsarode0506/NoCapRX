@@ -143,6 +143,22 @@ class DrugRepository {
         return drug;
       }
     }
+
+    // The normalization dictionary is broader than the curated PGx panel.
+    // A confidently recognized medicine is still verified even when no
+    // drug-gene rule is available; the rule engine will perform clinical-only
+    // checks and must not invent a PGx relationship.
+    if (identity.verified && identity.genericName != 'UNKNOWN') {
+      return DrugMetadata(
+        genericName: identity.genericName,
+        displayName: identity.displayName,
+        aliases: identity.aliases,
+        genes: const [],
+        requiredClinicalData: const [],
+        evidenceSource: 'Local medicine identity dictionary; no local PGx rule configured.',
+        ruleAvailable: false,
+      );
+    }
     return null;
   }
 

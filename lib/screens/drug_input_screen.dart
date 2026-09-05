@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../providers/app_providers.dart';
 import '../rules_engine/cpic_rule_engine.dart';
-import '../services/llm_service.dart';
+import '../services/groq_ai_service.dart';
 import '../services/firebase_service.dart';
 import '../services/drug_repository.dart';
 import '../services/online_evidence_service.dart';
@@ -12,8 +14,12 @@ import '../services/medicine_normalization_service.dart';
 import '../models/pgx_report.dart';
 import '../models/drug_evidence.dart';
 import '../models/patient_profile.dart';
+import '../models/personalized_side_effect_risk.dart';
 import '../services/patient_profile_service.dart';
 import '../services/personalized_side_effect_engine.dart';
+import '../services/universal_medicine_safety_engine.dart';
+import '../services/prescription_ocr_service.dart';
+import '../services/medicine_analysis_service.dart';
 import 'results_screen.dart';
 
 class DrugInputScreen extends ConsumerStatefulWidget {
@@ -29,19 +35,12 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
   final List<_ProgressStep> _progressSteps = [];
   String? _onlineEvidenceMessage;
   Uri? _onlineEvidenceUrl;
+  bool _isReadingPrescription = false;
+  String? _prescriptionMessage;
 
   // Map to hold discovered evidence per drug for the current analysis run
   final Map<String, DrugEvidence> _discoveredEvidence = {};
   final Map<String, String> _clinicalData = {};
-
-  static const List<Map<String, String>> supportedDrugs = [
-    {'drug': 'CODEINE', 'gene': 'CYP2D6', 'type': 'Opioid Analgesic'},
-    {'drug': 'WARFARIN', 'gene': 'CYP2C9', 'type': 'Anticoagulant'},
-    {'drug': 'CLOPIDOGREL', 'gene': 'CYP2C19', 'type': 'Antiplatelet'},
-    {'drug': 'SIMVASTATIN', 'gene': 'SLCO1B1', 'type': 'Statin Lipid Lowering'},
-    {'drug': 'AZATHIOPRINE', 'gene': 'TPMT', 'type': 'Immunosuppressant'},
-    {'drug': 'FLUOROURACIL', 'gene': 'DPYD', 'type': 'Oncology Chemotherapy'},
-  ];
 
   @override
   void dispose() {
@@ -67,10 +66,96 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
     });
   }
 
+  Future<void> _readPrescriptionFromCamera() async {
+    final image = await ImagePicker().pickImage(source: ImageSource.camera);
+    if (image != null) await _readPrescription(image.path);
+  }
+
+  Future<void> _readPrescriptionFromFile() async {
+    final result = await FilePicker.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['jpg', 'jpeg', 'png'],
+    );
+    final path = result.isEmpty ? null : result.first.path;
+    if (path != null) await _readPrescription(path);
+  }
+
+  Future<void> _readPrescription(String path) async {
+    setState(() {
+      _isReadingPrescription = true;
+      _prescriptionMessage = null;
+    });
+    try {
+      final text = await PrescriptionOcrService.extractText(path);
+      final candidates = _medicineCandidates(text);
+      if (!mounted) return;
+      if (candidates.isEmpty) {
+        setState(() => _prescriptionMessage = 'No confidently recognized medicines were found. Enter the exact medicine name manually.');
+        return;
+      }
+      final confirmed = await showDialog<String>(
+        context: context,
+        builder: (dialogContext) {
+          final controller = TextEditingController(text: candidates.join(', '));
+          return AlertDialog(
+            title: const Text('Confirm medicines'),
+            content: Column(mainAxisSize: MainAxisSize.min, children: [
+              const Text('OCR found these possible medicines. Edit the list before analysis.'),
+              const SizedBox(height: 12),
+              TextField(controller: controller, maxLines: 4, decoration: const InputDecoration(border: OutlineInputBorder(), hintText: 'Medicine names separated by commas')),
+            ]),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+              FilledButton(onPressed: () => Navigator.pop(dialogContext, controller.text), child: const Text('Use medicines')),
+            ],
+          );
+        },
+      );
+      if (confirmed != null && confirmed.trim().isNotEmpty) {
+        setState(() {
+          _customDrugController.text = confirmed;
+          _prescriptionMessage = 'Medicines added from prescription. Review the names, then analyze.';
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _prescriptionMessage = 'Prescription image could not be read. Enter the medicine name manually.');
+    } finally {
+      if (mounted) setState(() => _isReadingPrescription = false);
+    }
+  }
+
+  List<String> _medicineCandidates(String text) {
+    final found = <String>{};
+    final phrases = text
+        .split(RegExp(r'[\r\n,;:]+'))
+        .map((line) => line.replaceAll(RegExp(r'\b\d+(?:\.\d+)?\s*(?:mg|mcg|g|ml|%)\b', caseSensitive: false), '').trim())
+        .where((line) => line.isNotEmpty);
+    for (final phrase in phrases) {
+      final metadata = DrugRepository.resolve(phrase);
+      if (metadata != null) found.add(metadata.displayName);
+      final words = phrase.split(RegExp(r'\s+'));
+      for (var length = 3; length >= 1; length--) {
+        for (var start = 0; start + length <= words.length; start++) {
+          final candidate = words.sublist(start, start + length).join(' ');
+          final match = DrugRepository.resolve(candidate);
+          if (match != null) found.add(match.displayName);
+        }
+      }
+    }
+    return found.toList();
+  }
+
   Future<void> _runPipeline() async {
+    await MedicineAnalysisService.instance.ensureReady();
+    if (!mounted) return;
     final parseResult = ref.read(vcfParseResultProvider);
     final selectedDrugs = ref.read(selectedDrugsProvider);
     final customDrugText = _customDrugController.text.trim();
+    final enteredMedicines = customDrugText
+      .split(RegExp(r'[,\n]'))
+      .map((medicine) => medicine.trim())
+      .where((medicine) => medicine.isNotEmpty)
+      .toList();
 
     if (parseResult == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -90,17 +175,18 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
       ref.read(patientProfileProvider.notifier).state = savedProfile;
     }
 
-    if (customDrugText.isNotEmpty) {
+    if (enteredMedicines.isNotEmpty) {
       setState(() {
         _isAnalyzing = true;
         _progressSteps.clear();
       });
 
-      _addProgress('🔎', 'Searching local medicine database...');
+      for (final enteredMedicine in enteredMedicines) {
+      _addProgress('🔎', 'Searching for $enteredMedicine...');
       await Future.delayed(const Duration(milliseconds: 300));
 
       // Step 1: Normalize and resolve locally
-      final identity = MedicineNormalizationService.identify(customDrugText);
+      final identity = MedicineNormalizationService.identify(enteredMedicine);
 
       // Check if ambiguous — prompt user to pick
       if (identity.isAmbiguous && mounted) {
@@ -109,7 +195,7 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Ambiguous medicine name: "$customDrugText". Please enter a more specific name.',
+              'Ambiguous medicine name: "$enteredMedicine". Please enter a more specific name.',
             ),
             backgroundColor: Colors.orange,
           ),
@@ -117,27 +203,25 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
         return;
       }
 
-      final metadata = DrugRepository.resolve(customDrugText);
-      final resolvedLocal = CpicRuleEngine.resolveDrugName(customDrugText) ??
+      final metadata = DrugRepository.resolve(enteredMedicine);
+      final resolvedLocal = CpicRuleEngine.resolveDrugName(enteredMedicine) ??
           metadata?.genericName;
 
-      if (resolvedLocal != null && metadata?.ruleAvailable == true) {
-        // Found locally with a validated rule
+      if (resolvedLocal != null && metadata != null) {
+        // Found in the structured local medicine catalogue. A known medicine
+        // without a PGx rule is still verified and can receive a clinical-only assessment.
         _markLastDone();
-        _addProgress('✓', 'Found in local validated database', done: true);
+        _addProgress('✓', 'Medicine verified in local database', done: true);
         drugsToEvaluate.add(resolvedLocal);
 
-        // If metadata exists, convert to DrugEvidence for the engine
-        if (metadata != null) {
-          _discoveredEvidence[resolvedLocal] = DrugRepository.toDrugEvidence(metadata);
-        }
+        _discoveredEvidence[resolvedLocal] = DrugRepository.toDrugEvidence(metadata);
       } else {
         // Not found locally — go online
         _markLastDone();
         _addProgress('🌐', 'Identifying medicine online...');
         await Future.delayed(const Duration(milliseconds: 200));
 
-        final online = await OnlineEvidenceService.discover(customDrugText);
+        final online = await OnlineEvidenceService.discover(enteredMedicine);
 
         if (mounted) {
           _markLastDone();
@@ -161,11 +245,20 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
               _onlineEvidenceUrl = online.sourceUrl;
             });
           } else {
-            // Fully unknown — still add it for a transparent Unknown report
             _addProgress('⚠️', online.message, done: true);
-            drugsToEvaluate.add(customDrugText.toUpperCase());
+            if (mounted) {
+              setState(() => _isAnalyzing = false);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Medicine Not Verified. PharmaGuard could not confidently identify this medicine.'),
+                  backgroundColor: Colors.orange,
+                ),
+              );
+            }
+            return;
           }
         }
+      }
       }
     }
 
@@ -232,21 +325,41 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
         _addProgress('⚙️', 'Applying clinical rule for $drug...');
         await Future.delayed(const Duration(milliseconds: 150));
 
-        // LLM Explanation Generation (with offline asset fallback)
+        final personalizedSideEffects = evidence == null
+          ? <PersonalizedSideEffectRisk>[]
+            : PersonalizedSideEffectEngine.evaluate(evidence, _clinicalData);
+        final clinicalFindings = UniversalMedicineSafetyEngine.evaluateAll(
+          drug,
+          _clinicalData,
+        );
+
+        // AI receives derived findings only. It never receives raw VCF content.
         final gene = initialReport.pharmacogenomicProfile.primaryGene;
         final phenotype = initialReport.pharmacogenomicProfile.phenotype;
         final riskLabel = initialReport.riskAssessment.riskLabel;
-        final mechanism = initialReport.llmGeneratedExplanation.mechanism;
         final cpicRec =
             initialReport.clinicalRecommendation.dosingRecommendation;
 
-        final llmResultMap = await LlmService.generateExplanation(
-          gene: gene,
-          phenotype: phenotype,
-          drug: drug,
-          riskLabel: riskLabel,
-          mechanism: mechanism,
-          cpicRec: cpicRec,
+        final llmResultMap = await GroqAIService().generateExplanation(
+          userRole: 'patient',
+          medicalResult: {
+            'medicine': drug,
+            'verificationStatus': evidence?.verifiedMedicine == false
+                ? 'Medicine Not Verified'
+                : 'verified',
+            'riskLabel': riskLabel,
+            'severity': initialReport.riskAssessment.severity,
+            'gene': gene,
+            if (phenotype != 'Unknown') 'phenotype': phenotype,
+            if (initialReport.pharmacogenomicProfile.diplotype != 'Unknown')
+              'diplotype': initialReport.pharmacogenomicProfile.diplotype,
+            'recommendation': cpicRec,
+            'interactions': clinicalFindings.map((finding) => finding.toJson()).toList(),
+            'personalizedSideEffects': personalizedSideEffects
+                .map((risk) => risk.toJson())
+                .toList(),
+            if (evidence != null) 'evidenceSources': evidence.evidenceSources,
+          },
         );
 
         final fullReport = PgxReport(
@@ -259,9 +372,7 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
           llmGeneratedExplanation: LlmExplanation.fromJson(llmResultMap),
           qualityMetrics: initialReport.qualityMetrics,
           evidence: evidence,
-          personalizedSideEffects: evidence == null
-              ? const []
-              : PersonalizedSideEffectEngine.evaluate(evidence, _clinicalData),
+            personalizedSideEffects: personalizedSideEffects,
         );
 
         generatedReports.add(fullReport);
@@ -410,8 +521,6 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final selectedDrugs = ref.watch(selectedDrugsProvider);
-
     return Scaffold(
       appBar: AppBar(title: const Text('Select Target Drugs')),
       body: SafeArea(
@@ -436,85 +545,54 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
                   ),
                   const SizedBox(height: 24),
 
-                  // Supported Drugs Selection Chips
                   Text(
-                    'Supported Panel Drugs (6)',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
+                    'Add a prescription',
+                    style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'Scan a clear prescription image, then confirm the medicine names before analysis.',
+                    style: TextStyle(color: Colors.grey, fontSize: 12),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _isReadingPrescription ? null : _readPrescriptionFromFile,
+                        icon: const Icon(Icons.photo_library_outlined),
+                        label: const Text('Choose image'),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-
-                  Column(
-                    children: supportedDrugs.map((item) {
-                      final drug = item['drug']!;
-                      final gene = item['gene']!;
-                      final type = item['type']!;
-                      final isSelected = selectedDrugs.contains(drug);
-
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        decoration: BoxDecoration(
-                          color: isSelected
-                              ? theme.colorScheme.primaryContainer.withValues(
-                                  alpha: 0.4,
-                                )
-                              : Colors.grey.shade50,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: isSelected
-                                ? theme.colorScheme.primary
-                                : Colors.grey.shade300,
-                            width: isSelected ? 1.5 : 1.0,
-                          ),
-                        ),
-                        child: CheckboxListTile(
-                          value: isSelected,
-                          title: Text(
-                            drug,
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: isSelected
-                                  ? theme.colorScheme.primary
-                                  : Colors.black87,
-                            ),
-                          ),
-                          subtitle: Text(
-                            'Primary Gene: $gene • $type',
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                          activeColor: theme.colorScheme.primary,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          onChanged: (bool? checked) {
-                            final current = Set<String>.from(
-                              ref.read(selectedDrugsProvider),
-                            );
-                            if (checked == true) {
-                              current.add(drug);
-                            } else {
-                              current.remove(drug);
-                            }
-                            ref.read(selectedDrugsProvider.notifier).state =
-                                current;
-                          },
-                        ),
-                      );
-                    }).toList(),
-                  ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _isReadingPrescription ? null : _readPrescriptionFromCamera,
+                        icon: const Icon(Icons.camera_alt_outlined),
+                        label: const Text('Use camera'),
+                      ),
+                    ),
+                  ]),
+                  if (_isReadingPrescription) ...[
+                    const SizedBox(height: 10),
+                    const LinearProgressIndicator(),
+                    const SizedBox(height: 6),
+                    const Text('Reading prescription image on this device...'),
+                  ],
+                  if (_prescriptionMessage != null) ...[
+                    const SizedBox(height: 8),
+                    Text(_prescriptionMessage!, style: const TextStyle(color: Colors.teal, fontSize: 12)),
+                  ],
                   const SizedBox(height: 24),
 
-                  // Optional Custom Free-Text Drug Field
                   Text(
-                    'Any Medicine (Generic or Brand Name)',
+                    'Enter medicine name',
                     style: theme.textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.bold,
                     ),
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Enter any medicine — PharmaGuard will search local & online pharmacogenomic evidence.',
+                    'Use a generic name, brand name, active ingredient, or supported alias.',
                     style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
                   ),
                   const SizedBox(height: 8),
@@ -525,10 +603,10 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
                       _onlineEvidenceUrl = null;
                     }),
                     decoration: InputDecoration(
-                      hintText: 'e.g. Tacrolimus, Plavix, Ibuprofen, Azithromycin',
+                      hintText: 'e.g. Clopidogrel, Codeine, Warfarin',
                       prefixIcon: const Icon(Icons.medication_outlined),
-                      helperText:
-                          'Supports generic names, brand names, and aliases. Online evidence discovery for unlisted drugs.',
+                        helperText:
+                          'Enter one medicine, or separate multiple medicines with commas.',
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
@@ -602,9 +680,7 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
-                      onPressed:
-                          selectedDrugs.isEmpty &&
-                              _customDrugController.text.trim().isEmpty
+                        onPressed: _customDrugController.text.trim().isEmpty
                           ? null
                           : _runPipeline,
                       style: ElevatedButton.styleFrom(
