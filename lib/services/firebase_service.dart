@@ -1,16 +1,18 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 
+import '../firebase_options.dart';
 import '../models/app_user.dart';
 import '../models/chat_message.dart';
 import '../models/pgx_report.dart';
+import 'local_report_service.dart';
 
-/// Firebase Auth is optional cloud functionality. VCF parsing and PGx analysis
-/// remain local and no raw genomic content is sent to Firebase.
+/// Firebase Auth service handling real cloud authentication.
+/// VCF parsing and genomic analysis remain on-device and private.
 class FirebaseService {
-  static final FirebaseAuth _auth = FirebaseAuth.instance;
+  static FirebaseAuth get _auth => FirebaseAuth.instance;
   static bool _initialized = false;
 
   static bool get isCloudAvailable => _initialized;
@@ -22,54 +24,46 @@ class FirebaseService {
   static Future<void> init() async {
     try {
       if (Firebase.apps.isEmpty) {
-        if (kIsWeb) {
-          final apiKey = dotenv.env['FIREBASE_API_KEY'] ?? 'AIzaSyDgs2zWU4ZLAMc0th-8IezaEnQBTAm1IjQ';
-          final appId = dotenv.env['FIREBASE_APP_ID'] ?? '1:525855030557:android:9eb65b4222ae899309f5f4';
-          final projectId = dotenv.env['FIREBASE_PROJECT_ID'] ?? 'on-devicerx';
-          final messagingSenderId = dotenv.env['FIREBASE_PROJECT_NUMBER'] ?? '525855030557';
-          final storageBucket = dotenv.env['FIREBASE_STORAGE_BUCKET'] ?? 'on-devicerx.firebasestorage.app';
-
+        try {
           await Firebase.initializeApp(
-            options: FirebaseOptions(
-              apiKey: apiKey,
-              appId: appId,
-              messagingSenderId: messagingSenderId,
-              projectId: projectId,
-              storageBucket: storageBucket,
-            ),
+            options: DefaultFirebaseOptions.currentPlatform,
           );
-        } else {
+        } catch (e) {
+          debugPrint('Firebase.initializeApp with options failed: $e; trying default binding...');
           await Firebase.initializeApp();
         }
       }
       _initialized = true;
-      debugPrint('Firebase Auth initialized successfully.');
+      debugPrint('Firebase Auth initialized successfully for project on-devicerx.');
     } catch (error) {
       _initialized = false;
-      debugPrint('Firebase unavailable; continuing in local mode: $error');
+      debugPrint('Firebase initialization failed: $error');
     }
   }
 
   static String mapAuthError(Object error) {
     if (error is FirebaseAuthException) {
+      debugPrint('FirebaseAuthException [${error.code}]: ${error.message}');
       switch (error.code) {
         case 'user-not-found':
-          return 'No account found for this email address.';
+          return 'No account found for this email. If you are new, tap "Sign Up" below to create an account.';
         case 'wrong-password':
         case 'invalid-credential':
-          return 'Incorrect email or password.';
+          return 'Incorrect email or password. If you do not have an account yet, tap "Sign Up" below.';
         case 'invalid-email':
-          return 'Enter a valid email address.';
+          return 'Please enter a valid email address.';
         case 'email-already-in-use':
-          return 'An account with this email already exists.';
+          return 'An account with this email already exists. Please Sign In instead.';
         case 'weak-password':
           return 'Password must be at least 6 characters long.';
         case 'network-request-failed':
-          return 'Network error. Check your internet connection.';
+          return 'Network error: Cannot reach Firebase. Check your phone Wi-Fi or mobile data.';
         case 'operation-not-allowed':
-          return 'Email/password sign-in is disabled in Firebase Console.';
+          return 'Email/Password provider is disabled in Firebase Console. Go to Firebase Console -> Authentication -> Sign-in method and enable "Email/Password".';
         case 'too-many-requests':
-          return 'Too many attempts. Try again later.';
+          return 'Too many attempts. Please wait a moment and try again.';
+        case 'channel-error':
+          return 'Please enter both your email address and password.';
         default:
           return error.message ?? 'Authentication failed (${error.code}).';
       }
@@ -81,8 +75,11 @@ class FirebaseService {
     String email,
     String password,
   ) async {
+    if (!_initialized) {
+      await init();
+    }
     _requireAuth();
-    return _auth.signInWithEmailAndPassword(
+    return await _auth.signInWithEmailAndPassword(
       email: email.trim(),
       password: password,
     );
@@ -94,6 +91,9 @@ class FirebaseService {
     required String displayName,
     required String role,
   }) async {
+    if (!_initialized) {
+      await init();
+    }
     _requireAuth();
     final credential = await _auth.createUserWithEmailAndPassword(
       email: email.trim(),
@@ -103,29 +103,98 @@ class FirebaseService {
     return credential;
   }
 
-  /// Google provider is intentionally unavailable until an OAuth client is
-  /// configured for this Android package. Email/password remains supported.
+  /// Google Sign-In requires an SHA-1 fingerprint registered in Firebase Console
   static Future<UserCredential?> signInWithGoogle() async {
     throw StateError(
-      'Google Sign-In requires an Android OAuth client configuration. Use email/password sign-in.',
+      'Google Sign-In requires SHA-1 fingerprint in Firebase Console. Please use Email/Password sign-in or Sign Up.',
     );
   }
 
   static Future<void> sendPasswordReset(String email) async {
+    if (!_initialized) {
+      await init();
+    }
     _requireAuth();
     await _auth.sendPasswordResetEmail(email: email.trim());
   }
 
   static Future<void> signOut() async {
-    if (_initialized) await _auth.signOut();
+    if (_initialized) {
+      await _auth.signOut();
+    }
   }
 
-  // Cloud profile/report sync is disabled so raw VCF and derived health data
-  // are not uploaded without an explicit backend privacy configuration.
+  // Cloud sync stores derived reports only. Raw VCF data remains on-device.
   static Future<void> saveUserProfile(AppUser user) async {}
   static Future<AppUser?> getUserProfile(String uid) async => null;
-  static Future<void> saveReport(PgxMultiReport report) async {}
-  static Stream<List<PgxMultiReport>> streamUserReports() => Stream.value([]);
+  static Future<void> saveReport(PgxMultiReport report) async {
+    await LocalReportService.save(report);
+    final user = currentUser;
+    if (user == null) return;
+    try {
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('reports')
+          .doc(report.reportId)
+          .set(report.toJson());
+    } on FirebaseException catch (error) {
+      debugPrint('Cloud report backup failed; local copy retained: ${error.code}');
+    }
+  }
+
+  static Stream<List<PgxMultiReport>> streamUserReports() async* {
+    final localReports = await LocalReportService.load();
+    yield localReports;
+
+    final user = currentUser;
+    if (user == null) return;
+
+    try {
+      await for (final snapshot in FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('reports')
+          .orderBy('timestamp', descending: true)
+          .snapshots()) {
+        final cloudReports = snapshot.docs
+            .map((doc) => PgxMultiReport.fromJson(doc.data()))
+            .toList();
+        final merged = _mergeReports(cloudReports, await LocalReportService.load());
+        yield merged;
+      }
+    } on FirebaseException catch (error) {
+      debugPrint('Cloud report history unavailable; local history retained: ${error.code}');
+    }
+  }
+
+  static Future<void> deleteReport(String reportId) async {
+    final user = currentUser;
+    if (user != null) {
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('reports')
+          .doc(reportId)
+          .delete();
+    }
+    await LocalReportService.delete(reportId);
+  }
+
+  static List<PgxMultiReport> _mergeReports(
+    List<PgxMultiReport> cloudReports,
+    List<PgxMultiReport> localReports,
+  ) {
+    final byId = <String, PgxMultiReport>{
+      for (final report in localReports) report.reportId: report,
+    };
+    for (final report in cloudReports) {
+      byId[report.reportId] = report;
+    }
+    final merged = byId.values.toList()
+      ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    return merged;
+  }
   static Future<void> saveChatMessage(String reportId, ChatMessage message) async {}
   static Stream<List<ChatMessage>> streamChatMessages(String reportId) =>
       Stream.value([]);
@@ -133,7 +202,7 @@ class FirebaseService {
   static void _requireAuth() {
     if (!_initialized) {
       throw StateError(
-        'Firebase Auth is unavailable. Check google-services.json and Firebase configuration.',
+        'Firebase Auth is unavailable. Check google-services.json, internet connection, and Firebase configuration.',
       );
     }
   }

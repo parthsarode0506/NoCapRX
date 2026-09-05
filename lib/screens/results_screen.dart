@@ -1,14 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:google_fonts/google_fonts.dart';
 
+import '../models/patient_profile.dart';
+import '../models/personalized_side_effect_risk.dart';
 import '../models/pgx_report.dart';
 import '../providers/app_providers.dart';
 import '../services/pdf_export_service.dart';
-import '../theme/app_theme.dart';
-import '../widgets/security_cards.dart';
+import '../services/personalized_side_effect_engine.dart';
+import '../services/universal_medicine_safety_engine.dart';
 import 'chatbot_screen.dart';
+import 'patient_profile_screen.dart';
 
 class ResultsScreen extends ConsumerWidget {
   final PgxMultiReport report;
@@ -18,49 +20,78 @@ class ResultsScreen extends ConsumerWidget {
   Color _getRiskColor(String riskLabel) {
     switch (riskLabel.trim()) {
       case 'Safe':
-        return AppTheme.safeGreen;
+      case 'No major risk identified':
+        return Colors.green.shade700;
       case 'Adjust Dosage':
-        return AppTheme.warningAmber;
+      case 'Use with caution':
+        return Colors.amber.shade800;
+      case 'Additional medical review required':
+        return Colors.orange.shade800;
       case 'Toxic':
       case 'Ineffective':
-        return AppTheme.dangerRed;
+      case 'High-risk finding':
+      case 'CONTRAINDICATED':
+      case 'Contraindication identified':
+      case 'DRUG_INTERACTION_DETECTED':
+        return Colors.red.shade700;
       default:
-        return AppTheme.unknownSlate;
+        return Colors.grey.shade700;
     }
   }
 
   Color _getRiskBgColor(String riskLabel) {
     switch (riskLabel.trim()) {
       case 'Safe':
-        return AppTheme.safeGreenBg;
+      case 'No major risk identified':
+        return Colors.green.shade50;
       case 'Adjust Dosage':
-        return AppTheme.warningAmberBg;
+      case 'Use with caution':
+        return Colors.amber.shade50;
+      case 'Additional medical review required':
+        return Colors.orange.shade50;
       case 'Toxic':
       case 'Ineffective':
-        return AppTheme.dangerRedBg;
+      case 'High-risk finding':
+      case 'CONTRAINDICATED':
+      case 'Contraindication identified':
+      case 'DRUG_INTERACTION_DETECTED':
+        return Colors.red.shade50;
       default:
-        return AppTheme.unknownSlateBg;
+        return Colors.grey.shade100;
     }
   }
 
   IconData _getRiskIcon(String riskLabel) {
     switch (riskLabel.trim()) {
       case 'Safe':
-        return Icons.check_circle_rounded;
+      case 'No major risk identified':
+        return Icons.check_circle;
       case 'Adjust Dosage':
-        return Icons.tune_rounded;
+      case 'Use with caution':
+        return Icons.tune;
+      case 'Additional medical review required':
+        return Icons.help_outline;
       case 'Toxic':
-        return Icons.dangerous_rounded;
+      case 'High-risk finding':
+      case 'CONTRAINDICATED':
+      case 'Contraindication identified':
+      case 'DRUG_INTERACTION_DETECTED':
+        return Icons.dangerous;
       case 'Ineffective':
-        return Icons.cancel_rounded;
+        return Icons.cancel;
       default:
-        return Icons.help_outline_rounded;
+        return Icons.help_outline;
     }
   }
 
   _ReportCategory _categorize(PgxReport d) {
     final gene = d.pharmacogenomicProfile.primaryGene;
     final summary = d.llmGeneratedExplanation.summary;
+
+    if (d.riskAssessment.riskLabel == 'Medicine not verified' ||
+        summary.contains('MEDICINE NOT VERIFIED')) {
+      return _ReportCategory.unknown;
+    }
 
     if (summary.contains('INSUFFICIENT PATIENT DATA') ||
         summary.contains('REQUIRED CLINICAL DATA MISSING') ||
@@ -83,59 +114,59 @@ class ResultsScreen extends ConsumerWidget {
 
   void _showRawJsonBottomSheet(BuildContext context) {
     final jsonStr = report.toFormattedJson();
-
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: const Color(0xFF121C18),
+      backgroundColor: Colors.black87,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (context) {
+      builder: (ctx) {
         return DraggableScrollableSheet(
-          expand: false,
           initialChildSize: 0.75,
-          maxChildSize: 0.95,
           minChildSize: 0.4,
-          builder: (context, scrollController) {
+          maxChildSize: 0.95,
+          expand: false,
+          builder: (_, controller) {
             return Padding(
-              padding: const EdgeInsets.all(22),
+              padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(
-                        'JSON Output Contract',
-                        style: GoogleFonts.inter(
+                      const Text(
+                        'Derived JSON (Hackathon Contract)',
+                        style: TextStyle(
                           color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
                         ),
                       ),
                       IconButton(
-                        icon: const Icon(Icons.copy_rounded, color: AppTheme.vibrantMint),
+                        icon: const Icon(Icons.copy, color: Colors.white70),
+                        tooltip: 'Copy JSON',
                         onPressed: () {
                           Clipboard.setData(ClipboardData(text: jsonStr));
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
-                              content: Text('Report JSON copied to clipboard!'),
-                              backgroundColor: AppTheme.safeGreen,
+                              content: Text('JSON copied to clipboard'),
+                              duration: Duration(seconds: 2),
                             ),
                           );
                         },
                       ),
                     ],
                   ),
-                  const Divider(color: Color(0xFF263D34)),
+                  const Divider(color: Colors.white24),
                   Expanded(
                     child: SingleChildScrollView(
-                      controller: scrollController,
+                      controller: controller,
                       child: SelectableText(
                         jsonStr,
                         style: const TextStyle(
-                          color: Color(0xFF6EE7B7),
+                          color: Colors.greenAccent,
                           fontFamily: 'monospace',
                           fontSize: 12,
                         ),
@@ -153,51 +184,43 @@ class ResultsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
     final isClinicianView = ref.watch(isClinicianViewProvider);
+    final patientProfile = ref.watch(patientProfileProvider);
 
     return Scaffold(
-      backgroundColor: AppTheme.bgLight,
       appBar: AppBar(
-        title: Text(
-          'Risk Assessment Results',
-          style: GoogleFonts.inter(
-            fontWeight: FontWeight.w700,
-            fontSize: 17,
-            color: AppTheme.deepInk,
-          ),
-        ),
+        title: const Text('Personalized Medicine Assessment'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.share_outlined),
+            icon: const Icon(Icons.share),
             tooltip: 'Share PDF Report',
             onPressed: () => PdfExportService.sharePdfReport(report),
           ),
           IconButton(
-            icon: const Icon(Icons.picture_as_pdf_outlined),
+            icon: const Icon(Icons.picture_as_pdf),
             tooltip: 'Print / Export PDF',
             onPressed: () => PdfExportService.printPdfReport(report),
           ),
           IconButton(
-            icon: const Icon(Icons.data_object_rounded),
-            tooltip: 'Share JSON report',
+            icon: const Icon(Icons.data_object_outlined),
+            tooltip: 'Share derived JSON report',
             onPressed: () => PdfExportService.shareJsonReport(report),
           ),
-          const SizedBox(width: 4),
         ],
       ),
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          padding: const EdgeInsets.all(16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Header Summary Card
+              // Header Summary Card with Patient & VCF Info
               Container(
-                padding: const EdgeInsets.all(18),
+                padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: theme.colorScheme.primaryContainer,
                   borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: AppTheme.cardBorder),
                 ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -207,70 +230,67 @@ class ResultsScreen extends ConsumerWidget {
                       children: [
                         Text(
                           'Patient: ${report.patientId}',
-                          style: GoogleFonts.inter(
-                            fontWeight: FontWeight.w700,
-                            fontSize: 14.5,
-                            color: AppTheme.deepInk,
-                          ),
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          'VCF: ${report.vcfFilename}',
-                          style: GoogleFonts.inter(
-                            fontSize: 12,
-                            color: AppTheme.secondaryInk,
-                          ),
+                          'VCF File: ${report.vcfFilename}',
+                          style: const TextStyle(fontSize: 12, color: Colors.black54),
                         ),
                       ],
                     ),
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                          decoration: BoxDecoration(
-                            color: AppTheme.lightEmeraldPill,
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Text(
-                            '${report.drugReports.length} Drug(s) Evaluated',
-                            style: GoogleFonts.inter(
-                              fontWeight: FontWeight.w700,
-                              color: AppTheme.primaryDarkEmerald,
-                              fontSize: 11.5,
-                            ),
+                        Text(
+                          '${report.drugReports.length} Drug(s) Evaluated',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: theme.colorScheme.primary,
+                            fontSize: 13,
                           ),
                         ),
-                        const SizedBox(height: 4),
                         Text(
                           report.timestamp.split('T').first,
-                          style: GoogleFonts.inter(
-                            fontSize: 11,
-                            color: AppTheme.mutedGrey,
-                          ),
+                          style: const TextStyle(fontSize: 11, color: Colors.black54),
                         ),
                       ],
                     ),
                   ],
                 ),
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 12),
 
-              // On-Device Privacy Banner
-              const OnDevicePrivacyMicroCard(),
-              const SizedBox(height: 16),
+              // Genomic privacy callout
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.lock_outline, color: Colors.blue, size: 20),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Genomic Privacy: VCF analysis executed strictly on this device CPU. Raw genetic data was never uploaded.',
+                        style: TextStyle(fontSize: 12, color: Colors.blueGrey),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
 
-              // View Mode Toggle (Patient vs Clinician)
+              // View Mode Toggle (Patient-friendly vs Clinician note)
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
                     'Language Perspective',
-                    style: GoogleFonts.inter(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 13.5,
-                      color: AppTheme.deepInk,
-                    ),
+                    style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey.shade800),
                   ),
                   SegmentedButton<bool>(
                     segments: const [
@@ -286,28 +306,28 @@ class ResultsScreen extends ConsumerWidget {
               ),
               const SizedBox(height: 16),
 
-              // Drug Result Cards List
-              ...report.drugReports.map(
-                (drugReport) => _buildDrugResultCard(
-                  context,
-                  ref,
-                  drugReport,
-                  isClinicianView,
-                ),
-              ),
+              // Render Each Drug Evaluation
+              ...report.drugReports.map((drugReport) => _buildDrugAssessmentCard(
+                    context,
+                    ref,
+                    drugReport,
+                    patientProfile,
+                    isClinicianView,
+                  )),
 
-              const SizedBox(height: 14),
+              const SizedBox(height: 16),
 
               // View Raw JSON CTA Button
               OutlinedButton.icon(
                 onPressed: () => _showRawJsonBottomSheet(context),
-                icon: const Icon(Icons.code_rounded, size: 18),
-                label: const Text('View Raw JSON Output Contract'),
+                icon: const Icon(Icons.code),
+                label: const Text('View Raw Hackathon JSON Output Contract'),
                 style: OutlinedButton.styleFrom(
                   minimumSize: const Size.fromHeight(48),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
               ),
-              const SizedBox(height: 80),
+              const SizedBox(height: 40),
             ],
           ),
         ),
@@ -320,273 +340,254 @@ class ResultsScreen extends ConsumerWidget {
             ),
           );
         },
-        icon: const Icon(Icons.smart_toy_outlined),
-        label: Text(
-          'Report AI Assistant',
-          style: GoogleFonts.inter(fontWeight: FontWeight.w700),
-        ),
-        backgroundColor: AppTheme.primaryEmerald,
+        icon: const Icon(Icons.smart_toy_rounded),
+        label: const Text('Report AI Chatbot'),
+        backgroundColor: theme.colorScheme.primary,
         foregroundColor: Colors.white,
       ),
     );
   }
 
-  Widget _buildDrugResultCard(
+  Widget _buildDrugAssessmentCard(
     BuildContext context,
     WidgetRef ref,
     PgxReport d,
+    PatientProfile patientProfile,
     bool isClinicianView,
   ) {
-    final color = _getRiskColor(d.riskAssessment.riskLabel);
-    final bgColor = _getRiskBgColor(d.riskAssessment.riskLabel);
-    final category = _categorize(d);
+    final clinicalData = patientProfile.toClinicalDataMap();
+    final clinicalFindings = UniversalMedicineSafetyEngine.evaluateAll(d.drug, clinicalData);
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppTheme.cardBorder),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.02),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
+    // Compute overall assessment status string
+    final overallStatus = UniversalMedicineSafetyEngine.determineOverallStatus(
+      pgxRiskLabel: d.riskAssessment.riskLabel,
+      clinicalFindings: clinicalFindings,
+      hasMissingData: d.riskAssessment.confidenceScore == 0.0,
+    );
+
+    final statusColor = _getRiskColor(overallStatus);
+    final statusBgColor = _getRiskBgColor(overallStatus);
+    final category = _categorize(d);
+    final evidence = d.evidence;
+    final personalizedSideEffects = evidence == null
+        ? d.personalizedSideEffects
+        : PersonalizedSideEffectEngine.evaluate(evidence, clinicalData);
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 24),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      elevation: 3,
+      clipBehavior: Clip.antiAlias,
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Color-coded Card Header
+          // 1. OVERALL ASSESSMENT BANNER (Requirement 13)
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+            padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: bgColor,
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(17)),
-              border: Border(
-                bottom: BorderSide(color: color.withValues(alpha: 0.25), width: 1),
-              ),
+              color: statusBgColor,
+              border: Border(bottom: BorderSide(color: statusColor.withValues(alpha: 0.3))),
             ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        d.drug,
-                        style: GoogleFonts.inter(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: -0.3,
-                          color: color,
-                        ),
-                      ),
-                      if (d.pharmacogenomicProfile.primaryGene != 'NON-PGX' &&
-                          d.pharmacogenomicProfile.primaryGene != 'UNMAPPED')
-                        Text(
-                          '${d.pharmacogenomicProfile.primaryGene} • ${d.pharmacogenomicProfile.phenotype} (${d.pharmacogenomicProfile.diplotype})',
-                          style: GoogleFonts.inter(
-                            fontSize: 12,
-                            color: AppTheme.deepInk,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            d.drug.toUpperCase(),
+                            style: TextStyle(
+                              fontSize: 22,
+                              fontWeight: FontWeight.bold,
+                              color: statusColor,
+                            ),
+                          ),
+                          if (evidence != null && evidence.displayName.isNotEmpty)
+                            Text(
+                              evidence.displayName,
+                              style: TextStyle(fontSize: 13, color: Colors.grey.shade800),
+                            ),
+                        ],
+                      ),
+                    ),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                       decoration: BoxDecoration(
-                        color: color,
-                        borderRadius: BorderRadius.circular(16),
+                        color: statusColor,
+                        borderRadius: BorderRadius.circular(20),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(_getRiskIcon(d.riskAssessment.riskLabel),
-                              color: Colors.white, size: 14),
-                          const SizedBox(width: 5),
+                          Icon(_getRiskIcon(overallStatus), color: Colors.white, size: 16),
+                          const SizedBox(width: 6),
                           Text(
-                            d.riskAssessment.riskLabel.toUpperCase(),
-                            style: GoogleFonts.inter(
+                            overallStatus.toUpperCase(),
+                            style: const TextStyle(
                               color: Colors.white,
-                              fontWeight: FontWeight.w800,
-                              fontSize: 11,
-                              letterSpacing: 0.5,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
                             ),
                           ),
                         ],
                       ),
                     ),
-                    if (d.riskAssessment.confidenceScore > 0)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 3),
-                        child: Text(
-                          '${(d.riskAssessment.confidenceScore * 100).toInt()}% confidence',
-                          style: GoogleFonts.inter(
-                            fontSize: 10.5,
-                            color: AppTheme.secondaryInk,
-                          ),
-                        ),
-                      ),
                   ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'OVERALL ASSESSMENT: $overallStatus',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: statusColor,
+                    letterSpacing: 0.5,
+                  ),
                 ),
               ],
             ),
           ),
 
-          // Informational Banner for edge cases
+          // Informational category banners (No-PGx, Insufficient data, etc.)
           if (category == _ReportCategory.noPgxRelationship)
             _buildInfoBanner(
               icon: Icons.info_outline,
-              color: AppTheme.primaryEmerald,
-              bgColor: AppTheme.mintSurface,
-              title: 'NO KNOWN PHARMACOGENOMIC RELATIONSHIP',
-              body:
-                  'No validated pharmacogenomic relationship exists to determine a genetic risk for this medicine.',
+              color: Colors.teal.shade800,
+              bgColor: Colors.teal.shade50,
+              title: 'NO ACTIONABLE PHARMACOGENOMIC RELATIONSHIP',
+              body: 'No validated pharmacogenomic relationship was found for ${d.drug}. Genetic testing is not required for this drug. Assessment completed using clinical profile, allergies, and drug interactions.',
             ),
           if (category == _ReportCategory.insufficientData)
             _buildInfoBanner(
               icon: Icons.warning_amber_rounded,
-              color: AppTheme.warningAmber,
-              bgColor: AppTheme.warningAmberBg,
-              title: d.llmGeneratedExplanation.summary.contains('REQUIRED CLINICAL DATA')
-                  ? 'PATIENT CLINICAL DATA REQUIRED'
-                  : 'UNKNOWN — INSUFFICIENT PATIENT DATA',
-              body: d.llmGeneratedExplanation.summary.contains('REQUIRED CLINICAL DATA')
-                  ? d.clinicalRecommendation.dosingRecommendation
-                  : 'The uploaded VCF does not contain sufficient data for ${d.pharmacogenomicProfile.primaryGene}.',
-            ),
-          if (category == _ReportCategory.unknown)
-            _buildInfoBanner(
-              icon: Icons.help_outline_rounded,
-              color: AppTheme.unknownSlate,
-              bgColor: AppTheme.unknownSlateBg,
-              title: 'UNKNOWN — UNRECOGNIZED DRUG',
-              body: 'No validated pharmacogenomic evidence found in CPIC or FDA databases.',
+              color: Colors.orange.shade800,
+              bgColor: Colors.orange.shade50,
+              title: 'INSUFFICIENT PATIENT DATA',
+              body: 'This medicine has established pharmacogenomic evidence, but your uploaded VCF does not contain confirmed data for the relevant gene (${d.pharmacogenomicProfile.primaryGene}).',
             ),
 
-          // Card Body Accordion Sections
           Padding(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(16),
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Section 1: LLM Explanation
-                ExpansionTile(
-                  leading: const Icon(Icons.psychology_outlined, color: AppTheme.primaryEmerald),
-                  title: Text(
-                    'Clinical Explanation',
-                    style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 13.5),
+                // ─────────────────────────────────────────────────────────
+                // QUESTION 1: WHAT CAN THIS MEDICINE DO? (Requirement 29)
+                // ─────────────────────────────────────────────────────────
+                _buildSectionHeader(
+                  title: 'QUESTION 1: What can this medicine do?',
+                  subtitle: 'General medical facts, indications & verified side-effect profile',
+                  icon: Icons.medication,
+                  color: Colors.indigo,
+                ),
+                const SizedBox(height: 12),
+
+                // Medicine identity & uses card
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Colors.indigo.shade50.withValues(alpha: 0.5),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.indigo.shade100),
                   ),
-                  initiallyExpanded: true,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
                         children: [
+                          const Icon(Icons.verified_outlined, size: 18, color: Colors.indigo),
+                          const SizedBox(width: 6),
                           Text(
-                            isClinicianView ? 'Clinician Note:' : 'Patient Summary:',
-                            style: GoogleFonts.inter(
-                              fontWeight: FontWeight.w700,
-                              fontSize: 12.5,
-                              color: AppTheme.deepInk,
-                            ),
+                            'Medicine Identity: ${evidence?.displayName ?? d.drug}',
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            isClinicianView
-                                ? d.llmGeneratedExplanation.clinicianNote
-                                : d.llmGeneratedExplanation.patientFriendly,
-                            style: GoogleFonts.inter(
-                              fontSize: 13,
-                              height: 1.4,
-                              color: AppTheme.deepInk,
+                          const Spacer(),
+                          if (evidence?.verifiedMedicine == true)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              decoration: BoxDecoration(color: Colors.indigo, borderRadius: BorderRadius.circular(8)),
+                              child: const Text('Verified', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
                             ),
-                          ),
-                          const SizedBox(height: 10),
-                          Text(
-                            'Molecular Mechanism:',
-                            style: GoogleFonts.inter(
-                              fontWeight: FontWeight.w700,
-                              fontSize: 12.5,
-                              color: AppTheme.deepInk,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            d.llmGeneratedExplanation.mechanism,
-                            style: GoogleFonts.inter(
-                              fontSize: 12,
-                              color: AppTheme.secondaryInk,
-                              height: 1.35,
-                            ),
-                          ),
                         ],
                       ),
-                    ),
-                  ],
-                ),
-
-                // Section 2: Clinical Recommendation
-                ExpansionTile(
-                  leading: const Icon(Icons.local_hospital_outlined, color: AppTheme.accentEmerald),
-                  title: Text(
-                    'Clinical Recommendation',
-                    style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 13.5),
+                      if (evidence?.uses.isNotEmpty == true) ...[
+                        const SizedBox(height: 8),
+                        const Text('What is it used for?', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                        const SizedBox(height: 4),
+                        ...evidence!.uses.map((use) => Text('• $use', style: const TextStyle(fontSize: 12))),
+                      ],
+                      if (evidence?.precautions.isNotEmpty == true) ...[
+                        const SizedBox(height: 8),
+                        const Text('Important Precautions:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                        const SizedBox(height: 4),
+                        ...evidence!.precautions.map((p) => Text('• $p', style: const TextStyle(fontSize: 12, color: Colors.black87))),
+                      ],
+                    ],
                   ),
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Dosing: ${d.clinicalRecommendation.dosingRecommendation}',
-                            style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w500),
-                          ),
-                          const SizedBox(height: 6),
-                          if (d.clinicalRecommendation.alternativeDrugs.isNotEmpty)
-                            Text(
-                              'Alternative Drugs: ${d.clinicalRecommendation.alternativeDrugs.join(', ')}',
-                              style: GoogleFonts.inter(
-                                fontSize: 13,
-                                color: AppTheme.primaryEmerald,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          const SizedBox(height: 6),
-                          Text(
-                            'Monitoring: ${d.clinicalRecommendation.monitoringAdvice}',
-                            style: GoogleFonts.inter(fontSize: 12, color: AppTheme.secondaryInk),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            'CPIC Citation: ${d.clinicalRecommendation.cpicGuidelineCitation}',
-                            style: GoogleFonts.inter(
-                              fontSize: 11,
-                              fontStyle: FontStyle.italic,
-                              color: AppTheme.mutedGrey,
-                            ),
-                          ),
-                        ],
+                ),
+                const SizedBox(height: 24),
+
+                // ─────────────────────────────────────────────────────────
+                // QUESTION 2: HOW DOES THIS APPLY TO ME? (Requirement 29)
+                // ─────────────────────────────────────────────────────────
+                _buildSectionHeader(
+                  title: 'QUESTION 2: How does this apply to ME?',
+                  subtitle: 'Personalized assessment synthesizing genetics, allergies, conditions & regimen',
+                  icon: Icons.person_pin,
+                  color: Colors.teal.shade800,
+                ),
+                const SizedBox(height: 12),
+
+                // A. Patient Clinical Snapshot Card
+                _buildPatientSnapshotCard(context, patientProfile),
+                const SizedBox(height: 14),
+
+                // B. ALLERGY CHECK SECTION (Requirement 18)
+                _buildAllergySection(d.drug, clinicalFindings, patientProfile),
+                const SizedBox(height: 14),
+
+                // C. CURRENT MEDICINE INTERACTIONS (Requirement 17)
+                _buildInteractionsSection(d.drug, clinicalFindings, patientProfile),
+                const SizedBox(height: 14),
+
+                // D. PATIENT-SPECIFIC SIDE-EFFECT RISKS (Requirements 5, 6, 7, 8, 12, 15, 16)
+                if (personalizedSideEffects.isNotEmpty) ...[
+                  Row(
+                    children: [
+                      Icon(Icons.personal_injury_outlined, size: 20, color: Colors.deepOrange.shade800),
+                      const SizedBox(width: 8),
+                      Text(
+                        'PATIENT-SPECIFIC SIDE-EFFECT RISKS',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                          color: Colors.deepOrange.shade900,
+                          letterSpacing: 0.5,
+                        ),
                       ),
-                    ),
-                  ],
-                ),
-
-                // Section 3: Evidence Chain
-                ExpansionTile(
-                  leading: const Icon(Icons.account_tree_outlined, color: AppTheme.primaryDarkEmerald),
-                  title: Text(
-                    'Evidence Chain',
-                    style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 13.5),
+                    ],
                   ),
+                  const SizedBox(height: 8),
+                  ...personalizedSideEffects.map((risk) => _buildPersonalizedSideEffectCard(risk)),
+                  const SizedBox(height: 14),
+                ],
+
+                // E. PHARMACOGENOMIC (VCF / PGx) ASSESSMENT (Requirement 10, 11)
+                _buildPgxSection(d, category),
+                const SizedBox(height: 14),
+
+                // F. AI NATURAL EXPLANATION (Requirement 19, 20)
+                _buildAiExplanationCard(d, isClinicianView),
+                const SizedBox(height: 14),
+
+                // G. EVIDENCE CHAIN & TRACEABILITY
+                ExpansionTile(
+                  leading: const Icon(Icons.account_tree_outlined, color: Colors.indigo),
+                  title: const Text('Evidence Chain & Traceability', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                   children: [
                     Padding(
                       padding: const EdgeInsets.all(12),
@@ -594,28 +595,47 @@ class ResultsScreen extends ConsumerWidget {
                     ),
                   ],
                 ),
+                const SizedBox(height: 16),
 
-                // Section 4: Quality Metrics
-                ExpansionTile(
-                  leading: const Icon(Icons.verified_outlined, color: AppTheme.safeGreen),
-                  title: Text(
-                    'Quality & Transparency Metrics',
-                    style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 13.5),
-                  ),
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _buildMetricRow('Confidence Score', '${(d.riskAssessment.confidenceScore * 100).toInt()}%'),
-                          _buildMetricRow('VCF Parsing Success', '${d.qualityMetrics.vcfParsingSuccess}'),
-                          _buildMetricRow('Diplotype Inferred', '${d.qualityMetrics.diplotypeInferred}'),
-                          _buildMetricRow('Annotation Completeness', '${(d.qualityMetrics.annotationCompleteness * 100).toInt()}%'),
-                        ],
-                      ),
-                    ),
-                  ],
+                // H. MANDATORY DOCTOR / PHARMACIST WARNING (Requirement 21)
+                _buildProfessionalReviewBanner(overallStatus),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSectionHeader({
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color, size: 22),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: color),
+                ),
+                Text(
+                  subtitle,
+                  style: TextStyle(fontSize: 11, color: Colors.grey.shade700),
                 ),
               ],
             ),
@@ -625,14 +645,379 @@ class ResultsScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildMetricRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+  Widget _buildPatientSnapshotCard(BuildContext context, PatientProfile profile) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade300),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: GoogleFonts.inter(fontSize: 12, color: AppTheme.secondaryInk)),
-          Text(value, style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.deepInk)),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Row(
+                children: [
+                  Icon(Icons.badge_outlined, size: 18, color: Colors.blueGrey),
+                  SizedBox(width: 6),
+                  Text('Your Profile Context', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                ],
+              ),
+              TextButton.icon(
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const PatientProfileScreen()),
+                  );
+                },
+                icon: const Icon(Icons.edit, size: 14),
+                label: const Text('Update Profile', style: TextStyle(fontSize: 12)),
+              ),
+            ],
+          ),
+          Wrap(
+            spacing: 6,
+            runSpacing: 4,
+            children: [
+              if (profile.age.isNotEmpty) _chip('Age: ${profile.age}'),
+              if (profile.sex.isNotEmpty) _chip('Sex: ${profile.sex}'),
+              if (profile.weight.isNotEmpty) _chip('Weight: ${profile.weight} kg'),
+              if (profile.conditions.isNotEmpty)
+                _chip('Conditions: ${profile.conditions.join(", ")}', isAlert: true),
+              if (profile.currentMedicines.isNotEmpty)
+                _chip('Meds: ${profile.currentMedicines.join(", ")}'),
+              if (profile.allergies.isNotEmpty)
+                _chip('Allergies: ${profile.allergies.join(", ")}', isAlert: true),
+              if (profile.kidneyFunction.isNotEmpty)
+                _chip('Kidney: ${profile.kidneyFunction}'),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _chip(String text, {bool isAlert = false}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: isAlert ? Colors.amber.shade100 : Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: isAlert ? Colors.amber.shade400 : Colors.grey.shade300),
+      ),
+      child: Text(text, style: TextStyle(fontSize: 11, fontWeight: isAlert ? FontWeight.bold : FontWeight.normal)),
+    );
+  }
+
+  Widget _buildAllergySection(String medicine, List<ClinicalSafetyFinding> findings, PatientProfile profile) {
+    final allergyFinding = findings.where((f) => f.status == 'CONTRAINDICATED' && f.title.contains('Allergy')).firstOrNull;
+
+    if (allergyFinding != null) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.red.shade50,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.red.shade300),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.dangerous, color: Colors.red.shade700, size: 20),
+                const SizedBox(width: 8),
+                Text(
+                  'ALLERGY CONCERN',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.red.shade900),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(allergyFinding.explanation, style: TextStyle(fontSize: 12, color: Colors.red.shade900, height: 1.3)),
+            const SizedBox(height: 6),
+            const Text(
+              'Your reported allergy may make this medicine inappropriate. Seek professional medical advice before taking it.',
+              style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.red),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.green.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.green.shade200),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.check_circle_outline, color: Colors.green.shade700, size: 18),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'ALLERGY CHECK: No matching allergy detected for $medicine in your reported profile.',
+              style: TextStyle(fontSize: 12, color: Colors.green.shade900, fontWeight: FontWeight.w500),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInteractionsSection(String medicine, List<ClinicalSafetyFinding> findings, PatientProfile profile) {
+    final interactionFindings = findings.where((f) => f.status == 'DRUG_INTERACTION_DETECTED').toList();
+
+    if (interactionFindings.isNotEmpty) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.red.shade50,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.red.shade300),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.warning_amber_rounded, color: Colors.red.shade700, size: 20),
+                const SizedBox(width: 8),
+                Text(
+                  'DRUG INTERACTION DETECTED',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.red.shade900),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            ...interactionFindings.map((finding) => Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('• ${finding.title}', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.red.shade900)),
+                      Text(finding.explanation, style: TextStyle(fontSize: 12, color: Colors.red.shade800)),
+                      const Text('Patient relevance: HIGH', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.red)),
+                    ],
+                  ),
+                )),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.green.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.green.shade200),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.check_circle_outline, color: Colors.green.shade700, size: 18),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              profile.currentMedicines.isEmpty
+                  ? 'DRUG INTERACTIONS: No current medicines were reported in your profile.'
+                  : 'DRUG INTERACTIONS: No known interactions detected between $medicine and your current medicines.',
+              style: TextStyle(fontSize: 12, color: Colors.green.shade900, fontWeight: FontWeight.w500),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPersonalizedSideEffectCard(PersonalizedSideEffectRisk risk) {
+    final isHigh = risk.relevance == 'HIGHER_CONCERN' || risk.relevance == 'CRITICAL_CONCERN';
+    final cardColor = isHigh ? Colors.red.shade700 : Colors.teal.shade700;
+    final cardBg = isHigh ? Colors.red.shade50 : Colors.teal.shade50;
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: cardBg,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: cardColor.withValues(alpha: 0.35)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Text(
+                  risk.sideEffect,
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: cardColor),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: cardColor,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  risk.relevance.replaceAll('_', ' '),
+                  style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'WHO MAY BE AT HIGHER RISK?',
+            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: cardColor),
+          ),
+          const SizedBox(height: 2),
+          ...risk.higherRiskGroups.map((g) => Padding(
+                padding: const EdgeInsets.only(left: 4, bottom: 2),
+                child: Text('• $g', style: const TextStyle(fontSize: 12)),
+              )),
+          const SizedBox(height: 8),
+          Text(
+            'HOW DOES THIS APPLY TO YOU?',
+            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: cardColor),
+          ),
+          const SizedBox(height: 2),
+          if (risk.patientRiskFactors.isEmpty)
+            const Padding(
+              padding: EdgeInsets.only(left: 4),
+              child: Text(
+                '✓ No corresponding risk factor was identified from the information provided.',
+                style: TextStyle(fontSize: 12, color: Colors.black87),
+              ),
+            )
+          else
+            ...risk.patientRiskFactors.map((rf) => Padding(
+                  padding: const EdgeInsets.only(left: 4, bottom: 2),
+                  child: Text('⚠ $rf', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: cardColor)),
+                )),
+          const SizedBox(height: 8),
+          Text(
+            risk.explanation,
+            style: const TextStyle(fontSize: 12, height: 1.35, fontStyle: FontStyle.italic),
+          ),
+          if (risk.evidenceSources.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text('Evidence: ${risk.evidenceSources.join("; ")}', style: const TextStyle(fontSize: 10, color: Colors.grey)),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPgxSection(PgxReport d, _ReportCategory category) {
+    if (category == _ReportCategory.noPgxRelationship) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.teal.shade50,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.teal.shade200),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.info_outline, color: Colors.teal.shade700, size: 18),
+                const SizedBox(width: 8),
+                Text(
+                  'PHARMACOGENOMICS (VCF / PGx)',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.teal.shade900),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'No actionable pharmacogenomic relationship identified for ${d.drug}. Prescribing decisions do not require genetic testing. Overall safety guided by clinical factors.',
+              style: TextStyle(fontSize: 12, color: Colors.teal.shade900),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ExpansionTile(
+      leading: const Icon(Icons.biotech, color: Colors.teal),
+      title: const Text('Pharmacogenomic (VCF) Profile & Variants', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+      initiallyExpanded: category == _ReportCategory.standard,
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Primary Gene: ${d.pharmacogenomicProfile.primaryGene}', style: const TextStyle(fontWeight: FontWeight.bold)),
+              Text('Diplotype Call: ${d.pharmacogenomicProfile.diplotype}'),
+              Text('Phenotype Class: ${d.pharmacogenomicProfile.phenotype}'),
+              const SizedBox(height: 6),
+              Text('CPIC Recommendation: ${d.clinicalRecommendation.dosingRecommendation}', style: const TextStyle(fontSize: 12)),
+              const SizedBox(height: 8),
+              const Text('Detected rsIDs in VCF:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+              if (d.pharmacogenomicProfile.detectedVariants.isEmpty)
+                const Text('No variant rsIDs listed in file', style: TextStyle(fontSize: 11, color: Colors.grey))
+              else
+                Wrap(
+                  spacing: 6,
+                  children: d.pharmacogenomicProfile.detectedVariants
+                      .map((v) => Chip(label: Text(v.rsid, style: const TextStyle(fontSize: 11))))
+                      .toList(),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAiExplanationCard(PgxReport d, bool isClinicianView) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.purple.shade50.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.purple.shade100),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.psychology, color: Colors.purple, size: 20),
+              const SizedBox(width: 8),
+              Text(
+                isClinicianView ? 'AI Clinician Note:' : 'AI Patient Summary:',
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.purple),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            isClinicianView
+                ? d.llmGeneratedExplanation.clinicianNote
+                : d.llmGeneratedExplanation.patientFriendly,
+            style: const TextStyle(fontSize: 13, height: 1.4),
+          ),
+          const SizedBox(height: 8),
+          const Text('Biological Mechanism:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+          Text(d.llmGeneratedExplanation.mechanism, style: const TextStyle(fontSize: 12, color: Colors.black87)),
         ],
       ),
     );
@@ -665,16 +1050,16 @@ class ResultsScreen extends ConsumerWidget {
               children: [
                 Text(
                   title,
-                  style: GoogleFonts.inter(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 11.5,
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12,
                     color: color,
                   ),
                 ),
-                const SizedBox(height: 3),
+                const SizedBox(height: 4),
                 Text(
                   body,
-                  style: GoogleFonts.inter(fontSize: 11, color: color, height: 1.35),
+                  style: TextStyle(fontSize: 11, color: color, height: 1.4),
                 ),
               ],
             ),
@@ -684,9 +1069,67 @@ class ResultsScreen extends ConsumerWidget {
     );
   }
 
+  Widget _buildProfessionalReviewBanner([String? overallStatus]) {
+    final isHigh = overallStatus == 'High-risk finding' || overallStatus == 'Contraindication identified';
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: isHigh ? Colors.red.shade50 : Colors.orange.shade50,
+        border: Border.all(color: isHigh ? Colors.red.shade300 : Colors.orange.shade300),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.medical_information_outlined, color: isHigh ? Colors.red : Colors.orange),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              isHigh
+                  ? 'HIGH-RISK FINDING: A factor associated with increased medication risk was identified for your profile. Seek advice from a qualified doctor or pharmacist before taking or changing this medicine.'
+                  : 'IMPORTANT: This is a medication-safety decision-support assessment. Do not start, stop, or change a medicine or dose based only on this application. Always consult a qualified doctor or pharmacist.',
+              style: TextStyle(fontSize: 12, height: 1.35, color: isHigh ? Colors.red.shade900 : Colors.orange.shade900, fontWeight: FontWeight.w500),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildEvidenceChain(PgxReport d, _ReportCategory category) {
+    if (category == _ReportCategory.noPgxRelationship) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _chainStep('💊', 'Drug', d.drug),
+          _chainArrow(),
+          _chainStep('🔍', 'Database Search', 'CPIC / PharmGKB / FDA Catalog'),
+          _chainArrow(),
+          _chainStep('📋', 'Result', 'No actionable PGx relationship found'),
+          _chainArrow(),
+          _chainStep('🩺', 'Clinical Stratification', 'Allergies, conditions & drug interactions evaluated'),
+        ],
+      );
+    }
+
+    if (category == _ReportCategory.insufficientData) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _chainStep('💊', 'Drug', d.drug),
+          _chainArrow(),
+          _chainStep('🧬', 'Required Gene', d.pharmacogenomicProfile.primaryGene),
+          _chainArrow(),
+          _chainStep('📂', 'Patient VCF', 'Insufficient data for ${d.pharmacogenomicProfile.primaryGene}'),
+          _chainArrow(),
+          _chainStep('⚠️', 'Classification', 'Unknown — cannot determine phenotype'),
+        ],
+      );
+    }
+
     final variants = d.pharmacogenomicProfile.detectedVariants.isEmpty
-        ? 'Wildtype / Inferred reference'
+        ? 'no callable variant'
         : d.pharmacogenomicProfile.detectedVariants.map((v) => v.rsid).join(', ');
 
     return Column(
@@ -702,13 +1145,9 @@ class ResultsScreen extends ConsumerWidget {
         _chainArrow(),
         _chainStep('💊', 'Drug', d.drug),
         _chainArrow(),
-        _chainStep(
-          '📚',
-          'Guideline',
-          d.clinicalRecommendation.cpicGuidelineCitation.length > 50
-              ? '${d.clinicalRecommendation.cpicGuidelineCitation.substring(0, 50)}...'
-              : d.clinicalRecommendation.cpicGuidelineCitation,
-        ),
+        _chainStep('📚', 'Guideline', d.clinicalRecommendation.cpicGuidelineCitation.length > 50
+            ? '${d.clinicalRecommendation.cpicGuidelineCitation.substring(0, 50)}...'
+            : d.clinicalRecommendation.cpicGuidelineCitation),
         _chainArrow(),
         _chainStep('⚖️', 'Risk', d.riskAssessment.riskLabel),
       ],
@@ -719,37 +1158,18 @@ class ResultsScreen extends ConsumerWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(emoji, style: const TextStyle(fontSize: 13)),
+        Text(emoji, style: const TextStyle(fontSize: 14)),
         const SizedBox(width: 8),
-        Text(
-          '$label: ',
-          style: GoogleFonts.inter(
-            fontWeight: FontWeight.w700,
-            fontSize: 12,
-            color: AppTheme.deepInk,
-          ),
-        ),
-        Expanded(
-          child: Text(
-            value,
-            style: GoogleFonts.inter(fontSize: 12, color: AppTheme.secondaryInk),
-          ),
-        ),
+        Text('$label: ', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+        Expanded(child: Text(value, style: const TextStyle(fontSize: 12))),
       ],
     );
   }
 
   Widget _chainArrow() {
-    return Padding(
-      padding: const EdgeInsets.only(left: 6, top: 1, bottom: 1),
-      child: Text(
-        '  ↓',
-        style: GoogleFonts.inter(
-          fontSize: 11,
-          color: AppTheme.accentEmerald,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
+    return const Padding(
+      padding: EdgeInsets.only(left: 6, top: 2, bottom: 2),
+      child: Text('  ↓', style: TextStyle(fontSize: 12, color: Colors.grey)),
     );
   }
 }

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../providers/app_providers.dart';
@@ -12,7 +11,9 @@ import '../services/online_evidence_service.dart';
 import '../services/medicine_normalization_service.dart';
 import '../models/pgx_report.dart';
 import '../models/drug_evidence.dart';
-import '../theme/app_theme.dart';
+import '../models/patient_profile.dart';
+import '../services/patient_profile_service.dart';
+import '../services/personalized_side_effect_engine.dart';
 import 'results_screen.dart';
 
 class DrugInputScreen extends ConsumerStatefulWidget {
@@ -29,6 +30,7 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
   String? _onlineEvidenceMessage;
   Uri? _onlineEvidenceUrl;
 
+  // Map to hold discovered evidence per drug for the current analysis run
   final Map<String, DrugEvidence> _discoveredEvidence = {};
   final Map<String, String> _clinicalData = {};
 
@@ -74,7 +76,6 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('No VCF data found. Please re-upload VCF file.'),
-          backgroundColor: AppTheme.dangerRed,
         ),
       );
       return;
@@ -83,6 +84,11 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
     final drugsToEvaluate = List<String>.from(selectedDrugs);
     _discoveredEvidence.clear();
     _clinicalData.clear();
+    final savedProfile = await PatientProfileService.load();
+    _clinicalData.addAll(_profileToClinicalData(savedProfile));
+    if (mounted) {
+      ref.read(patientProfileProvider.notifier).state = savedProfile;
+    }
 
     if (customDrugText.isNotEmpty) {
       setState(() {
@@ -93,8 +99,10 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
       _addProgress('🔎', 'Searching local medicine database...');
       await Future.delayed(const Duration(milliseconds: 300));
 
+      // Step 1: Normalize and resolve locally
       final identity = MedicineNormalizationService.identify(customDrugText);
 
+      // Check if ambiguous — prompt user to pick
       if (identity.isAmbiguous && mounted) {
         _markLastDone();
         setState(() => _isAnalyzing = false);
@@ -103,7 +111,7 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
             content: Text(
               'Ambiguous medicine name: "$customDrugText". Please enter a more specific name.',
             ),
-            backgroundColor: AppTheme.warningAmber,
+            backgroundColor: Colors.orange,
           ),
         );
         return;
@@ -114,14 +122,17 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
           metadata?.genericName;
 
       if (resolvedLocal != null && metadata?.ruleAvailable == true) {
+        // Found locally with a validated rule
         _markLastDone();
         _addProgress('✓', 'Found in local validated database', done: true);
         drugsToEvaluate.add(resolvedLocal);
 
+        // If metadata exists, convert to DrugEvidence for the engine
         if (metadata != null) {
           _discoveredEvidence[resolvedLocal] = DrugRepository.toDrugEvidence(metadata);
         }
       } else {
+        // Not found locally — go online
         _markLastDone();
         _addProgress('🌐', 'Identifying medicine online...');
         await Future.delayed(const Duration(milliseconds: 200));
@@ -136,7 +147,7 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
             final drugKey = evidence.genericName.toUpperCase();
 
             if (evidence.hasPgxRelationship && evidence.genes.isNotEmpty) {
-              _addProgress('🧬', 'PGx evidence found: ${evidence.genes.join(", ")}', done: true);
+              _addProgress('🧬', 'Pharmacogenomic evidence found: ${evidence.genes.join(", ")}', done: true);
               _addProgress('📚', 'Source: ${evidence.source}', done: true);
             } else {
               _addProgress('📋', 'No pharmacogenomic relationship found', done: true);
@@ -150,6 +161,7 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
               _onlineEvidenceUrl = online.sourceUrl;
             });
           } else {
+            // Fully unknown — still add it for a transparent Unknown report
             _addProgress('⚠️', online.message, done: true);
             drugsToEvaluate.add(customDrugText.toUpperCase());
           }
@@ -163,7 +175,6 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Please select at least one drug to analyze.'),
-          backgroundColor: AppTheme.warningAmber,
         ),
       );
       return;
@@ -185,8 +196,10 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
         _addProgress('🔒', 'Analyzing $drug on device (${i + 1}/${drugsToEvaluate.length})...');
         await Future.delayed(const Duration(milliseconds: 200));
 
+        // Look up evidence: from online discovery, from local metadata, or null
         DrugEvidence? evidence = _discoveredEvidence[drug];
         if (evidence == null) {
+          // For panel drugs selected via checkbox, build evidence from metadata
           final meta = DrugRepository.resolve(drug);
           if (meta != null) {
             evidence = DrugRepository.toDrugEvidence(meta);
@@ -194,14 +207,20 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
         }
 
         if (evidence != null && evidence.requiredClinicalData.isNotEmpty) {
-          _addProgress('🩺', 'Collecting required clinical inputs...');
-          final collected = await _collectClinicalData(evidence);
-          if (collected != null) {
-            _clinicalData.addAll(collected);
+          final missing = evidence.requiredClinicalData
+              .where((field) => _clinicalData[field]?.trim().isNotEmpty != true)
+              .toList();
+          if (missing.isNotEmpty) {
+            _addProgress('🩺', 'Collecting required clinical inputs for $drug...');
+            final collected = await _collectClinicalData(evidence);
+            if (collected != null) {
+              _clinicalData.addAll(collected);
+            }
+            _markLastDone();
           }
-          _markLastDone();
         }
 
+        // CPIC Rule Engine Evaluation — now with DrugEvidence
         final initialReport = CpicRuleEngine.evaluateDrug(
           drugName: drug,
           parseResult: parseResult,
@@ -213,6 +232,7 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
         _addProgress('⚙️', 'Applying clinical rule for $drug...');
         await Future.delayed(const Duration(milliseconds: 150));
 
+        // LLM Explanation Generation (with offline asset fallback)
         final gene = initialReport.pharmacogenomicProfile.primaryGene;
         final phenotype = initialReport.pharmacogenomicProfile.phenotype;
         final riskLabel = initialReport.riskAssessment.riskLabel;
@@ -239,6 +259,9 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
           llmGeneratedExplanation: LlmExplanation.fromJson(llmResultMap),
           qualityMetrics: initialReport.qualityMetrics,
           evidence: evidence,
+          personalizedSideEffects: evidence == null
+              ? const []
+              : PersonalizedSideEffectEngine.evaluate(evidence, _clinicalData),
         );
 
         generatedReports.add(fullReport);
@@ -260,6 +283,7 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
         drugReports: generatedReports,
       );
 
+      // Save derived JSON report to Firestore (never raw VCF file!)
       await FirebaseService.saveReport(multiReport);
 
       ref.read(currentReportProvider.notifier).state = multiReport;
@@ -274,7 +298,7 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Analysis Pipeline Error: $e'),
-            backgroundColor: AppTheme.dangerRed,
+            backgroundColor: Colors.red,
           ),
         );
       }
@@ -295,17 +319,12 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
 
     try {
       if (!mounted) return null;
-      return await showDialog<Map<String, String>>(
+      final values = await showDialog<Map<String, String>>(
         context: context,
         barrierDismissible: false,
         builder: (dialogContext) {
           return AlertDialog(
-            backgroundColor: Colors.white,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-            title: Text(
-              'Clinical inputs for ${evidence.displayName}',
-              style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 16),
-            ),
+            title: Text('Clinical inputs for ${evidence.displayName}'),
             content: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -316,7 +335,7 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
                       controller: controllers[field],
                       decoration: InputDecoration(
                         labelText: field,
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                        border: const OutlineInputBorder(),
                       ),
                     ),
                   );
@@ -328,7 +347,7 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
                 onPressed: () => Navigator.of(dialogContext).pop(),
                 child: const Text('Skip'),
               ),
-              ElevatedButton(
+              FilledButton(
                 onPressed: () {
                   final values = <String, String>{};
                   for (final entry in controllers.entries) {
@@ -343,6 +362,15 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
           );
         },
       );
+      if (values != null) {
+        final profile = await PatientProfileService.load();
+        final updatedProfile = _profileWithAnswers(profile, values);
+        await PatientProfileService.save(updatedProfile);
+        if (mounted) {
+          ref.read(patientProfileProvider.notifier).state = updatedProfile;
+        }
+      }
+      return values;
     } finally {
       for (final controller in controllers.values) {
         controller.dispose();
@@ -350,81 +378,72 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
     }
   }
 
+  Map<String, String> _profileToClinicalData(PatientProfile profile) => {
+        if (profile.age.isNotEmpty) 'Age': profile.age,
+        if (profile.weight.isNotEmpty) 'Weight': profile.weight,
+        if (profile.sex.isNotEmpty) 'Sex': profile.sex,
+        if (profile.allergies.isNotEmpty) 'Known allergies': profile.allergies.join(', '),
+        if (profile.currentMedicines.isNotEmpty) 'Current medicines': profile.currentMedicines.join(', '),
+        if (profile.conditions.isNotEmpty) 'Relevant conditions': profile.conditions.join(', '),
+        if (profile.pregnancyStatus.isNotEmpty) 'Pregnancy/breastfeeding': profile.pregnancyStatus,
+        if (profile.kidneyFunction.isNotEmpty) 'Kidney function': profile.kidneyFunction,
+        if (profile.liverFunction.isNotEmpty) 'Liver function': profile.liverFunction,
+      };
+
+  PatientProfile _profileWithAnswers(PatientProfile profile, Map<String, String> answers) {
+    String value(String key, String fallback) => answers[key] ?? fallback;
+    return PatientProfile(
+      patientId: profile.patientId,
+      age: value('Age', profile.age),
+      sex: value('Sex', profile.sex),
+      weight: value('Weight', profile.weight),
+      allergies: value('Known allergies', profile.allergies.join(', ')).split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList(),
+      currentMedicines: value('Current medicines', profile.currentMedicines.join(', ')).split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList(),
+      conditions: value('Relevant conditions', profile.conditions.join(', ')).split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList(),
+      pregnancyStatus: value('Pregnancy/breastfeeding', profile.pregnancyStatus),
+      kidneyFunction: value('Kidney function', profile.kidneyFunction),
+      liverFunction: value('Liver function', profile.liverFunction),
+      vcfFilename: ref.read(selectedVcfFilenameProvider),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final selectedDrugs = ref.watch(selectedDrugsProvider);
 
     return Scaffold(
-      backgroundColor: AppTheme.bgLight,
-      appBar: AppBar(
-        title: Text(
-          'Select Target Drugs',
-          style: GoogleFonts.inter(
-            fontWeight: FontWeight.w700,
-            fontSize: 17,
-            color: AppTheme.deepInk,
-          ),
-        ),
-      ),
+      appBar: AppBar(title: const Text('Select Target Drugs')),
       body: SafeArea(
         child: Stack(
           children: [
             SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+              padding: const EdgeInsets.all(24),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: AppTheme.lightEmeraldPill,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Text(
-                          'STEP 2 OF 2',
-                          style: GoogleFonts.inter(
-                            fontSize: 10.5,
-                            fontWeight: FontWeight.w800,
-                            color: AppTheme.primaryDarkEmerald,
-                            letterSpacing: 0.8,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
                   Text(
-                    'Select Medications to Evaluate',
-                    style: GoogleFonts.inter(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: -0.3,
-                      color: AppTheme.deepInk,
+                    'Step 2: Select Medications',
+                    style: theme.textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: theme.colorScheme.primary,
                     ),
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Evaluate against validated CPIC pharmacogenomic rules locally on-device.',
-                    style: GoogleFonts.inter(
-                      color: AppTheme.secondaryInk,
-                      fontSize: 13,
-                      height: 1.35,
-                    ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'Select one or more supported drugs to evaluate against confirmed VCF genomic variants.',
+                    style: TextStyle(color: Colors.grey, fontSize: 13),
                   ),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 24),
 
-                  // Supported Panel Drugs List
+                  // Supported Drugs Selection Chips
                   Text(
                     'Supported Panel Drugs (6)',
-                    style: GoogleFonts.inter(
-                      fontSize: 14.5,
-                      fontWeight: FontWeight.w700,
-                      color: AppTheme.deepInk,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 12),
 
                   Column(
                     children: supportedDrugs.map((item) {
@@ -436,58 +455,37 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
                       return Container(
                         margin: const EdgeInsets.only(bottom: 8),
                         decoration: BoxDecoration(
-                          color: isSelected ? AppTheme.mintSurface : Colors.white,
-                          borderRadius: BorderRadius.circular(14),
+                          color: isSelected
+                              ? theme.colorScheme.primaryContainer.withValues(
+                                  alpha: 0.4,
+                                )
+                              : Colors.grey.shade50,
+                          borderRadius: BorderRadius.circular(12),
                           border: Border.all(
                             color: isSelected
-                                ? AppTheme.primaryEmerald
-                                : AppTheme.cardBorder,
+                                ? theme.colorScheme.primary
+                                : Colors.grey.shade300,
                             width: isSelected ? 1.5 : 1.0,
                           ),
                         ),
                         child: CheckboxListTile(
                           value: isSelected,
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
-                          title: Row(
-                            children: [
-                              Text(
-                                drug,
-                                style: GoogleFonts.inter(
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 14.5,
-                                  color: isSelected
-                                      ? AppTheme.primaryEmerald
-                                      : AppTheme.deepInk,
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: AppTheme.lightEmeraldPill,
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                                child: Text(
-                                  gene,
-                                  style: GoogleFonts.inter(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w700,
-                                    color: AppTheme.primaryDarkEmerald,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          subtitle: Text(
-                            type,
-                            style: GoogleFonts.inter(
-                              fontSize: 11.5,
-                              color: AppTheme.secondaryInk,
+                          title: Text(
+                            drug,
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: isSelected
+                                  ? theme.colorScheme.primary
+                                  : Colors.black87,
                             ),
                           ),
-                          activeColor: AppTheme.primaryEmerald,
+                          subtitle: Text(
+                            'Primary Gene: $gene • $type',
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                          activeColor: theme.colorScheme.primary,
                           shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
+                            borderRadius: BorderRadius.circular(12),
                           ),
                           onChanged: (bool? checked) {
                             final current = Set<String>.from(
@@ -498,111 +496,81 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
                             } else {
                               current.remove(drug);
                             }
-                            ref.read(selectedDrugsProvider.notifier).state = current;
+                            ref.read(selectedDrugsProvider.notifier).state =
+                                current;
                           },
                         ),
                       );
                     }).toList(),
                   ),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 24),
 
                   // Optional Custom Free-Text Drug Field
                   Text(
                     'Any Medicine (Generic or Brand Name)',
-                    style: GoogleFonts.inter(
-                      fontSize: 14.5,
-                      fontWeight: FontWeight.w700,
-                      color: AppTheme.deepInk,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Enter any medicine — NoCapRX searches validated clinical evidence.',
-                    style: GoogleFonts.inter(
-                      color: AppTheme.secondaryInk,
-                      fontSize: 12,
-                    ),
+                    'Enter any medicine — PharmaGuard will search local & online pharmacogenomic evidence.',
+                    style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
                   ),
                   const SizedBox(height: 8),
                   TextField(
                     controller: _customDrugController,
-                    style: GoogleFonts.inter(fontSize: 14, color: AppTheme.deepInk),
                     onChanged: (_) => setState(() {
                       _onlineEvidenceMessage = null;
                       _onlineEvidenceUrl = null;
                     }),
                     decoration: InputDecoration(
                       hintText: 'e.g. Tacrolimus, Plavix, Ibuprofen, Azithromycin',
-                      prefixIcon: const Icon(
-                        Icons.medication_outlined,
-                        color: AppTheme.secondaryInk,
+                      prefixIcon: const Icon(Icons.medication_outlined),
+                      helperText:
+                          'Supports generic names, brand names, and aliases. Online evidence discovery for unlisted drugs.',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
                       ),
                     ),
                   ),
                   if (_customDrugController.text.trim().isNotEmpty) ...[
                     const SizedBox(height: 8),
                     ...DrugRepository.search(_customDrugController.text).map(
-                      (drug) => Container(
-                        margin: const EdgeInsets.only(bottom: 6),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: AppTheme.cardBorder),
+                      (drug) => ListTile(
+                        dense: true,
+                        leading: const Icon(Icons.medication_outlined),
+                        title: Text(drug.displayName),
+                        subtitle: Text(
+                          '${drug.aliases.join(', ')} • ${drug.genes.join(', ')}',
                         ),
-                        child: ListTile(
-                          dense: true,
-                          leading: const Icon(
-                            Icons.medication_outlined,
-                            color: AppTheme.primaryEmerald,
-                          ),
-                          title: Text(
-                            drug.displayName,
-                            style: GoogleFonts.inter(
-                              fontWeight: FontWeight.w700,
-                              color: AppTheme.deepInk,
-                            ),
-                          ),
-                          subtitle: Text(
-                            '${drug.aliases.join(', ')} • ${drug.genes.join(', ')}',
-                            style: GoogleFonts.inter(fontSize: 11, color: AppTheme.secondaryInk),
-                          ),
-                          trailing: const Icon(
-                            Icons.verified_outlined,
-                            size: 18,
-                            color: AppTheme.safeGreen,
-                          ),
-                          onTap: () => setState(() {
-                            _customDrugController.text = drug.displayName;
-                            _onlineEvidenceMessage = null;
-                            _onlineEvidenceUrl = null;
-                          }),
-                        ),
+                        trailing: const Icon(Icons.verified_outlined, size: 18),
+                        onTap: () => setState(() {
+                          _customDrugController.text = drug.displayName;
+                          _onlineEvidenceMessage = null;
+                          _onlineEvidenceUrl = null;
+                        }),
                       ),
                     ),
-                    if (DrugRepository.search(_customDrugController.text).isEmpty)
+                    if (DrugRepository.search(
+                      _customDrugController.text,
+                    ).isEmpty)
                       Container(
-                        margin: const EdgeInsets.symmetric(vertical: 6),
+                        margin: const EdgeInsets.symmetric(vertical: 4),
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          color: AppTheme.lightEmeraldPill,
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
-                            color: AppTheme.accentEmerald.withValues(alpha: 0.2),
-                          ),
+                          color: Colors.blue.shade50,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.blue.shade200),
                         ),
-                        child: Row(
+                        child: const Row(
                           children: [
-                            const Icon(Icons.cloud_outlined,
-                                color: AppTheme.primaryEmerald, size: 20),
-                            const SizedBox(width: 8),
+                            Icon(Icons.cloud_outlined, color: Colors.blue, size: 20),
+                            SizedBox(width: 8),
                             Expanded(
                               child: Text(
-                                'Not in local DB. Online pharmacogenomic evidence discovery will be attempted.',
-                                style: GoogleFonts.inter(
-                                  fontSize: 12,
-                                  color: AppTheme.primaryDarkEmerald,
-                                  fontWeight: FontWeight.w500,
-                                ),
+                                'Not in local database. Online pharmacogenomic evidence discovery will be attempted.',
+                                style: TextStyle(fontSize: 12, color: Colors.blue),
                               ),
                             ),
                           ],
@@ -613,8 +581,8 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
                     const SizedBox(height: 8),
                     Text(
                       _onlineEvidenceMessage!,
-                      style: GoogleFonts.inter(
-                        color: AppTheme.warningAmber,
+                      style: const TextStyle(
+                        color: Colors.orange,
                         fontSize: 12,
                       ),
                     ),
@@ -628,131 +596,117 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
                         label: const Text('Open official FDA label in browser'),
                       ),
                   ],
-                  const SizedBox(height: 28),
+                  const SizedBox(height: 36),
 
                   // Analyze Button
                   SizedBox(
                     width: double.infinity,
-                    height: 50,
                     child: ElevatedButton(
-                      onPressed: selectedDrugs.isEmpty &&
+                      onPressed:
+                          selectedDrugs.isEmpty &&
                               _customDrugController.text.trim().isEmpty
                           ? null
                           : _runPipeline,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: AppTheme.primaryEmerald,
-                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
-                        elevation: 0,
+                        backgroundColor: theme.colorScheme.primary,
+                        foregroundColor: Colors.white,
                       ),
-                      child: Row(
+                      child: const Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          const Icon(Icons.bolt_rounded, size: 20),
-                          const SizedBox(width: 8),
+                          Icon(Icons.bolt_rounded),
+                          SizedBox(width: 8),
                           Text(
                             'Check Medicine Safety',
-                            style: GoogleFonts.inter(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: -0.1,
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
                             ),
                           ),
                         ],
                       ),
                     ),
                   ),
-                  const SizedBox(height: 20),
                 ],
               ),
             ),
 
-            // Loading Overlay with Multi-Stage Progress
+            // Fullscreen Loading Overlay with Multi-Stage Progress
             if (_isAnalyzing)
               Container(
-                color: Colors.black.withValues(alpha: 0.6),
+                color: Colors.black54,
                 child: Center(
-                  child: Container(
-                    margin: const EdgeInsets.all(28),
-                    padding: const EdgeInsets.all(28),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(20),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.15),
-                          blurRadius: 24,
-                          offset: const Offset(0, 8),
-                        ),
-                      ],
+                  child: Card(
+                    margin: const EdgeInsets.all(32),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
                     ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const SizedBox(
-                          width: 36,
-                          height: 36,
-                          child: CircularProgressIndicator(
-                            color: AppTheme.primaryEmerald,
-                            strokeWidth: 3,
+                    child: Padding(
+                      padding: const EdgeInsets.all(28),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          CircularProgressIndicator(
+                            color: theme.colorScheme.primary,
                           ),
-                        ),
-                        const SizedBox(height: 20),
-                        Text(
-                          'Analyzing Genomic Risk...',
-                          style: GoogleFonts.inter(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w800,
-                            color: AppTheme.deepInk,
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        ConstrainedBox(
-                          constraints: const BoxConstraints(maxHeight: 240),
-                          child: SingleChildScrollView(
-                            reverse: true,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: _progressSteps.map((step) {
-                                return Padding(
-                                  padding: const EdgeInsets.symmetric(vertical: 3),
-                                  child: Row(
-                                    children: [
-                                      Text(
-                                        step.done ? '✓' : step.emoji,
-                                        style: TextStyle(
-                                          fontSize: 14,
-                                          color: step.done
-                                              ? AppTheme.safeGreen
-                                              : AppTheme.warningAmber,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: Text(
-                                          step.text,
-                                          style: GoogleFonts.inter(
-                                            fontSize: 12.5,
-                                            color: step.done
-                                                ? AppTheme.secondaryInk
-                                                : AppTheme.deepInk,
-                                            fontWeight: step.done
-                                                ? FontWeight.w400
-                                                : FontWeight.w600,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                );
-                              }).toList(),
+                          const SizedBox(height: 20),
+                          const Text(
+                            'Analyzing Genomic Risk...',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
                             ),
                           ),
-                        ),
-                      ],
+                          const SizedBox(height: 16),
+                          // Multi-stage progress list
+                          ConstrainedBox(
+                            constraints: const BoxConstraints(maxHeight: 280),
+                            child: SingleChildScrollView(
+                              reverse: true,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: _progressSteps.map((step) {
+                                  return Padding(
+                                    padding: const EdgeInsets.symmetric(vertical: 2),
+                                    child: Row(
+                                      children: [
+                                        Text(
+                                          step.done ? '✓' : step.emoji,
+                                          style: TextStyle(
+                                            fontSize: 14,
+                                            color: step.done
+                                                ? Colors.green
+                                                : Colors.orange,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Text(
+                                            step.text,
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: step.done
+                                                  ? Colors.grey.shade700
+                                                  : Colors.black87,
+                                              fontWeight: step.done
+                                                  ? FontWeight.normal
+                                                  : FontWeight.w500,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                }).toList(),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),

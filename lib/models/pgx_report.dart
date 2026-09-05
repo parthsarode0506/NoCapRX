@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'drug_evidence.dart';
+import 'personalized_side_effect_risk.dart';
 
 /// Represents a single variant detected in the patient's VCF.
 class DetectedVariant {
@@ -226,6 +227,7 @@ class PgxReport {
   final LlmExplanation llmGeneratedExplanation;
   final QualityMetrics qualityMetrics;
   final DrugEvidence? evidence;
+  final List<PersonalizedSideEffectRisk> personalizedSideEffects;
 
   PgxReport({
     required this.patientId,
@@ -237,6 +239,7 @@ class PgxReport {
     required this.llmGeneratedExplanation,
     required this.qualityMetrics,
     this.evidence,
+    this.personalizedSideEffects = const [],
   });
 
   Map<String, dynamic> toJson() {
@@ -264,6 +267,9 @@ class PgxReport {
       'llm_generated_explanation': llmGeneratedExplanation.toJson(),
       'quality_metrics': qualityMetrics.toJson(),
       if (evidence != null) 'evidence': evidence!.toJson(),
+        'personalized_side_effects': personalizedSideEffects
+          .map((risk) => risk.toJson())
+          .toList(),
       if (evidence != null)
         'pgx_assessment': {
           'has_pgx_relationship': evidence!.hasPgxRelationship,
@@ -296,6 +302,11 @@ class PgxReport {
         evidence: json['evidence'] is Map<String, dynamic>
           ? DrugEvidence.fromJson(json['evidence'] as Map<String, dynamic>)
           : null,
+          personalizedSideEffects: (json['personalized_side_effects'] as List<dynamic>?)
+              ?.whereType<Map<String, dynamic>>()
+              .map(PersonalizedSideEffectRisk.fromJson)
+              .toList() ??
+            const [],
     );
   }
 }

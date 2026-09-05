@@ -9,6 +9,10 @@ class DrugMetadata {
   final List<String> requiredClinicalData;
   final String evidenceSource;
   final bool ruleAvailable;
+  final List<String> uses;
+  final List<String> commonSideEffects;
+  final List<String> seriousSideEffects;
+  final List<String> precautions;
 
   const DrugMetadata({
     required this.genericName,
@@ -18,6 +22,10 @@ class DrugMetadata {
     required this.requiredClinicalData,
     required this.evidenceSource,
     this.ruleAvailable = true,
+    this.uses = const [],
+    this.commonSideEffects = const [],
+    this.seriousSideEffects = const [],
+    this.precautions = const [],
   });
 
   bool matches(String query) {

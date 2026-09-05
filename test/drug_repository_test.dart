@@ -4,6 +4,7 @@ import 'package:ondevicerx/parser/vcf_parser.dart';
 import 'package:ondevicerx/rules_engine/cpic_rule_engine.dart';
 import 'package:ondevicerx/services/online_evidence_service.dart';
 import 'package:ondevicerx/services/medicine_normalization_service.dart';
+import 'package:ondevicerx/services/personalized_side_effect_engine.dart';
 import 'package:ondevicerx/services/drug_repository.dart';
 
 void main() {
@@ -57,6 +58,40 @@ void main() {
     expect(report.evidence?.hasPgxRelationship, isFalse);
     expect(report.toJson()['final_assessment']['status'],
         'NO_MAJOR_RISK_IDENTIFIED');
+  });
+
+  test('clinical allergy finding overrides PGx outcome', () async {
+    final evidence = (await OnlineEvidenceService.discover('Aspirin')).evidence!;
+    final parsed = VcfParser.parseVcfContent('''##fileformat=VCFv4.2
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
+''');
+    final report = CpicRuleEngine.evaluateDrug(
+      drugName: 'Aspirin',
+      parseResult: parsed,
+      evidence: evidence,
+      clinicalData: {'Known allergies': 'Aspirin', 'Current medicines': 'None'},
+    );
+
+    expect(report.riskAssessment.riskLabel, 'CONTRAINDICATED');
+    expect(report.llmGeneratedExplanation.summary, contains('CONTRAINDICATED'));
+  });
+
+  test('matches patient factors to serious side-effect risks', () async {
+    final evidence = (await OnlineEvidenceService.discover('Ibuprofen')).evidence!;
+    final findings = PersonalizedSideEffectEngine.evaluate(evidence, {
+      'Relevant conditions': 'Previous stomach ulcer',
+      'Current medicines': 'Warfarin',
+      'Kidney function': 'No known kidney disease',
+      'Age': '62',
+    });
+
+    final bleeding = findings.firstWhere(
+      (finding) => finding.sideEffect.toLowerCase().contains('bleed'),
+    );
+    expect(bleeding.relevance, 'HIGHER_CONCERN');
+    expect(bleeding.patientRiskFactors, contains('Reported ulcer or bleeding history'));
+    expect(bleeding.patientRiskFactors, contains('Reported anticoagulant medicine'));
+    expect(bleeding.higherRiskGroups, isNotEmpty);
   });
 
   test('discovers an authoritative online catalog entry through a brand alias', () async {

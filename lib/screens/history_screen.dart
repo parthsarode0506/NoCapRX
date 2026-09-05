@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../providers/app_providers.dart';
+import '../services/firebase_service.dart';
 import '../theme/app_theme.dart';
 import 'results_screen.dart';
 
@@ -138,9 +139,46 @@ class HistoryScreen extends ConsumerWidget {
                         ),
                       ],
                     ),
-                    trailing: const Icon(
-                      Icons.chevron_right_rounded,
-                      color: AppTheme.secondaryInk,
+                    trailing: PopupMenuButton<String>(
+                      onSelected: (value) async {
+                        if (value != 'delete') return;
+                        final confirmed = await showDialog<bool>(
+                          context: context,
+                          builder: (dialogContext) => AlertDialog(
+                            title: const Text('Delete past report?'),
+                            content: const Text(
+                              'This removes the report from this device and your cloud account.',
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(dialogContext, false),
+                                child: const Text('Cancel'),
+                              ),
+                              FilledButton(
+                                onPressed: () => Navigator.pop(dialogContext, true),
+                                child: const Text('Delete'),
+                              ),
+                            ],
+                          ),
+                        );
+                        if (confirmed != true || !context.mounted) return;
+                        try {
+                          await FirebaseService.deleteReport(report.reportId);
+                          ref.invalidate(userReportsStreamProvider);
+                        } catch (error) {
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('Could not delete report: $error')),
+                            );
+                          }
+                        }
+                      },
+                      itemBuilder: (_) => const [
+                        PopupMenuItem(
+                          value: 'delete',
+                          child: Text('Delete report'),
+                        ),
+                      ],
                     ),
                     onTap: () {
                       ref.read(currentReportProvider.notifier).state = report;

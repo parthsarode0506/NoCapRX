@@ -1,6 +1,7 @@
 import '../models/drug_evidence.dart';
 import '../models/pgx_report.dart';
 import '../parser/vcf_parser.dart';
+import '../services/universal_medicine_safety_engine.dart';
 
 class CpicRule {
   final String gene;
@@ -805,6 +806,19 @@ class CpicRuleEngine {
         );
       }
 
+      final clinicalFinding = UniversalMedicineSafetyEngine.evaluate(
+        cleanDrug,
+        clinicalData,
+      );
+      if (clinicalFinding != null) {
+        return _generateClinicalFindingReport(
+          drugName: evidence.displayName.isNotEmpty ? evidence.displayName : cleanDrug,
+          parseResult: parseResult,
+          evidence: evidence,
+          finding: clinicalFinding,
+        );
+      }
+
       if (!evidence.hasPgxRelationship) {
         final missingClinicalData = evidence.requiredClinicalData
             .where((field) => clinicalData?[field]?.trim().isNotEmpty != true)
@@ -1111,6 +1125,49 @@ class CpicRuleEngine {
         clinicianNote: 'Identity verification failed; stop assessment until the active ingredient is confirmed.',
       ),
       qualityMetrics: parseResult.qualityMetrics,
+    );
+  }
+
+  static PgxReport _generateClinicalFindingReport({
+    required String drugName,
+    required VcfParseResult parseResult,
+    required DrugEvidence evidence,
+    required ClinicalSafetyFinding finding,
+  }) {
+    final highRisk = finding.status == 'CONTRAINDICATED' ||
+        finding.status == 'DRUG_INTERACTION_DETECTED';
+    return PgxReport(
+      patientId: parseResult.patientId,
+      drug: drugName,
+      timestamp: DateTime.now().toIso8601String(),
+      riskAssessment: RiskAssessment(
+        riskLabel: highRisk ? finding.status : 'Use with caution',
+        confidenceScore: 0.85,
+        severity: highRisk ? 'critical' : 'moderate',
+      ),
+      pharmacogenomicProfile: PharmacogenomicProfile(
+        primaryGene: evidence.genes.isEmpty ? 'NON-PGX' : evidence.genes.first,
+        diplotype: 'Not applicable',
+        phenotype: evidence.hasPgxRelationship ? 'Not assessed due to higher-priority clinical finding' : 'No Established PGx Association',
+        detectedVariants: const [],
+      ),
+      clinicalRecommendation: ClinicalRecommendation(
+        cpicGuidelineCitation: finding.evidenceSource,
+        dosingRecommendation: finding.explanation,
+        alternativeDrugs: evidence.alternativeDrugs,
+        monitoringAdvice: 'Do not start, stop, or change this medicine without a qualified doctor or pharmacist.',
+        evidenceLevel: evidence.evidenceLevel,
+        evidenceSource: evidence.source,
+        evidenceRetrievedAt: evidence.retrievalTimestamp,
+      ),
+      llmGeneratedExplanation: LlmExplanation(
+        summary: '${finding.status}: ${finding.title}.',
+        mechanism: finding.explanation,
+        patientFriendly: finding.explanation,
+        clinicianNote: '${finding.title}. Higher-priority clinical safety finding overrides PGx evaluation.',
+      ),
+      qualityMetrics: parseResult.qualityMetrics,
+      evidence: evidence,
     );
   }
 

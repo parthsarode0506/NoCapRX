@@ -16,6 +16,10 @@ class DrugRepository {
       requiredClinicalData: [],
       evidenceSource: 'CPIC CYP2D6–opioids guideline (2021)',
       ruleAvailable: true,
+      uses: ['Pain relief when prescribed'],
+      commonSideEffects: ['Nausea', 'Constipation', 'Drowsiness'],
+      seriousSideEffects: ['Slow or difficult breathing', 'Severe sedation'],
+      precautions: ['Use only as prescribed; opioid risks apply'],
     ),
     DrugMetadata(
       genericName: 'CLOPIDOGREL',
@@ -25,6 +29,10 @@ class DrugRepository {
       requiredClinicalData: [],
       evidenceSource: 'CPIC CYP2C19–clopidogrel guideline (2022)',
       ruleAvailable: true,
+      uses: ['Prevention of blood clots in selected cardiovascular conditions'],
+      commonSideEffects: ['Bruising', 'Nosebleeds', 'Diarrhea'],
+      seriousSideEffects: ['Uncontrolled bleeding', 'Blood in stool or urine'],
+      precautions: ['Review bleeding risk and all anticoagulant medicines'],
     ),
     DrugMetadata(
       genericName: 'WARFARIN',
@@ -41,6 +49,10 @@ class DrugRepository {
       ],
       evidenceSource: 'CPIC warfarin dosing guideline (2017)',
       ruleAvailable: true,
+      uses: ['Prevention and treatment of blood clots'],
+      commonSideEffects: ['Bruising', 'Minor bleeding'],
+      seriousSideEffects: ['Heavy or unexplained bleeding', 'Severe headache'],
+      precautions: ['INR monitoring and clinician-managed dosing are required'],
     ),
     DrugMetadata(
       genericName: 'SIMVASTATIN',
@@ -50,6 +62,10 @@ class DrugRepository {
       requiredClinicalData: [],
       evidenceSource: 'CPIC SLCO1B1–statin guideline (2022)',
       ruleAvailable: true,
+      uses: ['Cholesterol reduction and cardiovascular risk reduction'],
+      commonSideEffects: ['Muscle aches', 'Headache', 'Digestive upset'],
+      seriousSideEffects: ['Severe muscle pain or weakness', 'Dark urine'],
+      precautions: ['Report muscle symptoms and review interacting medicines'],
     ),
     DrugMetadata(
       genericName: 'AZATHIOPRINE',
@@ -59,6 +75,10 @@ class DrugRepository {
       requiredClinicalData: [],
       evidenceSource: 'CPIC thiopurine guideline (2018)',
       ruleAvailable: true,
+      uses: ['Immune-mediated conditions when prescribed by a specialist'],
+      commonSideEffects: ['Nausea', 'Reduced appetite'],
+      seriousSideEffects: ['Fever or infection', 'Unusual bleeding'],
+      precautions: ['Blood-count monitoring is required'],
     ),
     DrugMetadata(
       genericName: 'FLUOROURACIL',
@@ -68,6 +88,10 @@ class DrugRepository {
       requiredClinicalData: [],
       evidenceSource: 'CPIC DPYD–fluoropyrimidine guideline (2018)',
       ruleAvailable: true,
+      uses: ['Cancer treatment under oncology supervision'],
+      commonSideEffects: ['Nausea', 'Diarrhea', 'Mouth sores'],
+      seriousSideEffects: ['Severe diarrhea', 'Severe infection signs', 'Chest pain'],
+      precautions: ['Oncology-supervised treatment and toxicity monitoring are required'],
     ),
     DrugMetadata(
       genericName: 'AZITHROMYCIN',
@@ -142,6 +166,10 @@ class DrugRepository {
             requiredClinicalData: c.requiredClinicalData,
             evidenceSource: '${c.source} (${c.evidenceLevel})',
             ruleAvailable: c.hasPgxRelationship && c.genes.isNotEmpty,
+            uses: c.uses,
+            commonSideEffects: c.commonSideEffects,
+            seriousSideEffects: c.seriousSideEffects,
+            precautions: c.precautions,
           ),
         );
       }
@@ -163,6 +191,12 @@ class DrugRepository {
       clinicallyActionable: metadata.ruleAvailable,
       requiredClinicalData: metadata.requiredClinicalData,
       retrievalTimestamp: DateTime.now().toIso8601String(),
+      verifiedMedicine: true,
+      identityConfidence: 0.98,
+      uses: metadata.uses,
+      commonSideEffects: metadata.commonSideEffects,
+      seriousSideEffects: metadata.seriousSideEffects,
+      precautions: metadata.precautions,
     );
   }
 }

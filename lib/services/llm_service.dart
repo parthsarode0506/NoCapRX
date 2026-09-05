@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/services.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 import '../models/pgx_report.dart';
 
@@ -21,10 +22,15 @@ class LlmService {
     }
   }
 
-  /// Browser clients must not carry a provider secret. Until a secure backend
-  /// issues explanation requests, use bundled/offline explanations. This also
-  /// keeps core analysis available when no dotenv asset is loaded.
-  static String? get _apiKey => null;
+  /// Keep .env out of source control. Production browser deployments should
+  /// use a server-side proxy instead of shipping a provider key to clients.
+  static String? get _apiKey {
+    final value = dotenv.env['GROQ_API_KEY']?.trim();
+    if (value == null || value.isEmpty || value == 'YOUR_GROQ_API_KEY_HERE') {
+      return null;
+    }
+    return value;
+  }
 
   /// Uses AI only to resolve an entered generic/brand name to one of the
   /// caller-provided, validated drug rules.  The response is allow-listed so a

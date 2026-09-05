@@ -22,6 +22,11 @@ class DrugEvidence {
     final String? dosageForm;
     final bool verifiedMedicine;
     final double identityConfidence;
+    final List<String> uses;
+    final List<String> commonSideEffects;
+    final List<String> seriousSideEffects;
+    final List<String> precautions;
+    final List<String> evidenceSources;
 
   const DrugEvidence({
     required this.genericName,
@@ -47,6 +52,11 @@ class DrugEvidence {
     this.dosageForm,
     this.verifiedMedicine = true,
     this.identityConfidence = 0.0,
+    this.uses = const [],
+    this.commonSideEffects = const [],
+    this.seriousSideEffects = const [],
+    this.precautions = const [],
+    this.evidenceSources = const [],
   });
 
   Map<String, dynamic> toJson() => {
@@ -73,6 +83,11 @@ class DrugEvidence {
         'dosage_form': dosageForm,
         'verified_medicine': verifiedMedicine,
         'identity_confidence': identityConfidence,
+        'uses': uses,
+        'common_side_effects': commonSideEffects,
+        'serious_side_effects': seriousSideEffects,
+        'precautions': precautions,
+        'evidence_sources': evidenceSources,
       };
 
   factory DrugEvidence.fromJson(Map<String, dynamic> json) => DrugEvidence(
@@ -122,5 +137,10 @@ class DrugEvidence {
         verifiedMedicine: json['verified_medicine'] as bool? ?? true,
         identityConfidence:
             (json['identity_confidence'] as num?)?.toDouble() ?? 0.0,
+          uses: (json['uses'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? const [],
+          commonSideEffects: (json['common_side_effects'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? const [],
+          seriousSideEffects: (json['serious_side_effects'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? const [],
+          precautions: (json['precautions'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? const [],
+          evidenceSources: (json['evidence_sources'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? const [],
       );
 }

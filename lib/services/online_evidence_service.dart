@@ -336,6 +336,11 @@ class OnlineEvidenceService {
       mechanism: 'No actionable germline PGx relationship was established for routine aspirin prescribing.',
       evidenceLevel: 'Verified medicine identity; no actionable PGx association',
       source: 'FDA labeling / standard clinical safety review',
+      uses: ['Pain relief and fever reduction', 'Antiplatelet treatment when prescribed for cardiovascular indications'],
+      commonSideEffects: ['Stomach irritation', 'Heartburn', 'Easy bruising'],
+      seriousSideEffects: ['Unusual bleeding', 'Black or bloody stools', 'Vomiting blood', 'Wheezing or facial swelling'],
+      precautions: ['Avoid self-treatment if you have a serious aspirin/NSAID allergy', 'Ask a clinician before use with bleeding disorders, ulcers, kidney disease, or blood thinners'],
+      evidenceSources: ['FDA-approved labeling', 'MedlinePlus aspirin information'],
       clinicallyActionable: false,
       hasPgxRelationship: false,
       requiredClinicalData: ['Known allergies', 'Current medicines', 'Relevant conditions', 'Dose and route'],
@@ -395,6 +400,11 @@ class OnlineEvidenceService {
         identityConfidence: evidence.identityConfidence > 0
             ? evidence.identityConfidence
             : 0.98,
+        uses: evidence.uses,
+        commonSideEffects: evidence.commonSideEffects,
+        seriousSideEffects: evidence.seriousSideEffects,
+        precautions: evidence.precautions,
+        evidenceSources: evidence.evidenceSources,
       );
 
       // Cache discovered evidence locally
