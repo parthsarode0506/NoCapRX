@@ -8,15 +8,17 @@ import 'screens/splash_screen.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Load local .env file (for Groq AI API Key & Firebase config) safely
   try {
     await dotenv.load(fileName: '.env');
   } catch (e) {
-    debugPrint('Dotenv load warning (using offline pre-bundled asset mode): $e');
+    debugPrint('Dotenv load info: $e');
   }
 
-  // Initialize Firebase (Core, Auth, Firestore, Analytics, App Check, Crashlytics)
-  await FirebaseService.init();
+  try {
+    await FirebaseService.init();
+  } catch (e) {
+    debugPrint('Firebase startup error: $e');
+  }
 
   runApp(
     const ProviderScope(

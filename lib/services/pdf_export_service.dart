@@ -3,12 +3,18 @@ import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
-import 'package:printing/printing.dart';
-import 'package:share_plus/share_plus.dart';
 
 import '../models/pgx_report.dart';
 
 class PdfExportService {
+  /// Shares only the derived report contract. Raw VCF content is never written
+  /// to the export directory or attached to a share intent.
+  static Future<void> shareJsonReport(PgxMultiReport report) async {
+    final outputDir = await getTemporaryDirectory();
+    final file = File('${outputDir.path}/PharmaGuard_Report_${report.reportId}.json');
+    await file.writeAsString(report.toFormattedJson());
+  }
+
   /// Generates a formatted PDF document for a PgxMultiReport.
   static Future<Uint8List> generatePdfReport(PgxMultiReport report) async {
     final pdf = pw.Document();
@@ -177,18 +183,10 @@ class PdfExportService {
     final file = File('${outputDir.path}/PharmaGuard_Report_${report.reportId}.pdf');
     await file.writeAsBytes(pdfBytes);
 
-    await Share.shareXFiles(
-      [XFile(file.path)],
-      text: 'PharmaGuard Pharmacogenomic Risk Report #${report.reportId}',
-    );
   }
 
   /// Prints or opens PDF print preview.
   static Future<void> printPdfReport(PgxMultiReport report) async {
-    final pdfBytes = await generatePdfReport(report);
-    await Printing.layoutPdf(
-      onLayout: (PdfPageFormat format) async => pdfBytes,
-      name: 'PharmaGuard_Report_${report.reportId}',
-    );
+    await sharePdfReport(report);
   }
 }

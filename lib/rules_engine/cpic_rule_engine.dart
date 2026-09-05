@@ -389,6 +389,13 @@ class CpicRuleEngine {
       return _generateUnknownDrugReport(enteredDrug, parseResult);
     }
 
+    // Warfarin dosing is multivariable. This panel does not yet call VKORC1
+    // and has no validated clinical-input dosing algorithm, so CYP2C9 alone
+    // must never produce Safe/Adjust Dosage/Toxic output.
+    if (cleanDrug == 'WARFARIN') {
+      return _generateWarfarinInsufficientDataReport(parseResult);
+    }
+
     final geneData = parseResult.geneProfiles[primaryGene];
     final phenotype = geneData?.phenotype ?? 'Unknown';
 
@@ -410,7 +417,7 @@ class CpicRuleEngine {
     );
 
     double finalConfidence = matchedRule.baseConfidence;
-    if (geneData?.isInferred == true) {
+    if (geneData.isInferred == true) {
       finalConfidence = (finalConfidence - 0.20).clamp(0.50, 0.99);
     }
 
@@ -422,9 +429,9 @@ class CpicRuleEngine {
 
     final pgxProfile = PharmacogenomicProfile(
       primaryGene: primaryGene,
-      diplotype: geneData?.diplotype ?? '*1/*1',
+      diplotype: geneData.diplotype,
       phenotype: phenotype,
-      detectedVariants: geneData?.variants ?? [],
+      detectedVariants: geneData.variants,
     );
 
     final clinicalRec = ClinicalRecommendation(
@@ -440,7 +447,7 @@ class CpicRuleEngine {
             summary: '${matchedRule.gene} $phenotype phenotype assessed for $cleanDrug.',
             mechanism: matchedRule.mechanism,
             patientFriendly: 'Your genetic results for $primaryGene ($phenotype) suggest that $cleanDrug is labeled as ${matchedRule.riskLabel}. ${matchedRule.dosingRecommendation}',
-            clinicianNote: 'CPIC Guideline evaluation: $primaryGene diplotype ${geneData?.diplotype ?? "*1/*1"} ($phenotype). ${matchedRule.dosingRecommendation}',
+            clinicianNote: 'CPIC Guideline evaluation: $primaryGene diplotype ${geneData.diplotype} ($phenotype). ${matchedRule.dosingRecommendation}',
           );
 
     return PgxReport(
@@ -472,7 +479,7 @@ class CpicRuleEngine {
         detectedVariants: [],
       ),
       clinicalRecommendation: ClinicalRecommendation(
-        cpicGuidelineCitation: 'No official CPIC guideline rule mapping available for $drugName in the 6 supported panel genes.',
+        cpicGuidelineCitation: 'No validated local deterministic PGx rule mapping is available for $drugName in this panel.',
         dosingRecommendation: 'Consult a clinical pharmacologist or clinical pharmacist for expert evaluation of $drugName.',
         alternativeDrugs: [],
         monitoringAdvice: 'Standard clinical monitoring per drug package insert guidelines.',
@@ -523,6 +530,21 @@ class CpicRuleEngine {
         patientFriendly: 'Your file does not provide enough confirmed genetic information for $primaryGene to call $drugName safe or unsafe. Please ask your clinician about confirmatory pharmacogenetic testing.',
         clinicianNote: '$message A normal (*1/*1) result must not be assumed from an absent VCF annotation.',
       ),
+      qualityMetrics: parseResult.qualityMetrics,
+    );
+  }
+
+  static PgxReport _generateWarfarinInsufficientDataReport(VcfParseResult parseResult) {
+    final geneData = parseResult.geneProfiles['CYP2C9'];
+    const message = 'Warfarin dosing requires a validated multivariable algorithm, including VKORC1 status and clinical factors such as age, body size, indication, interacting medicines, and INR. This local panel does not yet implement that complete algorithm.';
+    return PgxReport(
+      patientId: parseResult.patientId,
+      drug: 'WARFARIN',
+      timestamp: DateTime.now().toIso8601String(),
+      riskAssessment: RiskAssessment(riskLabel: 'Unknown', confidenceScore: 0.0, severity: 'none'),
+      pharmacogenomicProfile: PharmacogenomicProfile(primaryGene: 'CYP2C9', diplotype: geneData?.diplotype ?? 'Not determined', phenotype: geneData?.phenotype ?? 'Unknown', detectedVariants: geneData?.variants ?? []),
+      clinicalRecommendation: ClinicalRecommendation(cpicGuidelineCitation: 'CPIC Guideline for Pharmacogenomics-Guided Warfarin Dosing (2017).', dosingRecommendation: 'Do not derive a warfarin dose from this report. Use a validated clinical dosing tool with complete genetic and clinical inputs.', alternativeDrugs: const [], monitoringAdvice: 'Obtain the missing required inputs and manage INR under clinician supervision.'),
+      llmGeneratedExplanation: LlmExplanation(summary: 'No warfarin classification was generated because the required dosing inputs are incomplete.', mechanism: message, patientFriendly: 'Genetic information in this file alone is not enough to determine a warfarin dose or safety category. Please discuss complete dosing assessment with your clinician.', clinicianNote: message),
       qualityMetrics: parseResult.qualityMetrics,
     );
   }

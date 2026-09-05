@@ -22,13 +22,15 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
 
   Future<void> _checkAuthAndNavigate() async {
     await Future.delayed(const Duration(milliseconds: 1200));
-
     if (!mounted) return;
 
     final currentUser = FirebaseService.currentUser;
+
     if (currentUser != null) {
-      // Fetch profile
-      final profile = await FirebaseService.getUserProfile(currentUser.uid);
+      // A profile is nice to have, but a slow/unavailable network must not
+      // leave the user on the splash screen forever.
+      final profile = await FirebaseService.getUserProfile(currentUser.uid)
+          .timeout(const Duration(seconds: 3), onTimeout: () => null);
       if (mounted) {
         if (profile != null) {
           ref.read(userProfileProvider.notifier).state = profile;
@@ -37,12 +39,13 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
           MaterialPageRoute(builder: (_) => const HomeScreen()),
         );
       }
-    } else {
-      if (mounted) {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const SignInScreen()),
-        );
-      }
+      return;
+    }
+
+    if (mounted) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => const SignInScreen()),
+      );
     }
   }
 

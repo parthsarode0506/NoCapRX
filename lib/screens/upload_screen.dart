@@ -27,16 +27,15 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
     });
 
     try {
-      final result = await FilePicker.platform.pickFiles(
+      final files = await FilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['vcf'],
         // Web browsers cannot supply PlatformFile.path. Request the file bytes
         // explicitly so parsing stays fully on-device on every platform.
-        withData: true,
       );
 
-      if (result != null && result.files.isNotEmpty) {
-        final platformFile = result.files.first;
+      if (files.isNotEmpty) {
+        final platformFile = files.first;
         final name = platformFile.name;
 
         if (!name.toLowerCase().endsWith('.vcf')) {
@@ -44,16 +43,12 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
           return;
         }
 
-        if (platformFile.size > 5 * 1024 * 1024) {
-          _setError('File size exceeds the 5MB limit (${(platformFile.size / (1024 * 1024)).toStringAsFixed(2)}MB).');
+        final bytes = await platformFile.readAsBytes();
+        if (bytes.length > 5 * 1024 * 1024) {
+          _setError('File size exceeds the 5MB limit.');
           return;
         }
 
-        final bytes = platformFile.bytes;
-        if (bytes == null) {
-          _setError('Could not read the selected VCF file. Please try again.');
-          return;
-        }
         final content = utf8.decode(bytes);
 
         if (content.trim().isEmpty) {

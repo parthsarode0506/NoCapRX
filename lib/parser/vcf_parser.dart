@@ -51,11 +51,12 @@ class VcfParser {
   };
 
   static const Map<String, Map<String, String>> _validatedVariantAlleles = {
-    'CYP2D6': {'RS3892097': '*4'},
-    'CYP2C9': {'RS1057910': '*3'},
+    'CYP2D6': {'RS3892097': '*4', 'RS1065852': '*10'},
+    'CYP2C19': {'RS4244285': '*2', 'RS12248560': '*17'},
+    'CYP2C9': {'RS1799853': '*2', 'RS1057910': '*3'},
     'SLCO1B1': {'RS4149056': '*5'},
-    'TPMT': {'RS1800460': '*3B'},
-    'DPYD': {'RS3918290': '*2A'},
+    'TPMT': {'RS1800460': '*3B', 'RS1142345': '*3C'},
+    'DPYD': {'RS3918290': '*2A', 'RS67376798': '*13'},
   };
 
   /// Parses raw VCF string content and returns structured PGx genomic data.
@@ -118,8 +119,11 @@ class VcfParser {
 
       // Parse INFO column (e.g. GENE=CYP2D6;STAR=*4;RS=rs3892097)
       final infoPairs = _parseInfoColumn(info);
-      final gene = infoPairs['GENE']?.toUpperCase();
       final rsid = infoPairs['RS'] ?? (id != '.' ? id : 'rsUnknown');
+      // Standard VCFs commonly provide an rsID but no non-standard GENE INFO
+      // annotation. Resolve only rsIDs explicitly represented in this small,
+      // validated on-device panel; never guess a gene from position.
+      final gene = infoPairs['GENE']?.toUpperCase() ?? _geneForRsid(rsid);
         final star = infoPairs['STAR'] ??
           infoPairs['DIPLOTYPE'] ??
           infoPairs['GENOTYPE'] ??
@@ -217,6 +221,14 @@ class VcfParser {
     return map;
   }
 
+  static String? _geneForRsid(String rsid) {
+    final normalized = rsid.toUpperCase();
+    for (final entry in _validatedVariantAlleles.entries) {
+      if (entry.value.containsKey(normalized)) return entry.key;
+    }
+    return null;
+  }
+
   static List<String> _extractStarAlleles(String value) {
     return value
         .split(RegExp(r'[/|,]'))
@@ -239,6 +251,7 @@ class VcfParser {
     final genotype = sampleValues[genotypeIndex];
     final allele = _validatedVariantAlleles[gene]?[rsid.toUpperCase()];
     if (allele == null) return null;
+    if (genotype == '0/0' || genotype == '0|0') return '*1/*1';
     if (genotype == '1/1' || genotype == '1|1') return '$allele/$allele';
     if (genotype == '0/1' || genotype == '1/0' || genotype == '0|1' || genotype == '1|0') {
       return '*1/$allele';

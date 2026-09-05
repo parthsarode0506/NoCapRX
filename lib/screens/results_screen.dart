@@ -129,6 +129,11 @@ class ResultsScreen extends ConsumerWidget {
             tooltip: 'Print / Export PDF',
             onPressed: () => PdfExportService.printPdfReport(report),
           ),
+          IconButton(
+            icon: const Icon(Icons.data_object_outlined),
+            tooltip: 'Share derived JSON report',
+            onPressed: () => PdfExportService.shareJsonReport(report),
+          ),
         ],
       ),
       body: SafeArea(
@@ -177,6 +182,23 @@ class ResultsScreen extends ConsumerWidget {
                         ),
                       ],
                     ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.lock_outline, color: Colors.blue),
+                    SizedBox(width: 8),
+                    Expanded(child: Text('Genomic privacy: VCF processing stayed on this device. Raw VCF uploaded: 0 KB. This prototype is decision support and does not replace a clinician, pharmacist, or prescribing information.', style: TextStyle(fontSize: 12))),
                   ],
                 ),
               ),
@@ -389,6 +411,22 @@ class ResultsScreen extends ConsumerWidget {
                                   .toList(),
                             ),
                         ],
+                      ),
+                    ),
+                  ],
+                ),
+
+                // A concise auditable chain; each item is produced by local
+                // parsing/rules rather than by the explanation model.
+                ExpansionTile(
+                  leading: const Icon(Icons.account_tree_outlined, color: Colors.indigo),
+                  title: const Text('Evidence Chain', style: TextStyle(fontWeight: FontWeight.bold)),
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Text(
+                        'VCF parsed → ${d.pharmacogenomicProfile.detectedVariants.isEmpty ? 'no callable relevant variant' : d.pharmacogenomicProfile.detectedVariants.map((v) => v.rsid).join(', ')} → ${d.pharmacogenomicProfile.primaryGene} → ${d.pharmacogenomicProfile.diplotype} → ${d.pharmacogenomicProfile.phenotype} → ${d.drug} → ${d.clinicalRecommendation.cpicGuidelineCitation} → ${d.riskAssessment.riskLabel}',
+                        style: const TextStyle(fontSize: 13, height: 1.5),
                       ),
                     ),
                   ],

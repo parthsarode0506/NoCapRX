@@ -1,4 +1,4 @@
-package com.example.ondevicerx
+package NoCap.Rx
 
 import io.flutter.embedding.android.FlutterActivity
 

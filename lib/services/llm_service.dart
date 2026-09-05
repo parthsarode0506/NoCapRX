@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'package:flutter/services.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 import '../models/pgx_report.dart';
 
@@ -22,14 +21,10 @@ class LlmService {
     }
   }
 
-  /// Returns the configured Groq API key, or null if not set.
-  static String? get _apiKey {
-    final key = dotenv.env['GROQ_API_KEY'];
-    if (key == null || key.isEmpty || key == 'YOUR_GROQ_API_KEY_HERE') {
-      return null;
-    }
-    return key;
-  }
+  /// Browser clients must not carry a provider secret. Until a secure backend
+  /// issues explanation requests, use bundled/offline explanations. This also
+  /// keeps core analysis available when no dotenv asset is loaded.
+  static String? get _apiKey => null;
 
   /// Uses AI only to resolve an entered generic/brand name to one of the
   /// caller-provided, validated drug rules.  The response is allow-listed so a
@@ -109,7 +104,8 @@ class LlmService {
 
     try {
       final systemPrompt = '''You are an expert clinical pharmacogenomics decision support engine.
-Generate a clinical explanation based STRICTLY on the validated facts provided by the user.
+Generate a patient-friendly explanation based STRICTLY on the validated facts provided by the user.
+Do not change the risk label, phenotype, mechanism, dosing recommendation, alternatives, or monitoring. Do not add a new recommendation.
 Return ONLY a valid JSON object matching this exact key format (no markdown formatting, no code block backticks):
 {
   "summary": "1-2 sentence overview of the genetic risk for this drug",
@@ -154,9 +150,11 @@ Return ONLY a valid JSON object matching this exact key format (no markdown form
 
         return {
           'summary': parsed['summary']?.toString() ?? '',
-          'mechanism': parsed['mechanism']?.toString() ?? mechanism,
+          // The deterministic engine owns the biological mechanism and all
+          // clinical recommendations. Do not accept an LLM rewrite of either.
+          'mechanism': mechanism,
           'patient_friendly': parsed['patient_friendly']?.toString() ?? '',
-          'clinician_note': parsed['clinician_note']?.toString() ?? '',
+          'clinician_note': 'Validated rule input: $gene ($phenotype), $drug, $riskLabel. $cpicRec',
         };
       }
     } catch (e) {
@@ -178,9 +176,9 @@ Return ONLY a valid JSON object matching this exact key format (no markdown form
     if (cached != null && cached is Map<String, dynamic>) {
       return {
         'summary': cached['summary']?.toString() ?? '',
-        'mechanism': cached['mechanism']?.toString() ?? mechanism,
+        'mechanism': mechanism,
         'patient_friendly': cached['patient_friendly']?.toString() ?? '',
-        'clinician_note': cached['clinician_note']?.toString() ?? '',
+        'clinician_note': 'Validated rule input: $gene ($phenotype), $drug, $riskLabel. $cpicRec',
       };
     }
 

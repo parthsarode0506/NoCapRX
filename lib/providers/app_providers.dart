@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-
 import '../models/app_user.dart';
 import '../models/pgx_report.dart';
 import '../parser/vcf_parser.dart';
@@ -23,8 +22,9 @@ final selectedVcfContentProvider = StateProvider<String?>((ref) => null);
 // VCF Parsing Result State
 final vcfParseResultProvider = StateProvider<VcfParseResult?>((ref) => null);
 
-// Selected Drugs State (6 default drugs)
-final selectedDrugsProvider = StateProvider<Set<String>>((ref) => {'CODEINE', 'WARFARIN', 'CLOPIDOGREL'});
+// Drugs are opt-in. A patient should never receive a noisy six-drug report
+// merely because they opened the medicine screen.
+final selectedDrugsProvider = StateProvider<Set<String>>((ref) => <String>{});
 final customDrugTextProvider = StateProvider<String>((ref) => '');
 
 // Current Active Analysis Multi-Report
