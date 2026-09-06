@@ -32,26 +32,30 @@ class LlmService {
     required String userQuery,
     required PgxMultiReport report,
   }) async {
-    final result = await _service.generateExplanation(
-      userRole: 'patient',
-      medicalResult: {
-        'request': userQuery,
-        'reportId': report.reportId,
-        'drugFindings': report.drugReports.map((drug) {
-          final profile = drug.pharmacogenomicProfile;
-          return {
-            'medicine': drug.drug,
-            'riskLabel': drug.riskAssessment.riskLabel,
-            'severity': drug.riskAssessment.severity,
-            'gene': profile.primaryGene,
-            if (profile.phenotype != 'Unknown') 'phenotype': profile.phenotype,
-            if (profile.diplotype != 'Unknown') 'diplotype': profile.diplotype,
-            'recommendation': drug.clinicalRecommendation.dosingRecommendation,
-          };
-        }).toList(),
-        'verificationStatus': 'verified',
-      },
+    final context = report.drugReports.map((drug) {
+      final profile = drug.pharmacogenomicProfile;
+      return [
+        'Medicine: ${drug.drug}',
+        if (drug.evidence != null)
+          'Verified identity: ${drug.evidence!.displayName}',
+        if (drug.evidence?.activeIngredients.isNotEmpty == true)
+          'Active ingredients: ${drug.evidence!.activeIngredients.join(', ')}',
+        'Result: ${drug.riskAssessment.riskLabel}',
+        'Gene: ${profile.primaryGene}',
+        'Phenotype: ${profile.phenotype}',
+        'Recommendation: ${drug.clinicalRecommendation.dosingRecommendation}',
+        if (drug.evidence?.uses.isNotEmpty == true)
+          'Uses: ${drug.evidence!.uses.join('; ')}',
+        if (drug.evidence?.commonSideEffects.isNotEmpty == true)
+          'Common side effects: ${drug.evidence!.commonSideEffects.join('; ')}',
+        if (drug.evidence?.seriousSideEffects.isNotEmpty == true)
+          'Serious side effects: ${drug.evidence!.seriousSideEffects.join('; ')}',
+      ].join('\n');
+    }).join('\n\n');
+
+    return _service.answerHealthQuestion(
+      question: userQuery,
+      reportContext: context.isEmpty ? null : context,
     );
-    return result['patient_friendly'] ?? result['summary'] ?? 'AI explanation unavailable.';
   }
 }

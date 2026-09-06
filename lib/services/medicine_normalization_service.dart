@@ -96,13 +96,20 @@ class MedicineNormalizationService {
       genericName: 'AZITHROMYCIN',
       displayName: 'Azithromycin',
       drugClass: 'Macrolide Antibiotic',
-      aliases: ['Zithromax', 'Azee', 'Azee 500', 'Azithral', 'Z-Pak'],
+      aliases: ['Zithromax', 'Azee', 'Azee 500', 'Atm 500', 'ATM500', 'Azithral', 'Z-Pak'],
     ),
     'PARACETAMOL': const _DrugEntry(
       genericName: 'PARACETAMOL',
       displayName: 'Paracetamol / Acetaminophen',
       drugClass: 'Analgesic & Antipyretic',
-      aliases: ['Acetaminophen', 'Tylenol', 'Crocin', 'Calpol', 'Panadol', 'Dolo 650'],
+      aliases: [
+        'Acetaminophen',
+        'Tylenol',
+        'Crocin',
+        'Calpol',
+        'Panadol',
+        'Dolo 650',
+      ],
     ),
     'IBUPROFEN': const _DrugEntry(
       genericName: 'IBUPROFEN',
@@ -133,6 +140,139 @@ class MedicineNormalizationService {
       displayName: 'Amoxicillin',
       drugClass: 'Penicillin Antibiotic',
       aliases: ['Amoxil', 'Moxatag', 'Augmentin', 'Novamox'],
+    ),
+    // ── Antiretrovirals ────────────────────────────────────────────────────
+    'TENOFOVIR': const _DrugEntry(
+      genericName: 'TENOFOVIR',
+      displayName: 'Tenofovir',
+      drugClass: 'Antiretroviral NRTI',
+      aliases: [
+        'Tenofovir Disoproxil Fumarate', 'TDF', 'Tenofovir Alafenamide', 'TAF',
+        'Viread', 'Vemlidy', 'Truvada', 'Descovy', 'Atripla', 'Complera',
+        'Stribild', 'Genvoya', 'Biktarvy', 'TEN',
+      ],
+    ),
+    'LAMIVUDINE': const _DrugEntry(
+      genericName: 'LAMIVUDINE',
+      displayName: 'Lamivudine',
+      drugClass: 'Antiretroviral NRTI',
+      aliases: ['3TC', 'Epivir', 'Heptovir', 'Zeffix', '3tc'],
+    ),
+    'EFAVIRENZ': const _DrugEntry(
+      genericName: 'EFAVIRENZ',
+      displayName: 'Efavirenz',
+      drugClass: 'Antiretroviral NNRTI',
+      aliases: ['EFV', 'Sustiva', 'Stocrin', 'Atripla'],
+    ),
+    // ── Antidepressants / Anxiolytics ──────────────────────────────────────
+    'SERTRALINE': const _DrugEntry(
+      genericName: 'SERTRALINE',
+      displayName: 'Sertraline',
+      drugClass: 'SSRI Antidepressant',
+      aliases: ['Zoloft', 'Serlift', 'Lustral', 'Daxid'],
+    ),
+    'CITALOPRAM': const _DrugEntry(
+      genericName: 'CITALOPRAM',
+      displayName: 'Citalopram',
+      drugClass: 'SSRI Antidepressant',
+      aliases: ['Celexa', 'Cipramil'],
+    ),
+    'ESCITALOPRAM': const _DrugEntry(
+      genericName: 'ESCITALOPRAM',
+      displayName: 'Escitalopram',
+      drugClass: 'SSRI Antidepressant',
+      aliases: ['Cipralex', 'Lexapro', 'Nexito', 'Escitop'],
+    ),
+    'FLUOXETINE': const _DrugEntry(
+      genericName: 'FLUOXETINE',
+      displayName: 'Fluoxetine',
+      drugClass: 'SSRI Antidepressant',
+      aliases: ['Prozac', 'Sarafem', 'Fludac', 'Flunil'],
+    ),
+    // ── Opioids ────────────────────────────────────────────────────────────
+    'TRAMADOL': const _DrugEntry(
+      genericName: 'TRAMADOL',
+      displayName: 'Tramadol',
+      drugClass: 'Opioid Analgesic',
+      aliases: ['Ultram', 'Tramal', 'Ultracet', 'Dolcet', 'Contramal'],
+    ),
+    'MORPHINE': const _DrugEntry(
+      genericName: 'MORPHINE',
+      displayName: 'Morphine',
+      drugClass: 'Opioid Analgesic',
+      aliases: ['MS Contin', 'Kadian', 'Morphgesic', 'Oramorph', 'MST'],
+    ),
+    // ── Statins ────────────────────────────────────────────────────────────
+    'ROSUVASTATIN': const _DrugEntry(
+      genericName: 'ROSUVASTATIN',
+      displayName: 'Rosuvastatin',
+      drugClass: 'Statin',
+      aliases: ['Crestor', 'Rosucad', 'Rozavel', 'Rosuvas'],
+    ),
+    // ── Antihypertensives ─────────────────────────────────────────────────
+    'AMLODIPINE': const _DrugEntry(
+      genericName: 'AMLODIPINE',
+      displayName: 'Amlodipine',
+      drugClass: 'Calcium Channel Blocker',
+      aliases: ['Norvasc', 'Amlip', 'Amlopin', 'Stamlo', 'Amlovas'],
+    ),
+    'METOPROLOL': const _DrugEntry(
+      genericName: 'METOPROLOL',
+      displayName: 'Metoprolol',
+      drugClass: 'Beta-Blocker',
+      aliases: ['Lopressor', 'Toprol-XL', 'Metolar', 'Betaloc', 'Seloken'],
+    ),
+    'LISINOPRIL': const _DrugEntry(
+      genericName: 'LISINOPRIL',
+      displayName: 'Lisinopril',
+      drugClass: 'ACE Inhibitor',
+      aliases: ['Zestril', 'Prinivil', 'Listril', 'Lisoril', 'Hipril'],
+    ),
+    // ── Antibiotics ───────────────────────────────────────────────────────
+    'DOXYCYCLINE': const _DrugEntry(
+      genericName: 'DOXYCYCLINE',
+      displayName: 'Doxycycline',
+      drugClass: 'Tetracycline Antibiotic',
+      aliases: ['Vibramycin', 'Monodox', 'Oracea', 'Doxinex', 'Doxt'],
+    ),
+    'CIPROFLOXACIN': const _DrugEntry(
+      genericName: 'CIPROFLOXACIN',
+      displayName: 'Ciprofloxacin',
+      drugClass: 'Fluoroquinolone Antibiotic',
+      aliases: ['Cipro', 'Ciplox', 'Cifran', 'Ciprobay', 'Quintor'],
+    ),
+    // ── Antifungals ───────────────────────────────────────────────────────
+    'VORICONAZOLE': const _DrugEntry(
+      genericName: 'VORICONAZOLE',
+      displayName: 'Voriconazole',
+      drugClass: 'Triazole Antifungal',
+      aliases: ['Vfend', 'Voritek', 'Vori'],
+    ),
+    // ── Diabetes ──────────────────────────────────────────────────────────
+    'GLIPIZIDE': const _DrugEntry(
+      genericName: 'GLIPIZIDE',
+      displayName: 'Glipizide',
+      drugClass: 'Sulfonylurea Antidiabetic',
+      aliases: ['Glucotrol', 'Minidiab', 'Glynase'],
+    ),
+    'GLIMEPIRIDE': const _DrugEntry(
+      genericName: 'GLIMEPIRIDE',
+      displayName: 'Glimepiride',
+      drugClass: 'Sulfonylurea Antidiabetic',
+      aliases: ['Amaryl', 'Glimisave', 'Glimpid', 'Glimy', 'Glorix'],
+    ),
+    // ── PPIs ──────────────────────────────────────────────────────────────
+    'OMEPRAZOLE': const _DrugEntry(
+      genericName: 'OMEPRAZOLE',
+      displayName: 'Omeprazole',
+      drugClass: 'Proton Pump Inhibitor',
+      aliases: ['Prilosec', 'Losec', 'Omez', 'Omifast', 'Omecip'],
+    ),
+    'PANTOPRAZOLE': const _DrugEntry(
+      genericName: 'PANTOPRAZOLE',
+      displayName: 'Pantoprazole',
+      drugClass: 'Proton Pump Inhibitor',
+      aliases: ['Protonix', 'Pantop', 'Pantocid', 'Pan-D', 'Controloc'],
     ),
   };
 

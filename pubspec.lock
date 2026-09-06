@@ -41,6 +41,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.13.1"
+  background_downloader:
+    dependency: transitive
+    description:
+      name: background_downloader
+      sha256: ae55e127f87397b372578fc9474568b879fa78326103c342e00160558d08e527
+      url: "https://pub.dev"
+    source: hosted
+    version: "9.5.9"
   barcode:
     dependency: transitive
     description:
@@ -153,6 +161,22 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.7.15"
+  decimal:
+    dependency: transitive
+    description:
+      name: decimal
+      sha256: "2c3c8b74f2948066d3f42585477aec9cfc48fefd7a723a4d4274a6c71a5c0df7"
+      url: "https://pub.dev"
+    source: hosted
+    version: "3.2.6"
+  email_validator:
+    dependency: transitive
+    description:
+      name: email_validator
+      sha256: b19aa5d92fdd76fbc65112060c94d45ba855105a28bb6e462de7ff03b12fa1fb
+      url: "https://pub.dev"
+    source: hosted
+    version: "3.0.0"
   equatable:
     dependency: transitive
     description:
@@ -342,6 +366,22 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "5.2.1"
+  flutter_gemma:
+    dependency: "direct main"
+    description:
+      name: flutter_gemma
+      sha256: "5c4acb41a24767474bd670a59c34901ca9309b4efbc1d823856c07deac82dcf9"
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.7.1"
+  flutter_gemma_mediapipe:
+    dependency: "direct main"
+    description:
+      name: flutter_gemma_mediapipe
+      sha256: "6e0296f83e9521e8786d2a92ce24afa2ee6b1d6c6c7ca9f50e91de7fcf0888c2"
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.0.5"
   flutter_lints:
     dependency: "direct dev"
     description:
@@ -379,11 +419,27 @@ packages:
     description: flutter
     source: sdk
     version: "0.0.0"
+  flutter_tts:
+    dependency: "direct main"
+    description:
+      name: flutter_tts
+      sha256: ce5eb209b40e95f2f4a1397116c87ab2fcdff32257d04ed7a764e75894c03775
+      url: "https://pub.dev"
+    source: hosted
+    version: "4.2.5"
   flutter_web_plugins:
     dependency: transitive
     description: flutter
     source: sdk
     version: "0.0.0"
+  genai_primitives:
+    dependency: transitive
+    description:
+      name: genai_primitives
+      sha256: "5a1e8c7ae9caf01aa609f59c54de47b73f51bf1ae95e0f679b7c7ab6948c4d9d"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.2.4"
   google_fonts:
     dependency: "direct main"
     description:
@@ -544,6 +600,30 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.0.3"
+  json_annotation:
+    dependency: transitive
+    description:
+      name: json_annotation
+      sha256: "2a743920d81b7910627f68ee2c9ac1fc0bfee32b9fc3403587d7c6791ca12f80"
+      url: "https://pub.dev"
+    source: hosted
+    version: "4.12.0"
+  json_schema_builder:
+    dependency: transitive
+    description:
+      name: json_schema_builder
+      sha256: "657db3229ba10305c48e8686e8b3aca16e12e639c3a7b96687a6eeb7836b6e1b"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.1.7"
+  large_file_handler:
+    dependency: transitive
+    description:
+      name: large_file_handler
+      sha256: "44bdb88d9d6803177ce0feb0ad3bab22ed1d328895284a59095b859b2672a305"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.5.2"
   leak_tracker:
     dependency: transitive
     description:
@@ -616,6 +696,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.1.0"
+  mutex:
+    dependency: transitive
+    description:
+      name: mutex
+      sha256: "8827da25de792088eb33e572115a5eb0d61d61a3c01acbc8bcbe76ed78f1a1f2"
+      url: "https://pub.dev"
+    source: hosted
+    version: "3.1.0"
   objective_c:
     dependency: transitive
     description:
@@ -768,6 +856,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.0.2"
+  rational:
+    dependency: transitive
+    description:
+      name: rational
+      sha256: cb808fb6f1a839e6fc5f7d8cb3b0a10e1db48b3be102de73938c627f0b636336
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.2.3"
   record_use:
     dependency: transitive
     description:
@@ -853,6 +949,30 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.10.2"
+  speech_to_text:
+    dependency: "direct main"
+    description:
+      name: speech_to_text
+      sha256: "75587f7400f485fdf166beacd471549d98fe5d58e634f708916bb65dec05d6a4"
+      url: "https://pub.dev"
+    source: hosted
+    version: "7.4.0"
+  speech_to_text_platform_interface:
+    dependency: transitive
+    description:
+      name: speech_to_text_platform_interface
+      sha256: a7e16e02853853ed7534ac2bde9a1c4f39c8879970a7974ac6ff832d4bdaa4b0
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.4.0"
+  speech_to_text_windows:
+    dependency: transitive
+    description:
+      name: speech_to_text_windows
+      sha256: "2d1d10565b23262386b453b33656299608dc7a66784453735d6c1318f13f44d7"
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.0.1"
   stack_trace:
     dependency: transitive
     description:

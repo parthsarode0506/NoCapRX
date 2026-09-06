@@ -106,7 +106,7 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
 
         if (mounted) {
           Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (_) => const SignUpScreen()),
+            MaterialPageRoute(builder: (_) => const HomeScreen()),
           );
         }
       }

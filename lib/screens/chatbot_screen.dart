@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:flutter_tts/flutter_tts.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
 
 import '../models/pgx_report.dart';
 import '../models/chat_message.dart';
@@ -20,8 +22,14 @@ class ChatbotScreen extends ConsumerStatefulWidget {
 class _ChatbotScreenState extends ConsumerState<ChatbotScreen> {
   final TextEditingController _inputController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+  final stt.SpeechToText _speech = stt.SpeechToText();
+  final FlutterTts _tts = FlutterTts();
   final List<ChatMessage> _localMessages = [];
   bool _isSending = false;
+  bool _isListening = false;
+  bool _speechReady = false;
+  String? _speakingMessageId;
+  bool _answerByVoice = false;
 
   PgxMultiReport get _report => widget.report ?? PgxMultiReport(
         reportId: 'none',
@@ -39,9 +47,76 @@ class _ChatbotScreenState extends ConsumerState<ChatbotScreen> {
 
   @override
   void dispose() {
+    _speech.stop();
+    _tts.stop();
     _inputController.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  Future<void> _toggleListening() async {
+    if (_isListening) {
+      await _speech.stop();
+      if (mounted) setState(() => _isListening = false);
+      return;
+    }
+
+    _speechReady = await _speech.initialize(
+      onStatus: (status) {
+        if (status == 'notListening' && mounted) {
+          setState(() => _isListening = false);
+        }
+      },
+      onError: (_) {
+        if (mounted) setState(() => _isListening = false);
+      },
+    );
+    if (!_speechReady) {
+      _showVoiceMessage('Microphone or speech recognition is unavailable.');
+      return;
+    }
+
+    setState(() => _isListening = true);
+    _answerByVoice = true;
+    await _speech.listen(
+      onResult: (result) {
+        _inputController.text = result.recognizedWords;
+        _inputController.selection = TextSelection.fromPosition(
+          TextPosition(offset: _inputController.text.length),
+        );
+      },
+    );
+  }
+
+  Future<void> _speakSummary(ChatMessage message) async {
+    if (_speakingMessageId == message.id) {
+      await _tts.stop();
+      if (mounted) setState(() => _speakingMessageId = null);
+      return;
+    }
+
+    final summary = _summaryForSpeech(message.text);
+    await _tts.setLanguage('en-US');
+    await _tts.setSpeechRate(0.48);
+    await _tts.setVolume(1.0);
+    if (mounted) setState(() => _speakingMessageId = message.id);
+    await _tts.speak(summary);
+    if (mounted) setState(() => _speakingMessageId = null);
+  }
+
+  String _summaryForSpeech(String text) {
+    final clean = text
+        .replaceAll(RegExp(r'[*_#`]'), '')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    final sentences = clean.split(RegExp(r'(?<=[.!?])\s+'));
+    final summary = sentences.take(2).join(' ');
+    return summary.length > 320 ? '${summary.substring(0, 317)}...' : summary;
+  }
+
+  void _showVoiceMessage(String text) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
   }
 
   void _addInitialGreeting() {
@@ -51,7 +126,8 @@ class _ChatbotScreenState extends ConsumerState<ChatbotScreen> {
         id: 'msg_welcome',
         role: 'assistant',
         text:
-            'Hello! I am OnCapRX AI. I explain verified OnCapRX results only. ${testedDrugs.isEmpty ? 'Run a medicine analysis first, then I can explain it.' : 'Your report covers: $testedDrugs.'}',
+            'Hello! I am OnCapRX AI. Ask me about health, medicines, side effects, '
+            'interactions, or genetics. ${testedDrugs.isEmpty ? '' : 'Your report covers: $testedDrugs.'}',
         timestamp: DateTime.now(),
       ),
     );
@@ -60,6 +136,9 @@ class _ChatbotScreenState extends ConsumerState<ChatbotScreen> {
   Future<void> _sendMessage() async {
     final text = _inputController.text.trim();
     if (text.isEmpty || _isSending) return;
+
+    final answerByVoice = _answerByVoice;
+    _answerByVoice = false;
 
     _inputController.clear();
 
@@ -80,9 +159,10 @@ class _ChatbotScreenState extends ConsumerState<ChatbotScreen> {
     await FirebaseService.saveChatMessage(_report.reportId, userMessage);
 
     try {
-      final botReplyText = _report.drugReports.isEmpty
-          ? 'Please run Check a Medicine first. I can explain a verified medication result after the deterministic analysis is complete.'
-          : await LlmService.askReportChatbot(userQuery: text, report: _report);
+      final botReplyText = await LlmService.askReportChatbot(
+        userQuery: text,
+        report: _report,
+      );
 
       final assistantMessage = ChatMessage(
         id: 'msg_${DateTime.now().millisecondsSinceEpoch + 1}',
@@ -98,6 +178,10 @@ class _ChatbotScreenState extends ConsumerState<ChatbotScreen> {
         _scrollToBottom();
       }
 
+      if (answerByVoice) {
+        await _speakSummary(assistantMessage);
+      }
+
       await FirebaseService.saveChatMessage(
         _report.reportId,
         assistantMessage,
@@ -108,8 +192,7 @@ class _ChatbotScreenState extends ConsumerState<ChatbotScreen> {
           _localMessages.add(ChatMessage(
             id: 'msg_err',
             role: 'assistant',
-            text:
-                'AI explanation is currently unavailable. Your medication safety result is still available. Please consult your doctor or pharmacist for medication decisions.',
+            text: 'Live AI did not return an answer. Check your internet connection and AI API configuration, then try again.',
             timestamp: DateTime.now(),
           ));
         });
@@ -175,7 +258,7 @@ class _ChatbotScreenState extends ConsumerState<ChatbotScreen> {
                   const SizedBox(width: 6),
                   Flexible(
                     child: Text(
-                      'AI explains verified results only. It does not decide medication safety.',
+                      'AI explains health information. It does not diagnose or decide medication safety.',
                       style: GoogleFonts.inter(
                         fontSize: 11,
                         color: AppTheme.primaryDarkEmerald,
@@ -200,39 +283,57 @@ class _ChatbotScreenState extends ConsumerState<ChatbotScreen> {
 
                   return Align(
                     alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
-                    child: Container(
-                      margin: const EdgeInsets.only(bottom: 12),
-                      constraints: BoxConstraints(
-                        maxWidth: MediaQuery.of(context).size.width * 0.80,
-                      ),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                      decoration: BoxDecoration(
-                        color: isUser ? AppTheme.primaryEmerald : Colors.white,
-                        borderRadius: BorderRadius.only(
-                          topLeft: const Radius.circular(16),
-                          topRight: const Radius.circular(16),
-                          bottomLeft: Radius.circular(isUser ? 16 : 4),
-                          bottomRight: Radius.circular(isUser ? 4 : 16),
-                        ),
-                        border: isUser
-                            ? null
-                            : Border.all(color: AppTheme.cardBorder, width: 1),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.02),
-                            blurRadius: 6,
-                            offset: const Offset(0, 2),
+                    child: Column(
+                      crossAxisAlignment: isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          margin: const EdgeInsets.only(bottom: 4),
+                          constraints: BoxConstraints(
+                            maxWidth: MediaQuery.of(context).size.width * 0.80,
                           ),
-                        ],
-                      ),
-                      child: Text(
-                        msg.text,
-                        style: GoogleFonts.inter(
-                          color: isUser ? Colors.white : AppTheme.deepInk,
-                          fontSize: 13.5,
-                          height: 1.4,
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                          decoration: BoxDecoration(
+                            color: isUser ? AppTheme.primaryEmerald : Colors.white,
+                            borderRadius: BorderRadius.only(
+                              topLeft: const Radius.circular(16),
+                              topRight: const Radius.circular(16),
+                              bottomLeft: Radius.circular(isUser ? 16 : 4),
+                              bottomRight: Radius.circular(isUser ? 4 : 16),
+                            ),
+                            border: isUser
+                                ? null
+                                : Border.all(color: AppTheme.cardBorder, width: 1),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.02),
+                                blurRadius: 6,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: Text(
+                            msg.text,
+                            style: GoogleFonts.inter(
+                              color: isUser ? Colors.white : AppTheme.deepInk,
+                              fontSize: 13.5,
+                              height: 1.4,
+                            ),
+                          ),
                         ),
-                      ),
+                        if (!isUser)
+                          IconButton(
+                            tooltip: 'Speak answer summary',
+                            visualDensity: VisualDensity.compact,
+                            onPressed: () => _speakSummary(msg),
+                            icon: Icon(
+                              _speakingMessageId == msg.id
+                                  ? Icons.stop_circle_outlined
+                                  : Icons.volume_up_outlined,
+                              size: 19,
+                              color: AppTheme.primaryEmerald,
+                            ),
+                          ),
+                      ],
                     ),
                   );
                 },
@@ -276,6 +377,14 @@ class _ChatbotScreenState extends ConsumerState<ChatbotScreen> {
               ),
               child: Row(
                 children: [
+                  IconButton(
+                    tooltip: _isListening ? 'Stop listening' : 'Ask by voice',
+                    onPressed: _isSending ? null : _toggleListening,
+                    icon: Icon(
+                      _isListening ? Icons.mic : Icons.mic_none,
+                      color: _isListening ? Colors.red : AppTheme.primaryEmerald,
+                    ),
+                  ),
                   Expanded(
                     child: TextField(
                       controller: _inputController,
@@ -283,7 +392,7 @@ class _ChatbotScreenState extends ConsumerState<ChatbotScreen> {
                       onSubmitted: (_) => _sendMessage(),
                       style: GoogleFonts.inter(fontSize: 14, color: AppTheme.deepInk),
                       decoration: InputDecoration(
-                        hintText: 'Ask about your report results...',
+                        hintText: 'Ask a health or medicine question...',
                         contentPadding:
                             const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                       ),

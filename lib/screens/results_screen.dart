@@ -185,7 +185,6 @@ class ResultsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
-    final isClinicianView = ref.watch(isClinicianViewProvider);
     final patientProfile = ref.watch(patientProfileProvider);
 
     return Scaffold(
@@ -225,7 +224,8 @@ class ResultsScreen extends ConsumerWidget {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Column(
+                    Expanded(
+                      child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
@@ -238,7 +238,9 @@ class ResultsScreen extends ConsumerWidget {
                           style: const TextStyle(fontSize: 12, color: Colors.black54),
                         ),
                       ],
+                      ),
                     ),
+                    const SizedBox(width: 12),
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
@@ -284,49 +286,13 @@ class ResultsScreen extends ConsumerWidget {
               ),
               const SizedBox(height: 12),
 
-              // View Mode Toggle (Patient-friendly vs Clinician note)
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Language Perspective',
-                    style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey.shade800),
-                  ),
-                  SegmentedButton<bool>(
-                    segments: const [
-                      ButtonSegment(value: false, label: Text('Patient')),
-                      ButtonSegment(value: true, label: Text('Clinician')),
-                    ],
-                    selected: {isClinicianView},
-                    onSelectionChanged: (val) {
-                      ref.read(isClinicianViewProvider.notifier).state = val.first;
-                    },
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-
               // Render Each Drug Evaluation
               ...report.drugReports.map((drugReport) => _buildDrugAssessmentCard(
                     context,
                     ref,
                     drugReport,
                     patientProfile,
-                    isClinicianView,
                   )),
-
-              const SizedBox(height: 16),
-
-              // View Raw JSON CTA Button
-              OutlinedButton.icon(
-                onPressed: () => _showRawJsonBottomSheet(context),
-                icon: const Icon(Icons.code),
-                label: const Text('View Raw Hackathon JSON Output Contract'),
-                style: OutlinedButton.styleFrom(
-                  minimumSize: const Size.fromHeight(48),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                ),
-              ),
               const SizedBox(height: 40),
             ],
           ),
@@ -353,7 +319,6 @@ class ResultsScreen extends ConsumerWidget {
     WidgetRef ref,
     PgxReport d,
     PatientProfile patientProfile,
-    bool isClinicianView,
   ) {
     final clinicalData = patientProfile.toClinicalDataMap();
     final clinicalFindings = UniversalMedicineSafetyEngine.evaluateAll(d.drug, clinicalData);
@@ -391,10 +356,12 @@ class ResultsScreen extends ConsumerWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                Wrap(
+                  alignment: WrapAlignment.spaceBetween,
+                  runSpacing: 8,
                   children: [
-                    Expanded(
+                    SizedBox(
+                      width: 180,
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -479,8 +446,8 @@ class ResultsScreen extends ConsumerWidget {
                 // QUESTION 1: WHAT CAN THIS MEDICINE DO? (Requirement 29)
                 // ─────────────────────────────────────────────────────────
                 _buildSectionHeader(
-                  title: 'QUESTION 1: What can this medicine do?',
-                  subtitle: 'General medical facts, indications & verified side-effect profile',
+                  title: 'About this medicine',
+                  subtitle: 'What it is used for and what to watch for',
                   icon: Icons.medication,
                   color: Colors.indigo,
                 ),
@@ -501,11 +468,13 @@ class ResultsScreen extends ConsumerWidget {
                         children: [
                           const Icon(Icons.verified_outlined, size: 18, color: Colors.indigo),
                           const SizedBox(width: 6),
-                          Text(
-                            'Medicine Identity: ${evidence?.displayName ?? d.drug}',
-                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                          Expanded(
+                            child: Text(
+                              evidence?.displayName ?? d.drug,
+                              softWrap: true,
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                            ),
                           ),
-                          const Spacer(),
                           if (evidence?.verifiedMedicine == true)
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -520,11 +489,39 @@ class ResultsScreen extends ConsumerWidget {
                         const SizedBox(height: 4),
                         ...evidence!.uses.map((use) => Text('• $use', style: const TextStyle(fontSize: 12))),
                       ],
+                      if (evidence?.activeIngredients.isNotEmpty == true) ...[
+                        const SizedBox(height: 8),
+                        const Text('Active ingredient', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                        const SizedBox(height: 4),
+                        Text(evidence!.activeIngredients.join(', '), style: const TextStyle(fontSize: 12)),
+                      ],
                       if (evidence?.precautions.isNotEmpty == true) ...[
                         const SizedBox(height: 8),
                         const Text('Important Precautions:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
                         const SizedBox(height: 4),
                         ...evidence!.precautions.map((p) => Text('• $p', style: const TextStyle(fontSize: 12, color: Colors.black87))),
+                      ],
+                      if (evidence?.commonSideEffects.isNotEmpty == true) ...[
+                        const SizedBox(height: 8),
+                        const Text('Common side effects', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                        const SizedBox(height: 4),
+                        ...evidence!.commonSideEffects.map((effect) => Text('• $effect', style: const TextStyle(fontSize: 12))),
+                      ],
+                      if (evidence?.seriousSideEffects.isNotEmpty == true) ...[
+                        const SizedBox(height: 8),
+                        const Text('Get medical help quickly for', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.red)),
+                        const SizedBox(height: 4),
+                        ...evidence!.seriousSideEffects.map((effect) => Text('• $effect', style: const TextStyle(fontSize: 12, color: Colors.red))),
+                      ],
+                      if (evidence != null &&
+                          evidence.uses.isEmpty &&
+                          evidence.commonSideEffects.isEmpty &&
+                          evidence.seriousSideEffects.isEmpty) ...[
+                        const SizedBox(height: 8),
+                        const Text(
+                          'Detailed uses and side effects were not verified for this brand. Ask a pharmacist before taking it.',
+                          style: TextStyle(fontSize: 12, color: Colors.black87),
+                        ),
                       ],
                     ],
                   ),
@@ -535,23 +532,15 @@ class ResultsScreen extends ConsumerWidget {
                 // QUESTION 2: HOW DOES THIS APPLY TO ME? (Requirement 29)
                 // ─────────────────────────────────────────────────────────
                 _buildSectionHeader(
-                  title: 'QUESTION 2: How does this apply to ME?',
-                  subtitle: 'Personalized assessment synthesizing genetics, allergies, conditions & regimen',
-                  icon: Icons.person_pin,
+                  title: 'Is it safe for me?',
+                  subtitle: 'Your result in simple language',
+                  icon: Icons.health_and_safety_outlined,
                   color: Colors.teal.shade800,
                 ),
                 const SizedBox(height: 12),
 
                 // A. Patient Clinical Snapshot Card
-                _buildPatientSnapshotCard(context, patientProfile),
-                const SizedBox(height: 14),
-
-                // B. ALLERGY CHECK SECTION (Requirement 18)
-                _buildAllergySection(d.drug, clinicalFindings, patientProfile),
-                const SizedBox(height: 14),
-
-                // C. CURRENT MEDICINE INTERACTIONS (Requirement 17)
-                _buildInteractionsSection(d.drug, clinicalFindings, patientProfile),
+                _buildSimpleSafetySummary(d, overallStatus),
                 const SizedBox(height: 14),
 
                 // D. PATIENT-SPECIFIC SIDE-EFFECT RISKS (Requirements 5, 6, 7, 8, 12, 15, 16)
@@ -576,28 +565,8 @@ class ResultsScreen extends ConsumerWidget {
                   const SizedBox(height: 14),
                 ],
 
-                // E. PHARMACOGENOMIC (VCF / PGx) ASSESSMENT (Requirement 10, 11)
-                _buildPgxSection(d, category),
+                _buildAiExplanationCard(d),
                 const SizedBox(height: 14),
-
-                // F. AI NATURAL EXPLANATION (Requirement 19, 20)
-                _buildAiExplanationCard(d, isClinicianView),
-                const SizedBox(height: 14),
-
-                // G. EVIDENCE CHAIN & TRACEABILITY
-                ExpansionTile(
-                  leading: const Icon(Icons.account_tree_outlined, color: Colors.indigo),
-                  title: const Text('Evidence Chain & Traceability', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: _buildEvidenceChain(d, category),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-
-                // H. MANDATORY DOCTOR / PHARMACIST WARNING (Requirement 21)
                 _buildProfessionalReviewBanner(overallStatus),
               ],
             ),
@@ -986,7 +955,28 @@ class ResultsScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildAiExplanationCard(PgxReport d, bool isClinicianView) {
+  Widget _buildSimpleSafetySummary(PgxReport d, String overallStatus) {
+    final isUnknown = overallStatus == 'Unknown' ||
+        d.riskAssessment.riskLabel == 'Medicine not verified';
+    final message = isUnknown
+        ? 'There is not enough verified information to say this medicine is safe or unsafe for you.'
+        : overallStatus == 'No major risk identified'
+            ? 'No major risk was found from the information checked. This does not mean the medicine is completely risk-free.'
+            : 'This medicine may need extra care for you. Do not start, stop, or change it without a doctor or pharmacist.';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.teal.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.teal.shade200),
+      ),
+      child: Text(message, style: const TextStyle(fontSize: 13, height: 1.4)),
+    );
+  }
+
+  Widget _buildAiExplanationCard(PgxReport d) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(14),
@@ -1003,21 +993,19 @@ class ResultsScreen extends ConsumerWidget {
               const Icon(Icons.psychology, color: Colors.purple, size: 20),
               const SizedBox(width: 8),
               Text(
-                isClinicianView ? 'AI Clinician Note:' : 'AI Patient Summary:',
+                'Simple explanation',
                 style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.purple),
               ),
             ],
           ),
           const SizedBox(height: 6),
           Text(
-            isClinicianView
-                ? d.llmGeneratedExplanation.clinicianNote
-                : d.llmGeneratedExplanation.patientFriendly,
+            d.llmGeneratedExplanation.patientFriendly,
             style: const TextStyle(fontSize: 13, height: 1.4),
           ),
           const SizedBox(height: 8),
-          const Text('Biological Mechanism:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-          Text(d.llmGeneratedExplanation.mechanism, style: const TextStyle(fontSize: 12, color: Colors.black87)),
+          const Text('Why this result:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+          Text(d.llmGeneratedExplanation.mechanism, style: const TextStyle(fontSize: 12, color: Colors.black87, height: 1.35)),
         ],
       ),
     );

@@ -24,6 +24,10 @@
 	<string>????</string>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>OnCapRX uses the microphone to hear your health question.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>OnCapRX converts your spoken health question into text.</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>

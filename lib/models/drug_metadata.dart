@@ -9,6 +9,7 @@ class DrugMetadata {
   final List<String> requiredClinicalData;
   final String evidenceSource;
   final bool ruleAvailable;
+  final List<String> activeIngredients;
   final List<String> uses;
   final List<String> commonSideEffects;
   final List<String> seriousSideEffects;
@@ -22,6 +23,7 @@ class DrugMetadata {
     required this.requiredClinicalData,
     required this.evidenceSource,
     this.ruleAvailable = true,
+    this.activeIngredients = const [],
     this.uses = const [],
     this.commonSideEffects = const [],
     this.seriousSideEffects = const [],

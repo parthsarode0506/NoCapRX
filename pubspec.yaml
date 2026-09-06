@@ -1,5 +1,5 @@
 name: ondevicerx
-description: "On-Device Pharmacogenomics Prescription Safety Checker for iQOO Hackathon 2026."
+description: "NoCapRX on-device pharmacogenomics prescription safety checker."
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -29,6 +29,10 @@ dependencies:
   http: ^1.2.1
   url_launcher: ^6.3.1
   flutter_dotenv: ^5.1.0
+  speech_to_text: ^7.0.0
+  flutter_tts: ^4.2.3
+  flutter_gemma: ^1.7.1
+  flutter_gemma_mediapipe: ^1.0.5
   shared_preferences: ^2.2.3
   firebase_core: ^4.14.0
   firebase_auth: ^6.6.1
@@ -46,5 +50,8 @@ flutter:
   uses-material-design: true
 
   assets:
+    - .env
     - assets/data/
     - assets/config/
+    - assets/samples/
+    - assets/models/

@@ -35,12 +35,31 @@ It parses patient `.VCF` genetic files locally on-device, cross-references 6 tar
 
 ## 🚀 Setup & Installation Instructions
 
+### Ask NOCAPRx on-device model
+
+The isolated medicine chat feature uses `flutter_gemma: ^1.7.1` with
+`flutter_gemma_mediapipe: ^1.0.5`. Place the 4-bit Gemma 3n E2B MediaPipe
+model at `assets/models/gemma-3n-E2B-it-int4.task` and keep the file size and
+checksum documented for the release artifact. The model is approximately
+3.1 GB, so this repository intentionally does not include it. The app shows a
+model-load failure instead of silently downloading it. The Android manifest
+declares optional OpenCL libraries for the GPU backend; no Kotlin bridge is
+required. The service requests GPU and logs that request; it does not claim NPU
+execution.
+
+The Groq fallback is never automatic. Supply `GROQ_API_KEY` using
+`--dart-define=GROQ_API_KEY=...` (or the existing `.env` for local development)
+and optionally `--dart-define=GROQ_MODEL=...`. The UI asks for confirmation
+before making the request and sends only the question plus retrieved local
+medicine facts. Do not commit a key or a model file.
+
 ### 1. Environment Configuration (`.env`)
 Create a `.env` file in the project root directory (copied from `.env.example`):
 ```bash
-GEMINI_API_KEY=your_actual_gemini_api_key_here
+OPENROUTER_API_KEY=your_actual_openrouter_api_key_here
+OPENROUTER_OCR_MODEL=openai/gpt-image-2
 ```
-*Note: If no API key is supplied or if offline, PharmaGuard keeps the deterministic medication analysis available and shows a clear AI-unavailable message.*
+Prescription scans use the configured OpenRouter vision model. If no OpenRouter key is supplied, scans use on-device ML Kit OCR instead. If the selected OpenRouter model does not accept image inputs, set `OPENROUTER_OCR_MODEL` to a vision-capable OpenRouter model.
 
 ### 2. Firebase Configuration
 1. Register an Android/iOS app in your [Firebase Console](https://console.firebase.google.com/).

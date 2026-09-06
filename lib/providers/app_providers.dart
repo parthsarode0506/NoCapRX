@@ -28,6 +28,8 @@ final vcfParseResultProvider = StateProvider<VcfParseResult?>((ref) => null);
 // Drugs are opt-in. A patient should never receive a noisy six-drug report
 // merely because they opened the medicine screen.
 final selectedDrugsProvider = StateProvider<Set<String>>((ref) => <String>{});
+
+// Custom drug text shared between screens
 final customDrugTextProvider = StateProvider<String>((ref) => '');
 
 // Current Active Analysis Multi-Report
@@ -44,4 +46,4 @@ final userReportsStreamProvider = StreamProvider<List<PgxMultiReport>>((ref) {
 final isClinicianViewProvider = StateProvider<bool>((ref) => false);
 
 // UI Theme Mode State
-final themeModeProvider = StateProvider<ThemeMode>((ref) => ThemeMode.system);
+final themeModeProvider = StateProvider<ThemeMode>((ref) => ThemeMode.light);

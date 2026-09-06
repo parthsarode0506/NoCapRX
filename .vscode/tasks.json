@@ -1,0 +1,16 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Validate Groq AI service",
+			"type": "shell",
+			"command": "flutter",
+			"args": [
+				"test",
+				"test/groq_ai_service_test.dart"
+			],
+			"isBackground": false,
+			"problemMatcher": []
+		}
+	]
+}

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/drug_evidence.dart';
+import '../features/chat/ask_nocaprx_screen.dart';
 
 class MedicineInformationScreen extends StatelessWidget {
   final DrugEvidence evidence;
@@ -30,6 +31,12 @@ class MedicineInformationScreen extends StatelessWidget {
             Text('Evidence: ${evidence.source}', style: theme.textTheme.bodySmall),
             if (evidence.evidenceLevel.isNotEmpty) Text('Evidence level: ${evidence.evidenceLevel}', style: theme.textTheme.bodySmall),
             const SizedBox(height: 24),
+            FilledButton.icon(
+              onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => AskNocapRxScreen(medicineName: evidence.genericName))),
+              icon: const Icon(Icons.chat_bubble_outline_rounded),
+              label: const Text('Ask NOCAPRx about this medicine'),
+            ),
+            const SizedBox(height: 10),
             FilledButton.icon(
               onPressed: () => Navigator.of(context).pop(),
               icon: const Icon(Icons.arrow_forward),

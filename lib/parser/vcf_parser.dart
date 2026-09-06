@@ -315,6 +315,38 @@ class VcfParser {
         }
         return 'NM';
 
+      // CYP3A5: *3 is the loss-of-function allele (non-expressor).
+      // *1/*1 → NM (rapid expressor), *1/*3 → IM, *3/*3 → PM (non-expressor).
+      case 'CYP3A5':
+        if (diplotype == '*3/*3' || diplotype == '*1/*3' && a1 == '*3' && a2 == '*3') {
+          return 'PM'; // Non-expressor — standard CPIC term for *3/*3
+        } else if (diplotype.contains('*3')) {
+          return 'IM'; // *1/*3 — intermediate expressor
+        }
+        return 'NM'; // *1/*1 — expressor (fast metaboliser)
+
+      // HLA-B: *15:02 → Positive (SJS/TEN risk with carbamazepine),
+      //        *57:01 → Positive (hypersensitivity risk with abacavir).
+      //        Any other diplotype inferred from this panel → Negative.
+      case 'HLA-B':
+        if (diplotype.contains('*15:02') || diplotype.contains('*57:01')) {
+          return 'Positive';
+        }
+        // If VCF explicitly provided a *1/*1 reference call, report Negative.
+        if (diplotype == '*1/*1') return 'Negative';
+        // Anything else (inferred *1/*1 with no direct annotation) stays Unknown
+        // because absence of evidence ≠ confirmed negative for HLA alleles.
+        return a1 == '*1' && a2 == '*1' ? 'Negative' : 'Unknown';
+
+      // UGT1A1: *28/*28 → PM (Gilbert syndrome), *1/*28 → IM, *1/*1 → NM.
+      case 'UGT1A1':
+        if (diplotype == '*28/*28') {
+          return 'PM';
+        } else if (diplotype.contains('*28')) {
+          return 'IM';
+        }
+        return 'NM';
+
       default:
         return 'Unknown';
     }

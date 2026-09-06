@@ -21,6 +21,33 @@ void main() {
     expect(DrugRepository.resolve('Lipitor')?.ruleAvailable, isFalse);
   });
 
+  test('resolves Atm 500 to azithromycin with patient safety facts', () {
+    final medicine = DrugRepository.resolve('Atm 500');
+    final evidence = DrugRepository.toDrugEvidence(medicine!);
+
+    expect(medicine.genericName, 'AZITHROMYCIN');
+    expect(evidence.uses, isNotEmpty);
+    expect(evidence.commonSideEffects, isNotEmpty);
+  });
+
+  test('resolves Ondansetron locally with patient safety facts', () {
+    final medicine = DrugRepository.resolve('Ondansetron');
+    final evidence = DrugRepository.toDrugEvidence(medicine!);
+
+    expect(medicine.genericName, 'ONDANSETRON');
+    expect(evidence.uses, contains('Prevention and treatment of nausea and vomiting'));
+    expect(evidence.commonSideEffects, contains('Headache'));
+  });
+
+  test('resolves Amoxicillin with patient safety facts', () {
+    final medicine = DrugRepository.resolve('Amoxicillin');
+    final evidence = DrugRepository.toDrugEvidence(medicine!);
+
+    expect(medicine.genericName, 'AMOXICILLIN');
+    expect(evidence.uses, isNotEmpty);
+    expect(evidence.commonSideEffects, contains('Diarrhea'));
+  });
+
   test('does not guess an unsupported medicine', () {
     expect(DrugRepository.resolve('made up medicine'), isNull);
   });
@@ -32,6 +59,16 @@ void main() {
     expect(identity.displayName, contains('Aspirin'));
     expect(identity.activeIngredients, contains('Aspirin'));
     expect(identity.verified, isTrue);
+  });
+
+  test('resolves Atm 500 to the verified azithromycin evidence', () async {
+    final identity = MedicineNormalizationService.identify('Atm 500');
+    final result = await OnlineEvidenceService.discover('Atm 500');
+
+    expect(identity.genericName, 'AZITHROMYCIN');
+    expect(result.evidence?.genericName, 'AZITHROMYCIN');
+    expect(result.evidence?.uses, isNotEmpty);
+    expect(result.evidence?.commonSideEffects, isNotEmpty);
   });
 
   test('discovers verified Aspirin without turning no-PGx into unknown medicine', () async {

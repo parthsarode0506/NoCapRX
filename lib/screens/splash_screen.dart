@@ -1,3 +1,4 @@
+import '../widgets/brand_emblem.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -73,15 +74,11 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
                   ),
                 ],
               ),
-              child: const Icon(
-                Icons.medical_services_rounded,
-                size: 64,
-                color: Colors.white,
-              ),
+              child: const NoCapRxEmblem(size: 112, borderRadius: 30),
             ),
             const SizedBox(height: 24),
             Text(
-              'OnCapRX',
+              'NoCapRX',
               style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                     fontWeight: FontWeight.bold,
                     color: Theme.of(context).colorScheme.onPrimaryContainer,
@@ -90,7 +87,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
             ),
             const SizedBox(height: 6),
             Text(
-              'Know your genes. Understand your medicines.',
+              'On-device pharmacogenomic safety.',
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     color: Theme.of(context).colorScheme.onPrimaryContainer.withValues(alpha: 0.8),
                   ),
