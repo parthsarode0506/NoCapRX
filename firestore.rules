@@ -1,23 +1,207 @@
 rules_version = '2';
 service cloud.firestore {
-  match /databases/{database}/documents {
-    
-    // User profile and sub-collections (reports, chat)
-    match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+  match /databases/{db}/documents {
 
-      match /reports/{reportId} {
-        allow read, write: if request.auth != null && request.auth.uid == userId;
+    // ---------- helpers ----------
+    function signedIn()   { return request.auth != null; }
+    function tok()        { return request.auth.token; }
+    function role()       { return tok().get('role', ''); }
+    function myOrg()      { return tok().get('orgId', ''); }
+    function isVerified() { return signedIn() && tok().get('verified', false) == true; }
+    function isClinician(){ return isVerified() && role() in ['doctor', 'pharmacist']; }
+    function isLabTech()  { return isVerified() && role() == 'lab_tech'; }
+    function isOrgAdmin(o){ return isVerified() && role() == 'org_admin' && myOrg() == o; }
+    function isPlatformAdmin() { return signedIn() && role() == 'platform_admin'; }
+    function isSelf(uid)  { return signedIn() && request.auth.uid == uid; }
+    function onlyKeys(keys)    { return request.resource.data.keys().hasOnly(keys); }
+    function hasAllKeys(keys)  { return request.resource.data.keys().hasAll(keys); }
+    function immutable(fields) { return request.resource.data.diff(resource.data).unchangedKeys().hasAll(fields); }
+    function actorRoleNow()    { return role() == '' ? 'patient' : role(); }
+
+    function patientDoc(pid) {
+      return get(/databases/$(db)/documents/patients/$(pid));
+    }
+    function ownsPatient(pid) {
+      return signedIn() && patientDoc(pid).data.ownerUid == request.auth.uid;
+    }
+    function consentPath(pid) {
+      return /databases/$(db)/documents/patients/$(pid)/consents/$(request.auth.uid);
+    }
+    // Clinical scopes additionally require a verified clinician token.
+    function hasConsent(pid, scope) {
+      return signedIn()
+        && exists(consentPath(pid))
+        && get(consentPath(pid)).data.active == true
+        && get(consentPath(pid)).data.expiresAt > request.time
+        && scope in get(consentPath(pid)).data.scope;
+    }
+
+    // ---------- users ----------
+    match /users/{uid} {
+      allow read: if isSelf(uid) || isPlatformAdmin();
+      allow create: if isSelf(uid)
+        && onlyKeys(['displayName', 'phone', 'locale', 'createdAt'])
+        && request.resource.data.createdAt == request.time;
+      allow update: if isSelf(uid)
+        && onlyKeys(['displayName', 'phone', 'locale', 'createdAt'])
+        && immutable(['createdAt']);
+      allow delete: if false; // DPDP erasure via Cloud Function
+
+      // ---------- synced derived reports (existing B2C history) ----------
+      // Derived calls only. Raw VCF content must never be written here.
+      match /reports/{id} {
+        allow read: if isSelf(uid);
+        allow create: if isSelf(uid)
+          && onlyKeys(['drug', 'gene', 'diplotype', 'phenotype', 'tier', 'ruleSetVersion',
+                       'explanationText', 'profileId', 'createdAt'])
+          && hasAllKeys(['drug', 'gene', 'phenotype', 'tier', 'ruleSetVersion', 'createdAt'])
+          && request.resource.data.tier in ['safe', 'caution', 'high_risk', 'contraindicated',
+                                            'no_guideline', 'insufficient_data']
+          && request.resource.data.get('explanationText', '').size() < 5000
+          && request.resource.data.createdAt == request.time;
+        allow update: if false;
+        allow delete: if isSelf(uid); // user-controlled history deletion (DPDP)
 
         match /chat/{messageId} {
-          allow read, write: if request.auth != null && request.auth.uid == userId;
+          allow read, write: if isSelf(uid);
         }
       }
     }
 
-    // Default deny all other paths
-    match /{document=**} {
-      allow read, write: if false;
+    // ---------- verification requests ----------
+    match /verifications/{uid} {
+      allow read: if isSelf(uid) || isPlatformAdmin();
+      allow create: if isSelf(uid)
+        && onlyKeys(['type', 'registrationNumber', 'council', 'docPaths', 'submittedAt', 'status'])
+        && hasAllKeys(['type', 'registrationNumber', 'docPaths', 'submittedAt', 'status'])
+        && request.resource.data.status == 'pending'
+        && request.resource.data.type in ['doctor', 'pharmacy', 'lab']
+        && request.resource.data.docPaths.size() <= 5
+        && request.resource.data.submittedAt == request.time;
+      allow update, delete: if false; // decisions in Cloud Functions only
     }
+
+    // ---------- orgs ----------
+    match /orgs/{orgId} {
+      allow read: if signedIn() && (myOrg() == orgId || isPlatformAdmin());
+      allow write: if false;
+      match /members/{uid} {
+        allow read: if isSelf(uid) || isOrgAdmin(orgId) || isPlatformAdmin();
+        allow write: if false;
+      }
+    }
+
+    // ---------- patients ----------
+    match /patients/{pid} {
+      allow read: if (signedIn() && resource.data.ownerUid == request.auth.uid)
+        || (isClinician() && hasConsent(pid, 'read_profile'));
+
+      allow create: if signedIn()
+        && request.resource.data.ownerUid == request.auth.uid
+        && onlyKeys(['ownerUid', 'orgId', 'name', 'dobYear', 'sex', 'genotypeCalls',
+                     'isSandbox', 'createdAt', 'updatedAt', 'version'])
+        && hasAllKeys(['ownerUid', 'name', 'createdAt', 'updatedAt', 'version'])
+        && request.resource.data.version == 1
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+
+      allow update: if signedIn() && resource.data.ownerUid == request.auth.uid
+        && onlyKeys(['ownerUid', 'orgId', 'name', 'dobYear', 'sex', 'genotypeCalls',
+                     'isSandbox', 'createdAt', 'updatedAt', 'version'])
+        && immutable(['ownerUid', 'createdAt', 'isSandbox'])
+        && request.resource.data.version == resource.data.version + 1
+        && request.resource.data.updatedAt == request.time;
+
+      allow delete: if false; // soft-delete via Function
+
+      match /consents/{grantee} {
+        allow read: if ownsPatient(pid) || isSelf(grantee);
+        allow create, update: if ownsPatient(pid)
+          && onlyKeys(['grantee', 'scope', 'active', 'expiresAt', 'grantedAt'])
+          && hasAllKeys(['grantee', 'scope', 'active', 'expiresAt', 'grantedAt'])
+          && request.resource.data.grantee == grantee
+          && request.resource.data.scope.size() > 0
+          && request.resource.data.scope.hasOnly(['read_profile', 'read_checks', 'write_checks',
+                                                  'read_notes', 'write_notes', 'lab_order'])
+          && request.resource.data.expiresAt > request.time
+          && request.resource.data.expiresAt < request.time + duration.value(365, 'd');
+        allow delete: if false; // revoke = active:false (keeps history)
+      }
+
+      match /checks/{id} {
+        allow read: if ownsPatient(pid) || (isClinician() && hasConsent(pid, 'read_checks'));
+        allow create: if (ownsPatient(pid) || (isClinician() && hasConsent(pid, 'write_checks')))
+          && onlyKeys(['drug', 'gene', 'phenotype', 'tier', 'ruleSetVersion', 'actorUid',
+                       'actorRole', 'createdAt', 'confirmedByClinician'])
+          && hasAllKeys(['drug', 'gene', 'phenotype', 'tier', 'ruleSetVersion', 'actorUid',
+                         'actorRole', 'createdAt', 'confirmedByClinician'])
+          && request.resource.data.tier in ['safe', 'caution', 'high_risk', 'contraindicated',
+                                            'no_guideline', 'insufficient_data']
+          && request.resource.data.actorUid == request.auth.uid
+          && request.resource.data.actorRole == actorRoleNow()
+          && (request.resource.data.confirmedByClinician == false || isClinician())
+          && request.resource.data.createdAt == request.time;
+        allow update, delete: if false;
+      }
+
+      match /notes/{id} {
+        allow read: if ownsPatient(pid) || (isClinician() && hasConsent(pid, 'read_notes'));
+        allow create: if isClinician() && hasConsent(pid, 'write_notes')
+          && onlyKeys(['authorUid', 'authorRole', 'body', 'revisionOf', 'createdAt'])
+          && hasAllKeys(['authorUid', 'authorRole', 'body', 'createdAt'])
+          && request.resource.data.authorUid == request.auth.uid
+          && request.resource.data.authorRole == role()
+          && request.resource.data.body.size() < 20000
+          && request.resource.data.createdAt == request.time;
+        allow update, delete: if false;
+      }
+    }
+
+    // ---------- lab orders ----------
+    match /labOrders/{id} {
+      allow read: if signedIn() && (
+          (isLabTech() && resource.data.orgId == myOrg())
+          || isOrgAdmin(resource.data.orgId)
+          || ownsPatient(resource.data.patientId));
+      allow create: if isLabTech()
+          && onlyKeys(['orgId', 'patientId', 'status', 'createdBy', 'createdAt'])
+          && hasAllKeys(['orgId', 'patientId', 'status', 'createdBy', 'createdAt'])
+          && request.resource.data.orgId == myOrg()
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.status == 'created'
+          && request.resource.data.createdAt == request.time
+          && hasConsent(request.resource.data.patientId, 'lab_order');
+      allow update: if isLabTech() && resource.data.orgId == myOrg()
+          && immutable(['orgId', 'patientId', 'createdBy', 'createdAt'])
+          && request.resource.data.status in ['created', 'received', 'processing', 'published', 'qc_failed'];
+      allow delete: if false;
+    }
+
+    // ---------- rule sets (clients read-only) ----------
+    match /ruleSets/{version} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
+    // ---------- audit (append-only, identity-bound) ----------
+    // Best practice: write audit server-side via Cloud Function. This client path
+    // is bound to the caller's own token so it cannot be spoofed.
+    match /auditEvents/{id} {
+      allow create: if signedIn()
+        && onlyKeys(['actorUid', 'actorRole', 'orgId', 'action', 'patientRef',
+                     'ruleSetVersion', 'deviceId', 'createdAt', 'meta'])
+        && hasAllKeys(['actorUid', 'actorRole', 'action', 'createdAt'])
+        && request.resource.data.actorUid == request.auth.uid
+        && request.resource.data.actorRole == actorRoleNow()
+        && request.resource.data.get('orgId', '') == myOrg()
+        && request.resource.data.createdAt == request.time;
+      allow read: if isPlatformAdmin()
+        || (signedIn() && resource.data.actorUid == request.auth.uid)
+        || isOrgAdmin(resource.data.get('orgId', ''));
+      allow update, delete: if false;
+    }
+
+    // ---------- default deny ----------
+    match /{document=**} { allow read, write: if false; }
   }
 }

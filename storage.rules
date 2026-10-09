@@ -1,0 +1,74 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // ---------- helpers ----------
+    function signedIn()    { return request.auth != null; }
+    function tok()         { return request.auth.token; }
+    function role()        { return tok().get('role', ''); }
+    function isVerified()  { return signedIn() && tok().get('verified', false) == true; }
+    function isSelf(uid)   { return signedIn() && request.auth.uid == uid; }
+    function isPlatformAdmin() { return signedIn() && role() == 'platform_admin'; }
+
+    // Max file sizes
+    function maxDocSize()  { return 10 * 1024 * 1024; }  // 10 MB for verification documents
+    function maxVcfSize()  { return 200 * 1024 * 1024; } // 200 MB for VCF files
+
+    // Allowed document MIME types for verification uploads
+    function isAllowedDocType() {
+      return request.resource.contentType.matches('image/.*')
+          || request.resource.contentType == 'application/pdf';
+    }
+
+    // ---------- verification documents ----------
+    // Clinicians upload ID / registration documents during verification.
+    // Only the user themselves can upload; only the user + platform admin can read.
+    match /verifications/{uid}/{allPaths=**} {
+      allow read: if isSelf(uid) || isPlatformAdmin();
+      allow create: if isSelf(uid)
+        && isAllowedDocType()
+        && request.resource.size < maxDocSize();
+      allow update, delete: if false; // immutable once uploaded
+    }
+
+    // ---------- patient VCF uploads (lab workflow) ----------
+    // Lab techs upload VCF files for consented patients.
+    // These are processed on-device or in an isolated environment.
+    match /labUploads/{orgId}/{orderId}/{fileName} {
+      allow read: if signedIn() && (
+        tok().get('orgId', '') == orgId
+        || isPlatformAdmin()
+      );
+      allow create: if signedIn()
+        && isVerified()
+        && role() == 'lab_tech'
+        && tok().get('orgId', '') == orgId
+        && request.resource.size < maxVcfSize();
+      allow update, delete: if false;
+    }
+
+    // ---------- exported reports (PDF) ----------
+    // Users can store generated PDF reports for sharing with clinicians.
+    match /reports/{uid}/{reportId}/{fileName} {
+      allow read: if isSelf(uid) || isPlatformAdmin();
+      allow create: if isSelf(uid)
+        && request.resource.contentType == 'application/pdf'
+        && request.resource.size < maxDocSize();
+      allow update, delete: if isSelf(uid);
+    }
+
+    // ---------- profile photos ----------
+    match /profiles/{uid}/{fileName} {
+      allow read: if signedIn();
+      allow create, update: if isSelf(uid)
+        && request.resource.contentType.matches('image/.*')
+        && request.resource.size < 5 * 1024 * 1024; // 5 MB
+      allow delete: if isSelf(uid);
+    }
+
+    // ---------- default deny ----------
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

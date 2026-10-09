@@ -90,7 +90,7 @@ class UniversalMedicineSafetyEngine {
       findings.add(ClinicalSafetyFinding(
         status: 'CONTRAINDICATED',
         title: 'Reported Medicine Allergy',
-        explanation: 'Your profile explicitly lists an allergy matching $medicine. Do not take this medication without clinician guidance.',
+        explanation: 'Your profile lists an allergy matching $medicine. Review this with a clinician before taking it.',
         evidenceSource: 'Patient Reported Allergy Profile',
       ));
     }

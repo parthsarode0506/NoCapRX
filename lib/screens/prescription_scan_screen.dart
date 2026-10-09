@@ -336,6 +336,7 @@ class _PrescriptionScanScreenState
                 const SizedBox(height: 20),
                 // Privacy badge
                 Container(
+                  width: double.infinity,
                   padding:
                       const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
                   decoration: BoxDecoration(
@@ -345,18 +346,20 @@ class _PrescriptionScanScreenState
                         color: Colors.white.withValues(alpha: 0.2)),
                   ),
                   child: Row(
-                    mainAxisSize: MainAxisSize.min,
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       const Icon(Icons.lock_outline,
                           size: 13, color: AppTheme.vibrantMint),
                       const SizedBox(width: 6),
-                      Text(
-                        'Cloud OCR when configured · ML Kit fallback offline',
-                        style: GoogleFonts.inter(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.white,
+                      Expanded(
+                        child: Text(
+                          'Cloud OCR when configured · ML Kit fallback offline',
+                          style: GoogleFonts.inter(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white,
+                          ),
+                          textAlign: TextAlign.center,
                         ),
                       ),
                     ],

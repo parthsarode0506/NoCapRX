@@ -16,10 +16,15 @@ class PrescriptionOcrService {
     http.Client? client,
     String? apiKey,
     String? model,
+    bool allowCloudAi = false,
   }) async {
+    if (!allowCloudAi) {
+      return _extractLocally(imagePath);
+    }
+
     final key = apiKey?.trim().isNotEmpty == true
         ? apiKey!.trim()
-      : _env('OPENROUTER_API_KEY')?.trim();
+        : _env('OPENROUTER_API_KEY')?.trim();
 
     if (key == null || key.isEmpty || key.startsWith('YOUR_')) {
       return _extractLocally(imagePath);
@@ -37,7 +42,7 @@ class PrescriptionOcrService {
           'X-Title': 'PharmaGuard Prescription OCR',
         },
         body: jsonEncode({
-            'model': _defaultModel,
+          'model': _defaultModel,
           'temperature': 0,
           'messages': [
             {
@@ -45,7 +50,8 @@ class PrescriptionOcrService {
               'content': [
                 {
                   'type': 'text',
-                  'text': 'Read all medicine names and prescription instructions '
+                  'text':
+                      'Read all medicine names and prescription instructions '
                       'in this image. Return only the visible text, preserving '
                       'line breaks. Do not add explanations or guesses.',
                 },
@@ -64,7 +70,7 @@ class PrescriptionOcrService {
       if (response.statusCode < 200 || response.statusCode >= 300) {
         // OpenRouter 402 means its paid route is unavailable. ML Kit is the
         // offline path and must still be allowed to read the prescription.
-        return _extractLocally(imagePath);
+        return await _extractLocally(imagePath);
       }
 
       final payload = jsonDecode(response.body) as Map<String, dynamic>;
@@ -76,16 +82,18 @@ class PrescriptionOcrService {
       final text = content is String
           ? content
           : content is List
-              ? content
-                  .whereType<Map<String, dynamic>>()
-                  .map((part) => part['text'])
-                  .whereType<String>()
-                  .join()
-              : '';
+          ? content
+                .whereType<Map<String, dynamic>>()
+                .map((part) => part['text'])
+                .whereType<String>()
+                .join()
+          : '';
 
-      return text.trim().isEmpty ? _extractLocally(imagePath) : text.trim();
+      return text.trim().isEmpty
+          ? await _extractLocally(imagePath)
+          : text.trim();
     } catch (_) {
-      return _extractLocally(imagePath);
+      return await _extractLocally(imagePath);
     }
   }
 

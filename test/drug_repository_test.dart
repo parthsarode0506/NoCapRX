@@ -6,6 +6,7 @@ import 'package:ondevicerx/services/online_evidence_service.dart';
 import 'package:ondevicerx/services/medicine_normalization_service.dart';
 import 'package:ondevicerx/services/personalized_side_effect_engine.dart';
 import 'package:ondevicerx/services/drug_repository.dart';
+import 'package:ondevicerx/features/chat/medicine_retriever.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -28,6 +29,13 @@ void main() {
     expect(medicine.genericName, 'AZITHROMYCIN');
     expect(evidence.uses, isNotEmpty);
     expect(evidence.commonSideEffects, isNotEmpty);
+  });
+
+  test('retrieves Atm 500 from a natural language chat question', () {
+    final evidence = MedicineRetriever.retrieve('What is use of ATM 500 tablet?');
+
+    expect(evidence?.genericName, 'AZITHROMYCIN');
+    expect(evidence?.displayName, 'Azithromycin');
   });
 
   test('resolves Ondansetron locally with patient safety facts', () {

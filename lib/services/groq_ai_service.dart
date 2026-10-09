@@ -8,9 +8,9 @@ import 'ai_response_validator.dart';
 /// Groq is an explanation layer only. Deterministic medical results stay authoritative.
 class GroqAIService {
   GroqAIService({http.Client? client, String? apiKey, String? model})
-      : _client = client ?? http.Client(),
-        _configuredApiKey = apiKey,
-        _configuredModel = model;
+    : _client = client ?? http.Client(),
+      _configuredApiKey = apiKey,
+      _configuredModel = model;
 
   static const _endpoint = 'https://api.groq.com/openai/v1/chat/completions';
   static const _defaultModel = 'openai/gpt-oss-120b';
@@ -21,26 +21,29 @@ class GroqAIService {
   String? get _apiKey {
     if (_configuredApiKey != null) return _configuredApiKey;
     final value = _env('GROQ_API_KEY')?.trim();
-    return value == null || value.isEmpty || value.startsWith('YOUR_') ? null : value;
+    return value == null || value.isEmpty || value.startsWith('YOUR_')
+        ? null
+        : value;
   }
 
-    String get _model => _configuredModel?.trim().isNotEmpty == true
+  String get _model => _configuredModel?.trim().isNotEmpty == true
       ? _configuredModel!.trim()
       : _env('GROQ_MODEL')?.trim().isNotEmpty == true
       ? _env('GROQ_MODEL')!.trim()
       : _defaultModel;
 
-    List<String> get _chatModels => <String>{
-          _model,
-          'openai/gpt-oss-120b',
-          _defaultModel,
-        }.toList();
+  List<String> get _chatModels {
+    final models = <String>[_model, 'openai/gpt-oss-120b', _defaultModel];
+    return models.toSet().toList();
+  }
 
   Future<Map<String, String>> generateExplanation({
     required Map<String, dynamic> medicalResult,
     required String userRole,
+    bool allowCloudAi = false,
   }) async {
     final fallback = _fallback(medicalResult);
+    if (!allowCloudAi) return fallback;
     final key = _apiKey;
     if (key == null) return fallback;
 
@@ -59,25 +62,37 @@ class GroqAIService {
 
   Future<Map<String, String>> generateClinicalSummary({
     required Map<String, dynamic> medicalResult,
-  }) => generateExplanation(medicalResult: medicalResult, userRole: 'clinician');
+    bool allowCloudAi = false,
+  }) => generateExplanation(
+    medicalResult: medicalResult,
+    userRole: 'clinician',
+    allowCloudAi: allowCloudAi,
+  );
 
   /// Looks up public medicine facts only; it never assigns a patient risk.
-  Future<Map<String, dynamic>?> searchDrugOnline(String medicineName) async {
+  Future<Map<String, dynamic>?> searchDrugOnline(
+    String medicineName, {
+    bool allowCloudAi = false,
+  }) async {
+    if (!allowCloudAi) return null;
     final key = _apiKey;
     if (key == null) return null;
-    return _requestLookup(
-      key: key,
-      medicineName: medicineName,
-    );
+    return _requestLookup(key: key, medicineName: medicineName);
   }
 
   Future<String> answerHealthQuestion({
     required String question,
     String? reportContext,
+    bool allowCloudAi = false,
   }) async {
+    if (!allowCloudAi) {
+      return 'Health guidance is available offline only unless cloud AI is explicitly enabled.';
+    }
     final key = _apiKey;
     if (key == null) {
-      throw StateError('Live AI is unavailable: GROQ_API_KEY is not configured.');
+      throw StateError(
+        'Live AI is unavailable: GROQ_API_KEY is not configured.',
+      );
     }
 
     final context = reportContext == null
@@ -85,7 +100,8 @@ class GroqAIService {
         : '\nVERIFIED REPORT CONTEXT:\n$reportContext';
     final response = await _rawChatRequest(
       key: key,
-      systemPrompt: '''You are OnCapRX AI, a simple and careful health assistant.
+      systemPrompt:
+          '''You are OnCapRX AI, a simple and careful health assistant.
 Answer health, medicine, side-effect, interaction, and pharmacogenomics questions in plain language.
 Use the verified report context when the question is about the user's report.
 Never replace the medicine in the report with another medicine or guess a brand's active ingredient. If the verified identity is missing, say that the medicine identity is unverified.
@@ -97,7 +113,9 @@ Format it with short labels when useful, such as "What it means:", "What to watc
     );
 
     if (response?.trim().isNotEmpty != true) {
-      throw StateError('Live AI did not return an answer. Check the API key, model, and internet connection.');
+      throw StateError(
+        'Live AI did not return an answer. Check the API key, model, and internet connection.',
+      );
     }
     return response!.trim();
   }
@@ -108,33 +126,38 @@ Format it with short labels when useful, such as "What it means:", "What to watc
     required Map<String, dynamic> payload,
   }) async {
     for (final model in _chatModels) {
-        try {
-          final result = await _client
-              .post(
-                Uri.parse(_endpoint),
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': 'Bearer $key',
-                },
-                body: jsonEncode({
-                  'model': model,
-                  'messages': [
-                    {'role': 'system', 'content': systemPrompt},
-                    {'role': 'user', 'content': jsonEncode(sanitizeMedicalResult(payload))},
-                  ],
-                  'temperature': 0,
-                  'max_tokens': 700,
-                  'response_format': {'type': 'json_object'},
-                }),
-              )
-              .timeout(const Duration(seconds: 12));
-          if (result.statusCode < 200 || result.statusCode >= 300) continue;
-          final body = jsonDecode(result.body) as Map<String, dynamic>;
-          final content = body['choices']?[0]?['message']?['content']?.toString();
-          final decoded = content == null ? null : AIResponseValidator.decodeObject(content);
-          if (decoded != null) return decoded;
-        } catch (_) {}
-      }
+      try {
+        final result = await _client
+            .post(
+              Uri.parse(_endpoint),
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer $key',
+              },
+              body: jsonEncode({
+                'model': model,
+                'messages': [
+                  {'role': 'system', 'content': systemPrompt},
+                  {
+                    'role': 'user',
+                    'content': jsonEncode(sanitizeMedicalResult(payload)),
+                  },
+                ],
+                'temperature': 0,
+                'max_tokens': 700,
+                'response_format': {'type': 'json_object'},
+              }),
+            )
+            .timeout(const Duration(seconds: 12));
+        if (result.statusCode < 200 || result.statusCode >= 300) continue;
+        final body = jsonDecode(result.body) as Map<String, dynamic>;
+        final content = body['choices']?[0]?['message']?['content']?.toString();
+        final decoded = content == null
+            ? null
+            : AIResponseValidator.decodeObject(content);
+        if (decoded != null) return decoded;
+      } catch (_) {}
+    }
     return null;
   }
 
@@ -143,20 +166,20 @@ Format it with short labels when useful, such as "What it means:", "What to watc
     required String medicineName,
   }) async {
     for (final model in _chatModels) {
-        try {
-          final result = await _client
-              .post(
-                Uri.parse(_endpoint),
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': 'Bearer $key',
-                },
-                body: jsonEncode({
-                  'model': model,
-                  'messages': [
-                    {
-                      'role': 'system',
-                      'content': '''You are a medicine information lookup service.
+      try {
+        final result = await _client
+            .post(
+              Uri.parse(_endpoint),
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer $key',
+              },
+              body: jsonEncode({
+                'model': model,
+                'messages': [
+                  {
+                    'role': 'system',
+                    'content': '''You are a medicine information lookup service.
 Return JSON only with exactly these keys: genericName, displayName, uses,
 commonSideEffects, seriousSideEffects, precautions, pgxRelevance, pgxGene,
 pgxPhenotypes, guidelineSummary, evidenceLevel, confidence, isRealMedicine.
@@ -164,22 +187,24 @@ Use comma-separated strings for uses, side effects, precautions, and pgxPhenotyp
 Set isRealMedicine false for an unknown or non-medicine name. Never diagnose,
 prescribe, recommend a dose, or classify a medicine as safe or unsafe. Do not
 invent a pharmacogenomic relationship.''',
-                    },
-                    {'role': 'user', 'content': medicineName},
-                  ],
-                  'temperature': 0,
-                  'max_tokens': 700,
-                  'response_format': {'type': 'json_object'},
-                }),
-              )
-              .timeout(const Duration(seconds: 15));
-          if (result.statusCode < 200 || result.statusCode >= 300) continue;
-          final body = jsonDecode(result.body) as Map<String, dynamic>;
-          final content = body['choices']?[0]?['message']?['content']?.toString();
-          final decoded = content == null ? null : AIResponseValidator.decodeObject(content);
-          if (decoded != null) return decoded;
-        } catch (_) {}
-      }
+                  },
+                  {'role': 'user', 'content': medicineName},
+                ],
+                'temperature': 0,
+                'max_tokens': 700,
+                'response_format': {'type': 'json_object'},
+              }),
+            )
+            .timeout(const Duration(seconds: 15));
+        if (result.statusCode < 200 || result.statusCode >= 300) continue;
+        final body = jsonDecode(result.body) as Map<String, dynamic>;
+        final content = body['choices']?[0]?['message']?['content']?.toString();
+        final decoded = content == null
+            ? null
+            : AIResponseValidator.decodeObject(content);
+        if (decoded != null) return decoded;
+      } catch (_) {}
+    }
     return null;
   }
 
@@ -219,7 +244,9 @@ invent a pharmacogenomic relationship.''',
     return null;
   }
 
-  static Map<String, dynamic> sanitizeMedicalResult(Map<String, dynamic> result) {
+  static Map<String, dynamic> sanitizeMedicalResult(
+    Map<String, dynamic> result,
+  ) {
     const allowed = {
       'medicine',
       'activeIngredient',
@@ -259,9 +286,9 @@ invent a pharmacogenomic relationship.''',
         return value.entries
             .where((entry) => allowed.contains(entry.key.toString()))
             .fold<Map<String, dynamic>>({}, (map, entry) {
-          map[entry.key.toString()] = clean(entry.value);
-          return map;
-        });
+              map[entry.key.toString()] = clean(entry.value);
+              return map;
+            });
       }
       if (value is Iterable) return value.map(clean).toList();
       return value;
@@ -270,7 +297,8 @@ invent a pharmacogenomic relationship.''',
     return clean(result) as Map<String, dynamic>;
   }
 
-  static String _systemPrompt(String role) => '''You are PharmaGuard's AI-assisted explanation layer.
+  static String _systemPrompt(String role) =>
+      '''You are PharmaGuard's AI-assisted explanation layer.
 The supplied JSON was produced by a deterministic evidence-based medical engine. You are not the medical decision engine.
 Never change, override, reinterpret, or contradict its riskLabel, verificationStatus, or missing-data state.
 Never invent a medicine, interaction, genotype, diplotype, phenotype, evidence, diagnosis, or patient fact.
@@ -284,7 +312,9 @@ User role: $role''';
   static Map<String, String> _fallback(Map<String, dynamic> result) {
     final medicine = result['medicine']?.toString() ?? 'This medicine';
     final risk = result['riskLabel']?.toString() ?? 'Unknown';
-    final reason = result['recommendation']?.toString() ?? 'No additional explanation is available.';
+    final reason =
+        result['recommendation']?.toString() ??
+        'No additional explanation is available.';
     final uses = result['uses']?.toString();
     final sideEffects = result['commonSideEffects']?.toString();
     final serious = result['seriousSideEffects']?.toString();
@@ -296,11 +326,14 @@ User role: $role''';
         'Get medical help for $serious.',
     ].join(' ');
     return {
-      'summary': '$medicine was classified as $risk by the deterministic medical engine.',
+      'summary':
+          '$medicine was classified as $risk by the deterministic medical engine.',
       'mechanism': reason,
-        'patient_friendly': '${facts.isEmpty ? '' : '$facts '}'
-          'The checked result is $risk. Do not start, stop, or change this medicine without advice from a doctor or pharmacist.',
-      'clinician_note': 'AI explanation unavailable. Deterministic result: $risk. $reason',
+      'patient_friendly':
+          '${facts.isEmpty ? '' : '$facts '}'
+          'The checked result is $risk. Discuss any change with your prescriber or pharmacist.',
+      'clinician_note':
+          'AI explanation unavailable. Deterministic result: $risk. $reason',
     };
   }
 

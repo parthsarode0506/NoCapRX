@@ -1,4 +1,5 @@
 import '../models/pgx_report.dart';
+import '../features/chat/medicine_retriever.dart';
 import 'groq_ai_service.dart';
 
 /// Compatibility facade for existing screens. GroqAIService owns the API path.
@@ -32,7 +33,7 @@ class LlmService {
     required String userQuery,
     required PgxMultiReport report,
   }) async {
-    final context = report.drugReports.map((drug) {
+    final reportContext = report.drugReports.map((drug) {
       final profile = drug.pharmacogenomicProfile;
       return [
         'Medicine: ${drug.drug}',
@@ -52,6 +53,28 @@ class LlmService {
           'Serious side effects: ${drug.evidence!.seriousSideEffects.join('; ')}',
       ].join('\n');
     }).join('\n\n');
+
+    final localEvidence = MedicineRetriever.retrieve(userQuery);
+    final medicineContext = localEvidence == null
+        ? ''
+        : [
+            'Verified local medicine record:',
+            'Medicine: ${localEvidence.displayName}',
+            'Active ingredients: ${localEvidence.activeIngredients.join(', ')}',
+            if (localEvidence.uses.isNotEmpty)
+              'Uses: ${localEvidence.uses.join('; ')}',
+            if (localEvidence.commonSideEffects.isNotEmpty)
+              'Common side effects: ${localEvidence.commonSideEffects.join('; ')}',
+            if (localEvidence.seriousSideEffects.isNotEmpty)
+              'Serious side effects: ${localEvidence.seriousSideEffects.join('; ')}',
+            if (localEvidence.precautions.isNotEmpty)
+              'Precautions: ${localEvidence.precautions.join('; ')}',
+          ].join('\n');
+
+    final context = [
+      if (reportContext.isNotEmpty) reportContext,
+      if (medicineContext.isNotEmpty) medicineContext,
+    ].join('\n\n');
 
     return _service.answerHealthQuestion(
       question: userQuery,

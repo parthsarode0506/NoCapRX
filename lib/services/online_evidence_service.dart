@@ -288,7 +288,7 @@ class OnlineEvidenceService {
         'Severe allergic reaction',
       ],
       precautions: [
-        'Do not combine with another paracetamol or acetaminophen product',
+        'Discuss combining with another paracetamol or acetaminophen product with a pharmacist first',
         'Higher risk with liver disease or heavy alcohol use',
       ],
       evidenceSources: ['Standard paracetamol medicine safety information'],
@@ -414,7 +414,7 @@ class OnlineEvidenceService {
       guidelineCitation:
           'Verified brand composition and standard medicine safety information; no actionable PGx guideline identified.',
       dosingRecommendation:
-          'Use only the dose and duration written by your prescriber. Do not combine with other paracetamol or NSAID products unless a clinician says it is appropriate.',
+          'Use only the dose and duration written by your prescriber. Discuss combining with other paracetamol or NSAID products with a clinician first.',
       monitoringAdvice:
           'Watch for stomach, kidney, liver, and allergic problems, especially with longer use.',
       mechanism:
@@ -434,7 +434,7 @@ class OnlineEvidenceService {
       precautions: [
         'Higher risk with stomach ulcers, kidney or liver disease, heart disease, or NSAID allergy',
         'Ask a clinician before use during pregnancy or with blood thinners',
-        'Do not take other paracetamol or painkiller products without checking first',
+        'Discuss other paracetamol or painkiller products with a pharmacist first',
       ],
       evidenceSources: ['Verified product composition', 'Standard medicine safety references'],
       requiredClinicalData: [],
@@ -468,7 +468,7 @@ class OnlineEvidenceService {
       uses: ['HIV infection treatment', 'Hepatitis B treatment', 'HIV pre-exposure prophylaxis (PrEP)'],
       commonSideEffects: ['Nausea', 'Diarrhea', 'Headache', 'Fatigue'],
       seriousSideEffects: ['Kidney dysfunction', 'Lactic acidosis', 'Severe hepatomegaly'],
-      precautions: ['Monitor kidney function regularly', 'Do not stop without medical advice'],
+      precautions: ['Monitor kidney function regularly', 'Discuss stopping with a clinician first'],
       requiredClinicalData: ['Renal Function / eGFR'],
       retrievalTimestamp: '2026-09-05T00:00:00Z',
       verifiedMedicine: true,
@@ -492,7 +492,7 @@ class OnlineEvidenceService {
       uses: ['HIV infection', 'Hepatitis B treatment'],
       commonSideEffects: ['Nausea', 'Headache', 'Fatigue', 'Insomnia'],
       seriousSideEffects: ['Lactic acidosis', 'Severe hepatomegaly'],
-      precautions: ['Do not stop without medical supervision'],
+      precautions: ['Discuss stopping with a clinician first'],
       requiredClinicalData: [],
       retrievalTimestamp: '2026-09-05T00:00:00Z',
       verifiedMedicine: true,
@@ -596,7 +596,7 @@ class OnlineEvidenceService {
       uses: ['Depression', 'Anxiety disorders', 'OCD', 'PTSD'],
       commonSideEffects: ['Nausea', 'Insomnia', 'Diarrhea', 'Dry mouth'],
       seriousSideEffects: ['Serotonin syndrome', 'Suicidal thoughts (young adults)', 'Hyponatremia'],
-      precautions: ['Do not stop abruptly', 'Review all serotonergic medicines'],
+      precautions: ['Discuss stopping with a clinician first', 'Review all serotonergic medicines'],
       requiredClinicalData: [],
       retrievalTimestamp: '2026-09-05T00:00:00Z',
       verifiedMedicine: true,
@@ -774,7 +774,7 @@ class OnlineEvidenceService {
       uses: ['High blood pressure', 'Angina'],
       commonSideEffects: ['Ankle swelling', 'Flushing', 'Headache'],
       seriousSideEffects: ['Severe hypotension', 'Worsening angina'],
-      precautions: ['Do not stop abruptly', 'Monitor BP regularly'],
+      precautions: ['Discuss stopping with a clinician first', 'Monitor BP regularly'],
       requiredClinicalData: [],
       retrievalTimestamp: '2026-09-05T00:00:00Z',
       verifiedMedicine: true,

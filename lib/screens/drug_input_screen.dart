@@ -81,9 +81,7 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
 
   Future<void> _openPrescriptionScanner() async {
     final result = await Navigator.of(context).push<PrescriptionScanResult>(
-      MaterialPageRoute(
-        builder: (_) => const PrescriptionScanScreen(),
-      ),
+      MaterialPageRoute(builder: (_) => const PrescriptionScanScreen()),
     );
 
     if (!mounted || result == null) return;
@@ -93,7 +91,8 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-              'No medicines identified from scan. Enter the name manually below.'),
+            'No medicines identified from scan. Enter the name manually below.',
+          ),
           backgroundColor: AppTheme.warningAmber,
         ),
       );
@@ -196,9 +195,17 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
           if (evidence != null) {
             final drugKey = evidence.genericName.toUpperCase();
             if (evidence.hasPgxRelationship && evidence.genes.isNotEmpty) {
-              _addProgress('🧬', 'PGx evidence found: ${evidence.genes.join(", ")}', done: true);
+              _addProgress(
+                '🧬',
+                'PGx evidence found: ${evidence.genes.join(", ")}',
+                done: true,
+              );
             } else {
-              _addProgress('📋', 'Medicine facts found; no actionable PGx rule', done: true);
+              _addProgress(
+                '📋',
+                'Medicine facts found; no actionable PGx rule',
+                done: true,
+              );
             }
             _discoveredEvidence[drugKey] = evidence;
             drugsToEvaluate.add(drugKey);
@@ -211,7 +218,9 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
             setState(() => _isAnalyzing = false);
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
-                content: Text('Medicine could not be verified online or locally.'),
+                content: Text(
+                  'Medicine could not be verified online or locally.',
+                ),
                 backgroundColor: Colors.orange,
               ),
             );
@@ -226,7 +235,8 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
       setState(() => _isAnalyzing = false);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-            content: Text('Please enter at least one medicine to analyse.')),
+          content: Text('Please enter at least one medicine to analyse.'),
+        ),
       );
       return;
     }
@@ -242,9 +252,10 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
       for (int i = 0; i < drugsToEvaluate.length; i++) {
         final drug = drugsToEvaluate[i];
         _addProgress(
-            '🔒',
-            'Analysing $drug on-device '
-            '(${i + 1}/${drugsToEvaluate.length})...');
+          '🔒',
+          'Analysing $drug on-device '
+              '(${i + 1}/${drugsToEvaluate.length})...',
+        );
         await Future.delayed(const Duration(milliseconds: 200));
 
         DrugEvidence? evidence = _discoveredEvidence[drug];
@@ -270,14 +281,17 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
             ? <PersonalizedSideEffectRisk>[]
             : PersonalizedSideEffectEngine.evaluate(evidence, _clinicalData);
 
-        final clinicalFindings =
-            UniversalMedicineSafetyEngine.evaluateAll(drug, _clinicalData);
+        final clinicalFindings = UniversalMedicineSafetyEngine.evaluateAll(
+          drug,
+          _clinicalData,
+        );
 
         _addProgress('🤖', 'Generating AI explanation...');
         final gene = initialReport.pharmacogenomicProfile.primaryGene;
         final phenotype = initialReport.pharmacogenomicProfile.phenotype;
         final riskLabel = initialReport.riskAssessment.riskLabel;
-        final cpicRec = initialReport.clinicalRecommendation.dosingRecommendation;
+        final cpicRec =
+            initialReport.clinicalRecommendation.dosingRecommendation;
 
         final llmResultMap = await GroqAIService().generateExplanation(
           userRole: 'patient',
@@ -293,14 +307,16 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
             if (initialReport.pharmacogenomicProfile.diplotype != 'Unknown')
               'diplotype': initialReport.pharmacogenomicProfile.diplotype,
             'recommendation': cpicRec,
-            'interactions':
-                clinicalFindings.map((f) => f.toJson()).toList(),
-            'personalizedSideEffects':
-                personalizedSideEffects.map((r) => r.toJson()).toList(),
+            'interactions': clinicalFindings.map((f) => f.toJson()).toList(),
+            'personalizedSideEffects': personalizedSideEffects
+                .map((r) => r.toJson())
+                .toList(),
             if (evidence != null) 'evidenceSources': evidence.evidenceSources,
             if (evidence != null) 'uses': evidence.uses,
-            if (evidence != null) 'commonSideEffects': evidence.commonSideEffects,
-            if (evidence != null) 'seriousSideEffects': evidence.seriousSideEffects,
+            if (evidence != null)
+              'commonSideEffects': evidence.commonSideEffects,
+            if (evidence != null)
+              'seriousSideEffects': evidence.seriousSideEffects,
             if (evidence != null) 'precautions': evidence.precautions,
           },
         );
@@ -313,7 +329,9 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
           riskAssessment: initialReport.riskAssessment,
           pharmacogenomicProfile: initialReport.pharmacogenomicProfile,
           clinicalRecommendation: initialReport.clinicalRecommendation,
-          llmGeneratedExplanation: LlmExplanation.fromJson(llmResultMap),
+          llmGeneratedExplanation: LlmExplanation.fromJson(
+            Map<String, dynamic>.from(llmResultMap)..['source'] = 'ai',
+          ),
           qualityMetrics: initialReport.qualityMetrics,
           evidence: evidence,
           personalizedSideEffects: personalizedSideEffects,
@@ -342,8 +360,7 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
 
       if (mounted) {
         Navigator.of(context).pushReplacement(
-          MaterialPageRoute(
-              builder: (_) => ResultsScreen(report: multiReport)),
+          MaterialPageRoute(builder: (_) => ResultsScreen(report: multiReport)),
         );
       }
     } catch (e) {
@@ -362,7 +379,7 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
 
   // ─── Profile helpers ─────────────────────────────────────────────────────
 
-    DrugEvidence _mergeEvidence(DrugEvidence? local, DrugEvidence online) {
+  DrugEvidence _mergeEvidence(DrugEvidence? local, DrugEvidence online) {
     if (local == null) return online;
     return DrugEvidence(
       genericName: local.genericName,
@@ -370,66 +387,75 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
       aliases: {...local.aliases, ...online.aliases}.toList(),
       genes: local.genes.isNotEmpty ? local.genes : online.genes,
       relevantVariants: local.relevantVariants.isNotEmpty
-        ? local.relevantVariants
-        : online.relevantVariants,
-      phenotypes: local.phenotypes.isNotEmpty ? local.phenotypes : online.phenotypes,
+          ? local.relevantVariants
+          : online.relevantVariants,
+      phenotypes: local.phenotypes.isNotEmpty
+          ? local.phenotypes
+          : online.phenotypes,
       guidelineCitation: local.guidelineCitation.isNotEmpty
-        ? local.guidelineCitation
-        : online.guidelineCitation,
+          ? local.guidelineCitation
+          : online.guidelineCitation,
       dosingRecommendation: local.dosingRecommendation.isNotEmpty
-        ? local.dosingRecommendation
-        : online.dosingRecommendation,
+          ? local.dosingRecommendation
+          : online.dosingRecommendation,
       alternativeDrugs: local.alternativeDrugs.isNotEmpty
-        ? local.alternativeDrugs
-        : online.alternativeDrugs,
+          ? local.alternativeDrugs
+          : online.alternativeDrugs,
       monitoringAdvice: local.monitoringAdvice.isNotEmpty
-        ? local.monitoringAdvice
-        : online.monitoringAdvice,
-      mechanism: local.mechanism.isNotEmpty ? local.mechanism : online.mechanism,
+          ? local.monitoringAdvice
+          : online.monitoringAdvice,
+      mechanism: local.mechanism.isNotEmpty
+          ? local.mechanism
+          : online.mechanism,
       evidenceLevel: local.evidenceLevel,
       source: online.source.isNotEmpty ? online.source : local.source,
-      clinicallyActionable: local.clinicallyActionable || online.clinicallyActionable,
+      clinicallyActionable:
+          local.clinicallyActionable || online.clinicallyActionable,
       hasPgxRelationship: local.hasPgxRelationship || online.hasPgxRelationship,
       requiredClinicalData: local.requiredClinicalData.isNotEmpty
-        ? local.requiredClinicalData
-        : online.requiredClinicalData,
+          ? local.requiredClinicalData
+          : online.requiredClinicalData,
       retrievalTimestamp: online.retrievalTimestamp,
       isOnlineDiscovered: true,
       activeIngredients: online.activeIngredients.isNotEmpty
-        ? online.activeIngredients
-        : local.activeIngredients,
+          ? online.activeIngredients
+          : local.activeIngredients,
       strength: online.strength ?? local.strength,
       dosageForm: online.dosageForm ?? local.dosageForm,
       verifiedMedicine: local.verifiedMedicine && online.verifiedMedicine,
       identityConfidence: online.identityConfidence > 0
-        ? online.identityConfidence
-        : local.identityConfidence,
+          ? online.identityConfidence
+          : local.identityConfidence,
       uses: online.uses.isNotEmpty ? online.uses : local.uses,
       commonSideEffects: online.commonSideEffects.isNotEmpty
-        ? online.commonSideEffects
-        : local.commonSideEffects,
+          ? online.commonSideEffects
+          : local.commonSideEffects,
       seriousSideEffects: online.seriousSideEffects.isNotEmpty
-        ? online.seriousSideEffects
-        : local.seriousSideEffects,
-      precautions: online.precautions.isNotEmpty ? online.precautions : local.precautions,
-      evidenceSources: {...local.evidenceSources, ...online.evidenceSources}.toList(),
+          ? online.seriousSideEffects
+          : local.seriousSideEffects,
+      precautions: online.precautions.isNotEmpty
+          ? online.precautions
+          : local.precautions,
+      evidenceSources: {
+        ...local.evidenceSources,
+        ...online.evidenceSources,
+      }.toList(),
     );
-    }
+  }
 
   Map<String, String> _profileToClinicalData(PatientProfile p) => {
-        if (p.age.isNotEmpty) 'Age': p.age,
-        if (p.weight.isNotEmpty) 'Weight': p.weight,
-        if (p.sex.isNotEmpty) 'Sex': p.sex,
-        if (p.allergies.isNotEmpty) 'Known allergies': p.allergies.join(', '),
-        if (p.currentMedicines.isNotEmpty)
-          'Current medicines': p.currentMedicines.join(', '),
-        if (p.conditions.isNotEmpty)
-          'Relevant conditions': p.conditions.join(', '),
-        if (p.pregnancyStatus.isNotEmpty)
-          'Pregnancy/breastfeeding': p.pregnancyStatus,
-        if (p.kidneyFunction.isNotEmpty) 'Kidney function': p.kidneyFunction,
-        if (p.liverFunction.isNotEmpty) 'Liver function': p.liverFunction,
-      };
+    if (p.age.isNotEmpty) 'Age': p.age,
+    if (p.weight.isNotEmpty) 'Weight': p.weight,
+    if (p.sex.isNotEmpty) 'Sex': p.sex,
+    if (p.allergies.isNotEmpty) 'Known allergies': p.allergies.join(', '),
+    if (p.currentMedicines.isNotEmpty)
+      'Current medicines': p.currentMedicines.join(', '),
+    if (p.conditions.isNotEmpty) 'Relevant conditions': p.conditions.join(', '),
+    if (p.pregnancyStatus.isNotEmpty)
+      'Pregnancy/breastfeeding': p.pregnancyStatus,
+    if (p.kidneyFunction.isNotEmpty) 'Kidney function': p.kidneyFunction,
+    if (p.liverFunction.isNotEmpty) 'Liver function': p.liverFunction,
+  };
 
   // ─── Build ────────────────────────────────────────────────────────────────
 
@@ -447,14 +473,17 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
             Text(
               'Check Medicine Safety',
               style: GoogleFonts.inter(
-                  fontSize: 17,
-                  fontWeight: FontWeight.w700,
-                  color: AppTheme.deepInk),
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
+                color: AppTheme.deepInk,
+              ),
             ),
             Text(
               'PharmaGuard • On-device PGx analysis',
               style: GoogleFonts.inter(
-                  fontSize: 11, color: AppTheme.secondaryInk),
+                fontSize: 11,
+                color: AppTheme.secondaryInk,
+              ),
             ),
           ],
         ),
@@ -534,8 +563,11 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
                 color: Colors.white.withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: const Icon(Icons.document_scanner_rounded,
-                  color: Colors.white, size: 28),
+              child: const Icon(
+                Icons.document_scanner_rounded,
+                color: Colors.white,
+                size: 28,
+              ),
             ),
             const SizedBox(width: 14),
             Expanded(
@@ -590,8 +622,11 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
       children: [
         Row(
           children: [
-            const Icon(Icons.edit_outlined,
-                size: 18, color: AppTheme.accentEmerald),
+            const Icon(
+              Icons.edit_outlined,
+              size: 18,
+              color: AppTheme.accentEmerald,
+            ),
             const SizedBox(width: 6),
             Text(
               'Or enter medicine name manually',
@@ -607,8 +642,7 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
         Text(
           'Use a generic name, brand name, or alias. '
           'Separate multiple medicines with commas.',
-          style: GoogleFonts.inter(
-              fontSize: 12, color: AppTheme.secondaryInk),
+          style: GoogleFonts.inter(fontSize: 12, color: AppTheme.secondaryInk),
         ),
         const SizedBox(height: 10),
         TextField(
@@ -618,14 +652,17 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
             _onlineEvidenceMessage = null;
             _onlineEvidenceUrl = null;
           }),
-          style: GoogleFonts.inter(
-              fontSize: 14.5, color: AppTheme.deepInk),
+          style: GoogleFonts.inter(fontSize: 14.5, color: AppTheme.deepInk),
           decoration: InputDecoration(
             hintText: 'e.g. Clopidogrel, Codeine, Warfarin',
             hintStyle: GoogleFonts.inter(
-                fontSize: 13.5, color: AppTheme.mutedGrey),
-            prefixIcon: const Icon(Icons.medication_outlined,
-                color: AppTheme.accentEmerald),
+              fontSize: 13.5,
+              color: AppTheme.mutedGrey,
+            ),
+            prefixIcon: const Icon(
+              Icons.medication_outlined,
+              color: AppTheme.accentEmerald,
+            ),
             suffixIcon: _customDrugController.text.isNotEmpty
                 ? IconButton(
                     icon: const Icon(Icons.clear, size: 18),
@@ -661,7 +698,9 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
               child: Text(
                 'Not in local database — online PGx evidence discovery will be attempted.',
                 style: GoogleFonts.inter(
-                    fontSize: 12, color: Colors.blue.shade800),
+                  fontSize: 12,
+                  color: Colors.blue.shade800,
+                ),
               ),
             ),
           ],
@@ -671,28 +710,39 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
 
     return Column(
       children: [
-        ...suggestions.take(5).map(
+        ...suggestions
+            .take(5)
+            .map(
               (drug) => Card(
                 margin: const EdgeInsets.only(bottom: 6),
                 child: ListTile(
                   dense: true,
-                  leading: const Icon(Icons.medication_outlined,
-                      color: AppTheme.accentEmerald, size: 20),
+                  leading: const Icon(
+                    Icons.medication_outlined,
+                    color: AppTheme.accentEmerald,
+                    size: 20,
+                  ),
                   title: Text(
                     drug.displayName,
                     style: GoogleFonts.inter(
-                        fontWeight: FontWeight.w600, fontSize: 13),
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                    ),
                   ),
                   subtitle: Text(
                     drug.genes.isEmpty
                         ? drug.aliases.take(3).join(' · ')
                         : '${drug.genes.join(', ')} · ${drug.aliases.take(2).join(', ')}',
                     style: GoogleFonts.inter(
-                        fontSize: 11, color: AppTheme.secondaryInk),
+                      fontSize: 11,
+                      color: AppTheme.secondaryInk,
+                    ),
                   ),
                   trailing: Container(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 6, vertical: 2),
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
                     decoration: BoxDecoration(
                       color: drug.genes.isEmpty
                           ? Colors.grey.shade100
@@ -739,14 +789,15 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
         children: [
           Row(
             children: [
-              Icon(Icons.info_outline,
-                  color: Colors.orange.shade700, size: 16),
+              Icon(Icons.info_outline, color: Colors.orange.shade700, size: 16),
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
                   _onlineEvidenceMessage!,
                   style: GoogleFonts.inter(
-                      fontSize: 12, color: Colors.orange.shade900),
+                    fontSize: 12,
+                    color: Colors.orange.shade900,
+                  ),
                 ),
               ),
             ],
@@ -754,13 +805,16 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
           if (_onlineEvidenceUrl != null) ...[
             const SizedBox(height: 6),
             TextButton.icon(
-              onPressed: () => launchUrl(_onlineEvidenceUrl!,
-                  mode: LaunchMode.externalApplication),
+              onPressed: () => launchUrl(
+                _onlineEvidenceUrl!,
+                mode: LaunchMode.externalApplication,
+              ),
               icon: const Icon(Icons.open_in_browser, size: 16),
               label: const Text('View source evidence'),
               style: TextButton.styleFrom(
-                  padding: EdgeInsets.zero,
-                  foregroundColor: Colors.orange.shade800),
+                padding: EdgeInsets.zero,
+                foregroundColor: Colors.orange.shade800,
+              ),
             ),
           ],
         ],
@@ -775,14 +829,18 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
         color: AppTheme.mintSurface,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-            color: AppTheme.accentEmerald.withValues(alpha: 0.3)),
+          color: AppTheme.accentEmerald.withValues(alpha: 0.3),
+        ),
       ),
       child: Column(
         children: [
           Row(
             children: [
-              const Icon(Icons.lock_outline,
-                  size: 16, color: AppTheme.primaryEmerald),
+              const Icon(
+                Icons.lock_outline,
+                size: 16,
+                color: AppTheme.primaryEmerald,
+              ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
@@ -818,7 +876,9 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
               '$label: ',
               softWrap: true,
               style: GoogleFonts.inter(
-                  fontSize: 11, color: AppTheme.secondaryInk),
+                fontSize: 11,
+                color: AppTheme.secondaryInk,
+              ),
             ),
           ),
           Text(
@@ -857,10 +917,13 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
           foregroundColor: Colors.white,
           disabledBackgroundColor: AppTheme.cardBorder,
           minimumSize: const Size.fromHeight(52),
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
           textStyle: GoogleFonts.inter(
-              fontSize: 16, fontWeight: FontWeight.w700),
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+          ),
         ),
       ),
     );
@@ -925,7 +988,9 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
                       return AnimatedContainer(
                         duration: const Duration(milliseconds: 300),
                         padding: const EdgeInsets.symmetric(
-                            vertical: 3, horizontal: 0),
+                          vertical: 3,
+                          horizontal: 0,
+                        ),
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [

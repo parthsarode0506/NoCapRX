@@ -47,11 +47,10 @@ declares optional OpenCL libraries for the GPU backend; no Kotlin bridge is
 required. The service requests GPU and logs that request; it does not claim NPU
 execution.
 
-The Groq fallback is never automatic. Supply `GROQ_API_KEY` using
-`--dart-define=GROQ_API_KEY=...` (or the existing `.env` for local development)
-and optionally `--dart-define=GROQ_MODEL=...`. The UI asks for confirmation
-before making the request and sends only the question plus retrieved local
-medicine facts. Do not commit a key or a model file.
+Cloud AI is disabled by default and only runs after an explicit per-use consent step.
+The app stays on-device first, with a local Gemma or deterministic fallback when
+network access is unavailable. Any cloud call must use a secure backend proxy and
+send only de-identified, structured context. Do not commit a key or a model file.
 
 ### 1. Environment Configuration (`.env`)
 Create a `.env` file in the project root directory (copied from `.env.example`):

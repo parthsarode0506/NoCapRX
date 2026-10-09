@@ -1,0 +1,12 @@
+---
+applyTo: "**/*.dart"
+---
+- Dart 3, null safety, sealed classes and pattern matching for states and results.
+- Feature-first folders. State: Riverpod. Navigation: go_router with role-based redirect guards.
+- Immutable models via freezed + json_serializable. No dynamic. No print(); use the Logger wrapper that strips PHI.
+- Every public function in packages/nocaprx_core has a unit test.
+- Never import firebase_* inside packages/nocaprx_core.
+- All user-facing strings go through l10n (ARB files en, hi, mr). No hardcoded strings.
+- Widgets under 150 lines; extract. Use const constructors. Accessibility: semantics labels, 48dp targets, text scale 1.0-2.0 safe.
+- Severity vocabulary is canonical: info | consider | caution | high_risk | testing_recommended | indeterminate (see lib/theme/severity_style.dart).
+- Never use directive verbs in copy ("stop", "do not take", "you must"). Use advisory verbs: consider, may, suggests, review, discuss, confirm.

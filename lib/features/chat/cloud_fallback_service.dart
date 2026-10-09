@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 
+import '../../services/redacting_logger.dart';
+
 import '../../models/drug_evidence.dart';
 import 'chat_models.dart';
 import 'chat_safety_filter.dart';
@@ -83,7 +85,7 @@ class GroqCloudFallbackService implements CloudFallbackService {
           }),
         ).timeout(const Duration(seconds: 12));
         if (response.statusCode < 200 || response.statusCode >= 300) {
-          debugPrint('Groq chat model $model failed: HTTP ${response.statusCode}');
+          RedactingLogger.log('Groq chat model $model failed: HTTP ${response.statusCode}');
           continue;
         }
         final body = jsonDecode(response.body) as Map<String, dynamic>;
@@ -91,9 +93,9 @@ class GroqCloudFallbackService implements CloudFallbackService {
         if (text?.trim().isNotEmpty == true) {
           return ChatSafetyFilter.withFooter(text!.trim());
         }
-        debugPrint('Groq chat model $model returned an empty answer.');
+        RedactingLogger.log('Groq chat model $model returned an empty answer.');
       } catch (error) {
-        debugPrint('Groq chat model $model failed: $error');
+        RedactingLogger.log('Groq chat model $model failed: $error');
       }
     }
     return null;

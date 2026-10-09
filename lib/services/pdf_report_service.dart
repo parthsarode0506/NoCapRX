@@ -130,9 +130,8 @@ class PdfReportService {
           _sectionTitle('IMPORTANT MEDICAL DISCLAIMER'),
           pw.Text(
             'This report is a pharmacogenomic decision-support report. It is not a diagnosis or prescription. '
-            'Do not start, stop, or change medication or dosage solely on the basis of this report. '
-            'Discuss actionable findings with a qualified doctor, pharmacist, or clinical pharmacologist. '
-            'A normal pharmacogenomic result does not guarantee that a medicine is safe for every person because '
+            'Any change to medication or dosage should be discussed with a qualified doctor, pharmacist, or clinical pharmacologist. '
+            'A normal pharmacogenomic result does not mean a medicine is risk-free for every person, because '
             'allergies, drug interactions, medical conditions, dose, and other clinical factors may affect medication safety.',
             style: const pw.TextStyle(fontSize: 9),
           ),

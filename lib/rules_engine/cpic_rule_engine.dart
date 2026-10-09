@@ -1155,7 +1155,7 @@ class CpicRuleEngine {
         cpicGuidelineCitation: finding.evidenceSource,
         dosingRecommendation: finding.explanation,
         alternativeDrugs: evidence.alternativeDrugs,
-        monitoringAdvice: 'Do not start, stop, or change this medicine without a qualified doctor or pharmacist.',
+        monitoringAdvice: 'Discuss any change to this medicine with a qualified prescriber or pharmacist.',
         evidenceLevel: evidence.evidenceLevel,
         evidenceSource: evidence.source,
         evidenceRetrievedAt: evidence.retrievalTimestamp,

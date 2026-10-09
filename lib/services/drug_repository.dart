@@ -173,7 +173,7 @@ class DrugRepository {
         'Severe allergic reaction',
       ],
       precautions: [
-        'Do not combine with another paracetamol or acetaminophen product',
+        'Discuss combining with another paracetamol or acetaminophen product with a pharmacist first',
         'Higher risk with liver disease or heavy alcohol use',
       ],
     ),

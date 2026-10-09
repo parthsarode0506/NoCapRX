@@ -9,11 +9,7 @@ class DetectedVariant {
   final String? gene;
   final String? starAllele;
 
-  DetectedVariant({
-    required this.rsid,
-    this.gene,
-    this.starAllele,
-  });
+  DetectedVariant({required this.rsid, this.gene, this.starAllele});
 
   Map<String, dynamic> toJson() {
     return {
@@ -151,11 +147,17 @@ class LlmExplanation {
   final String patientFriendly;
   final String clinicianNote;
 
+  /// Where this explanation came from: `ai` (on-device/LLM rewrite) or
+  /// `template` (deterministic localized fallback). Used for the mandatory
+  /// "AI-simplified explanation" / "Template explanation" label.
+  final String source;
+
   LlmExplanation({
     required this.summary,
     required this.mechanism,
     required this.patientFriendly,
     required this.clinicianNote,
+    this.source = 'template',
   });
 
   Map<String, dynamic> toJson() {
@@ -164,6 +166,7 @@ class LlmExplanation {
       'mechanism': mechanism,
       'patient_friendly': patientFriendly,
       'clinician_note': clinicianNote,
+      'source': source,
     };
   }
 
@@ -173,6 +176,7 @@ class LlmExplanation {
       mechanism: json['mechanism'] as String? ?? '',
       patientFriendly: json['patient_friendly'] as String? ?? '',
       clinicianNote: json['clinician_note'] as String? ?? '',
+      source: json['source'] as String? ?? 'template',
     );
   }
 }
@@ -243,7 +247,8 @@ class PgxReport {
   });
 
   Map<String, dynamic> toJson() {
-    final missingInformation = evidence?.requiredClinicalData ?? const <String>[];
+    final missingInformation =
+        evidence?.requiredClinicalData ?? const <String>[];
     final finalStatus = riskAssessment.riskLabel == 'No major risk identified'
         ? 'NO_MAJOR_RISK_IDENTIFIED'
         : riskAssessment.riskLabel.toUpperCase().replaceAll(' ', '_');
@@ -267,7 +272,7 @@ class PgxReport {
       'llm_generated_explanation': llmGeneratedExplanation.toJson(),
       'quality_metrics': qualityMetrics.toJson(),
       if (evidence != null) 'evidence': evidence!.toJson(),
-        'personalized_side_effects': personalizedSideEffects
+      'personalized_side_effects': personalizedSideEffects
           .map((risk) => risk.toJson())
           .toList(),
       if (evidence != null)
@@ -288,25 +293,32 @@ class PgxReport {
     return PgxReport(
       patientId: json['patient_id'] as String? ?? 'PATIENT_UNKNOWN',
       drug: json['drug'] as String? ?? 'UNKNOWN',
-      timestamp: json['timestamp'] as String? ?? DateTime.now().toIso8601String(),
+      timestamp:
+          json['timestamp'] as String? ?? DateTime.now().toIso8601String(),
       riskAssessment: RiskAssessment.fromJson(
-          json['risk_assessment'] as Map<String, dynamic>? ?? {}),
+        json['risk_assessment'] as Map<String, dynamic>? ?? {},
+      ),
       pharmacogenomicProfile: PharmacogenomicProfile.fromJson(
-          json['pharmacogenomic_profile'] as Map<String, dynamic>? ?? {}),
+        json['pharmacogenomic_profile'] as Map<String, dynamic>? ?? {},
+      ),
       clinicalRecommendation: ClinicalRecommendation.fromJson(
-          json['clinical_recommendation'] as Map<String, dynamic>? ?? {}),
+        json['clinical_recommendation'] as Map<String, dynamic>? ?? {},
+      ),
       llmGeneratedExplanation: LlmExplanation.fromJson(
-          json['llm_generated_explanation'] as Map<String, dynamic>? ?? {}),
+        json['llm_generated_explanation'] as Map<String, dynamic>? ?? {},
+      ),
       qualityMetrics: QualityMetrics.fromJson(
-          json['quality_metrics'] as Map<String, dynamic>? ?? {}),
-        evidence: json['evidence'] is Map<String, dynamic>
+        json['quality_metrics'] as Map<String, dynamic>? ?? {},
+      ),
+      evidence: json['evidence'] is Map<String, dynamic>
           ? DrugEvidence.fromJson(json['evidence'] as Map<String, dynamic>)
           : null,
-          personalizedSideEffects: (json['personalized_side_effects'] as List<dynamic>?)
+      personalizedSideEffects:
+          (json['personalized_side_effects'] as List<dynamic>?)
               ?.whereType<Map<String, dynamic>>()
               .map(PersonalizedSideEffectRisk.fromJson)
               .toList() ??
-            const [],
+          const [],
     );
   }
 }
@@ -343,7 +355,8 @@ class PgxMultiReport {
       reportId: json['report_id'] as String? ?? '',
       patientId: json['patient_id'] as String? ?? 'PATIENT_UNKNOWN',
       vcfFilename: json['vcf_filename'] as String? ?? 'sample.vcf',
-      timestamp: json['timestamp'] as String? ?? DateTime.now().toIso8601String(),
+      timestamp:
+          json['timestamp'] as String? ?? DateTime.now().toIso8601String(),
       drugReports: rawList
           .map((r) => PgxReport.fromJson(r as Map<String, dynamic>))
           .toList(),
