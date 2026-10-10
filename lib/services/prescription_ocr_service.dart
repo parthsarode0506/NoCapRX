@@ -9,14 +9,14 @@ import 'package:http/http.dart' as http;
 /// Medicine identity is still confirmed by the local resolver after OCR.
 class PrescriptionOcrService {
   static const _endpoint = 'https://openrouter.ai/api/v1/chat/completions';
-  static const _defaultModel = 'openai/gpt-image-2';
+  static const _defaultModel = 'openai/gpt-6.1-sol';
 
   static Future<String> extractText(
     String imagePath, {
     http.Client? client,
     String? apiKey,
     String? model,
-    bool allowCloudAi = false,
+    bool allowCloudAi = false, // Default to false for privacy - on-device ML Kit only
   }) async {
     if (!allowCloudAi) {
       return _extractLocally(imagePath);
