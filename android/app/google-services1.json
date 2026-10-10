@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "525855030557",
+    "project_id": "on-devicerx",
+    "storage_bucket": "on-devicerx.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:525855030557:android:9eb65b4222ae899309f5f4",
+        "android_client_info": {
+          "package_name": "NoCap.Rx"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "525855030557-ut08tlvtm390olr8krmkv8agqdssutl2.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDgs2zWU4ZLAMc0th-8IezaEnQBTAm1IjQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "525855030557-ut08tlvtm390olr8krmkv8agqdssutl2.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

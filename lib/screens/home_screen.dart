@@ -8,6 +8,7 @@ import '../models/patient_profile.dart';
 import '../models/pgx_report.dart';
 import '../providers/app_providers.dart';
 import '../services/firebase_service.dart';
+import '../services/patient_profile_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/brand_emblem.dart';
 import 'chatbot_screen.dart';
@@ -22,8 +23,36 @@ import 'sign_in_screen.dart';
 import 'upload_screen.dart';
 import 'organization_dashboard_screen.dart';
 
-class HomeScreen extends ConsumerWidget {
+class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
+
+  @override
+  ConsumerState<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends ConsumerState<HomeScreen> {
+  bool _hasCheckedPatientIntake = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _ensurePatientIntake());
+  }
+
+  Future<void> _ensurePatientIntake() async {
+    if (_hasCheckedPatientIntake || !mounted) return;
+    _hasCheckedPatientIntake = true;
+    final profile = await PatientProfileService.load();
+    if (!mounted) return;
+    ref.read(patientProfileProvider.notifier).state = profile;
+    if (profile.hasCompletedIntake) return;
+
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => const PatientProfileScreen(isInitialSetup: true),
+      ),
+    );
+  }
 
   // ─── Navigation helpers ───────────────────────────────────────────────────
 
@@ -122,7 +151,7 @@ class HomeScreen extends ConsumerWidget {
   // ─── Build ────────────────────────────────────────────────────────────────
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final organizationWorkspace = ref.watch(organizationWorkspaceProvider);
     if (organizationWorkspace.isLoading) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
@@ -153,6 +182,7 @@ class HomeScreen extends ConsumerWidget {
     final parseResult = ref.watch(vcfParseResultProvider);
     final scan = ref.watch(genomicScanReportProvider);
     final reportsAsync = ref.watch(userReportsStreamProvider);
+    final patientProfile = ref.watch(patientProfileProvider);
     final latestReport = reportsAsync.valueOrNull?.isNotEmpty == true
         ? reportsAsync.valueOrNull!.first
         : null;
@@ -163,10 +193,11 @@ class HomeScreen extends ConsumerWidget {
             .length ??
         0;
     final watchCount = scan?.actionableReports.length ?? 0;
-    final displayName =
-        ref.watch(userProfileProvider)?.displayName ??
-        FirebaseService.currentUser?.displayName ??
-        'there';
+    final displayName = patientProfile.fullName.isNotEmpty
+        ? patientProfile.fullName
+        : ref.watch(userProfileProvider)?.displayName ??
+            FirebaseService.currentUser?.displayName ??
+            'there';
     final hasVcf = parseResult != null;
 
     return Scaffold(
@@ -248,6 +279,10 @@ class HomeScreen extends ConsumerWidget {
                 ),
               ),
               const SizedBox(height: 12),
+              if (patientProfile.hasData) ...[
+                _buildPatientProfileSummaryCard(patientProfile),
+                const SizedBox(height: 18),
+              ],
               // ── Hero card ────────────────────────────────────────────
               _buildHeroCard(displayName, hasVcf, () => _openUpload(context)),
               const SizedBox(height: 18),
@@ -360,6 +395,77 @@ class HomeScreen extends ConsumerWidget {
   }
 
   // ─── Widget builders ──────────────────────────────────────────────────────
+
+  Widget _buildPatientProfileSummaryCard(PatientProfile patientProfile) {
+    final summary = patientProfile.dashboardSummaryEntries;
+    final visibleEntries = summary.entries.take(3).toList();
+
+    return InkWell(
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const PatientProfileScreen()),
+      ),
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppTheme.cardBorder),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 46,
+              height: 46,
+              decoration: BoxDecoration(
+                color: AppTheme.mintSurface,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(
+                Icons.person_rounded,
+                color: AppTheme.primaryEmerald,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    patientProfile.fullName.isNotEmpty
+                        ? patientProfile.fullName
+                        : 'Patient profile saved',
+                    style: GoogleFonts.inter(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: AppTheme.deepInk,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  if (visibleEntries.isNotEmpty)
+                    Text(
+                      visibleEntries
+                          .map((entry) => '${entry.key}: ${entry.value}')
+                          .join(' • '),
+                      style: GoogleFonts.inter(
+                        fontSize: 12,
+                        color: AppTheme.secondaryInk,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                ],
+              ),
+            ),
+            const Icon(
+              Icons.chevron_right_rounded,
+              color: AppTheme.mutedGrey,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   Widget _buildHeroCard(String name, bool analyzed, VoidCallback onUpload) {
     return Container(
