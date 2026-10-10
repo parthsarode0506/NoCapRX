@@ -70,4 +70,21 @@ void main() {
       allowCloudAi: true,
     );
   });
+
+  test('writes picked image bytes to a temporary file so OCR can process web uploads',
+      () async {
+    final tempPath = await PrescriptionOcrService.writeImageBytesToTempFile(
+      [137, 80, 78, 71, 13, 10, 26, 10],
+      extension: 'png',
+    );
+
+    addTearDown(() async {
+      final file = File(tempPath);
+      if (await file.exists()) await file.delete();
+    });
+
+    final file = File(tempPath);
+    expect(await file.exists(), isTrue);
+    expect(await file.readAsBytes(), [137, 80, 78, 71, 13, 10, 26, 10]);
+  });
 }

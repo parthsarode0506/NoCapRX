@@ -144,7 +144,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     if (context.mounted) {
       Navigator.of(
         context,
-      ).push(MaterialPageRoute(builder: (_) => const DrugInputScreen()));
+      ).push(
+        MaterialPageRoute(
+          builder: (_) => DrugInputScreen(
+            analyzeOnOpen: result.medicines.isNotEmpty,
+          ),
+        ),
+      );
     }
   }
 

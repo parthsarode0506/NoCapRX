@@ -23,7 +23,9 @@ import 'prescription_scan_screen.dart';
 import 'results_screen.dart';
 
 class DrugInputScreen extends ConsumerStatefulWidget {
-  const DrugInputScreen({super.key});
+  final bool analyzeOnOpen;
+
+  const DrugInputScreen({super.key, this.analyzeOnOpen = false});
 
   @override
   ConsumerState<DrugInputScreen> createState() => _DrugInputScreenState();
@@ -49,6 +51,11 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
       ref.read(customDrugTextProvider.notifier).state =
           _customDrugController.text;
     });
+    if (widget.analyzeOnOpen && _customDrugController.text.trim().isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _runPipeline();
+      });
+    }
   }
 
   @override
@@ -108,13 +115,14 @@ class _DrugInputScreenState extends ConsumerState<DrugInputScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          '${result.medicines.length} medicine(s) loaded from prescription. '
-          'Tap Analyse to continue.',
+          '${result.medicines.length} medicine(s) confirmed. Analysis is starting.',
         ),
         backgroundColor: AppTheme.primaryEmerald,
         duration: const Duration(seconds: 3),
       ),
     );
+
+    await _runPipeline();
   }
 
   // ─── Analysis pipeline ───────────────────────────────────────────────────

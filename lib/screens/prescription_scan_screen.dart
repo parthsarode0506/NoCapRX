@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -72,7 +73,13 @@ class _PrescriptionScanScreenState
         imageQuality: 90,
         preferredCameraDevice: CameraDevice.rear,
       );
-      if (image != null) await _processImage(image.path);
+      if (image != null) {
+        if (kIsWeb) {
+          _showBrowserManualEntry();
+        } else {
+          await _processImage(image.path);
+        }
+      }
     } catch (e) {
       _setError('Camera unavailable: ${e.toString()}');
     }
@@ -80,11 +87,29 @@ class _PrescriptionScanScreenState
 
   Future<void> _pickFromGallery() async {
     try {
-      final result = await FilePicker.pickFile(
+      final file = await FilePicker.pickFile(
         type: FileType.image,
       );
-      if (result != null && result.path != null) {
-        await _processImage(result.path!);
+      if (file == null) return;
+
+      if (kIsWeb) {
+        _showBrowserManualEntry();
+        return;
+      }
+
+      final String? path = file.path;
+      if (path != null && path.isNotEmpty) {
+        await _processImage(path);
+        return;
+      }
+
+      final bytes = await file.readAsBytes();
+      if (bytes.isNotEmpty) {
+        final tempPath = await PrescriptionOcrService.writeImageBytesToTempFile(
+          bytes,
+          extension: 'png',
+        );
+        await _processImage(tempPath);
       }
     } catch (e) {
       _setError('Gallery unavailable: ${e.toString()}');
@@ -93,7 +118,23 @@ class _PrescriptionScanScreenState
 
   // ─── OCR pipeline ─────────────────────────────────────────────────────────
 
+  void _showBrowserManualEntry() {
+    setState(() {
+      _imagePath = null;
+      _rawText = null;
+      _errorMessage = null;
+      _confirmedMedicines = [];
+      _editController.clear();
+      _phase = _ScanPhase.verifying;
+    });
+  }
+
   Future<void> _processImage(String path) async {
+    if (kIsWeb) {
+      _showBrowserManualEntry();
+      return;
+    }
+
     setState(() {
       _imagePath = path;
       _phase = _ScanPhase.scanning;
@@ -579,7 +620,9 @@ class _PrescriptionScanScreenState
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Prescription text read successfully',
+                        kIsWeb
+                            ? 'Enter medicines manually'
+                            : 'Prescription text read successfully',
                         style: GoogleFonts.inter(
                           fontWeight: FontWeight.w700,
                           fontSize: 13,
@@ -587,7 +630,9 @@ class _PrescriptionScanScreenState
                         ),
                       ),
                       Text(
-                        '${_confirmedMedicines.length} medicine(s) identified',
+                        kIsWeb
+                            ? 'Automatic text recognition is unavailable in the browser'
+                            : '${_confirmedMedicines.length} medicine(s) identified',
                         style: GoogleFonts.inter(
                           fontSize: 11.5,
                           color: AppTheme.secondaryInk,
@@ -763,8 +808,10 @@ class _PrescriptionScanScreenState
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      'No recognised medicines were auto-identified. '
-                      'Type the medicine names manually in the field above.',
+                        kIsWeb
+                          ? 'Browser OCR is unavailable. Enter the medicine names below; the image is not sent to a service.'
+                          : 'No recognised medicines were auto-identified. '
+                            'Type the medicine names manually in the field above.',
                       style: GoogleFonts.inter(
                         fontSize: 12,
                         color: Colors.amber.shade900,

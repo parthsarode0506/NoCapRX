@@ -97,6 +97,18 @@ class PrescriptionOcrService {
     }
   }
 
+  static Future<String> writeImageBytesToTempFile(
+    List<int> bytes, {
+    String extension = 'jpg',
+  }) async {
+    final tempDir = await Directory.systemTemp.createTemp('nocaprx_prescription_');
+    final fileName =
+        'prescription_${DateTime.now().millisecondsSinceEpoch}.$extension';
+    final file = File('${tempDir.path}/$fileName');
+    await file.writeAsBytes(bytes, flush: true);
+    return file.path;
+  }
+
   static Future<String> _extractLocally(String imagePath) async {
     final recognizer = TextRecognizer(script: TextRecognitionScript.latin);
     try {
