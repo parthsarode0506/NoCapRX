@@ -6,6 +6,8 @@ import 'package:file_picker/file_picker.dart';
 import '../providers/app_providers.dart';
 import '../parser/vcf_parser.dart';
 import '../services/genomic_drug_scan_service.dart';
+import '../theme/app_theme.dart';
+import '../widgets/ui_kit.dart';
 import 'genomic_scan_screen.dart';
 import 'drug_input_screen.dart';
 import 'home_screen.dart';
@@ -94,9 +96,11 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
     } catch (e) {
       _setError('VCF Parsing Error: ${e.toString()}');
     } finally {
-      setState(() {
-        _isProcessing = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isProcessing = false;
+        });
+      }
     }
   }
 
@@ -147,176 +151,241 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
     final parseResult = ref.watch(vcfParseResultProvider);
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Upload Genetic Data'),
-      ),
+      backgroundColor: theme.scaffoldBackgroundColor,
+      appBar: AppBar(title: const Text('Upload genetic data')),
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text(
-                'Analyze Your Genetic Profile',
-                style: theme.textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: theme.colorScheme.primary,
-                ),
-              ),
-              const SizedBox(height: 6),
-              const Text(
-                'Upload your VCF file to identify pharmacogenomic information relevant to medicines. Raw VCF data is processed on this device.',
-                style: TextStyle(color: Colors.grey, fontSize: 13),
-              ),
-              const SizedBox(height: 24),
-
-              // File Picker Dropzone Area
-              InkWell(
-                onTap: _isProcessing ? null : _pickVcfFile,
-                borderRadius: BorderRadius.circular(16),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(vertical: 36, horizontal: 20),
-                  decoration: BoxDecoration(
-                    color: _isValid
-                        ? Colors.green.shade50
-                        : theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: _isValid ? Colors.green : theme.colorScheme.primary.withValues(alpha: 0.5),
-                      width: 2,
-                    ),
-                  ),
-                  child: Column(
-                    children: [
-                      Icon(
-                        _isValid ? Icons.check_circle_rounded : Icons.cloud_upload_rounded,
-                        size: 54,
-                        color: _isValid ? Colors.green : theme.colorScheme.primary,
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        _isValid ? 'VCF File Loaded & Validated' : 'Tap to Browse .VCF File',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: _isValid ? Colors.green.shade800 : theme.colorScheme.primary,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Supports VCF v4.2 (Max size: 5MB)',
-                        style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+              _buildIntro(theme),
               const SizedBox(height: 20),
-
-              // Error Display Box
+              _buildDropzone(theme),
+              const SizedBox(height: 16),
               if (_errorMessage != null) ...[
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: Colors.red.shade50,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.red.shade200),
-                  ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Icon(Icons.error, color: Colors.red.shade700, size: 22),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          _errorMessage!,
-                          style: TextStyle(color: Colors.red.shade900, fontSize: 13, height: 1.3),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+                NoticeBanner(tone: NoticeTone.danger, message: _errorMessage!),
+                const SizedBox(height: 16),
+              ],
+              if (_isValid && filename != null) ...[
+                _buildFileCard(theme, filename, parseResult),
                 const SizedBox(height: 20),
-              ],
-
-              // File Info Card when selected
-              if (_isValid && filename != null) ...[
-                Card(
-                  elevation: 1,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Expanded(
-                              child: Row(
-                                children: [
-                                  const Icon(Icons.insert_drive_file, color: Colors.blueAccent),
-                                  const SizedBox(width: 10),
-                                  Expanded(
-                                    child: Text(
-                                      filename,
-                                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.close, color: Colors.red),
-                              onPressed: _removeFile,
-                              tooltip: 'Remove File',
-                            ),
-                          ],
-                        ),
-                        if (parseResult != null) ...[
-                          const Divider(),
-                          Text(
-                            'Parsing Quality Summary:',
-                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.grey.shade700),
-                          ),
-                          const SizedBox(height: 4),
-                          Text('• Target Genes Detected: ${parseResult.qualityMetrics.genesCovered.join(', ')}', style: const TextStyle(fontSize: 12)),
-                          Text('• Total Variants: ${parseResult.qualityMetrics.variantsDetected}', style: const TextStyle(fontSize: 12)),
-                          Text('• Annotation Completeness: ${(parseResult.qualityMetrics.annotationCompleteness * 100).toInt()}%', style: const TextStyle(fontSize: 12)),
-                          if (parseResult.qualityMetrics.diplotypeInferred)
-                            const Text('• Note: One or more alleles defaulted to *1 (Inferred)', style: TextStyle(fontSize: 12, color: Colors.orange)),
-                        ],
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 24),
-              ],
-              if (_isValid && filename != null) ...[
                 FilledButton.icon(
                   onPressed: _isProcessing ? null : _checkMedicine,
                   icon: const Icon(Icons.medication_outlined),
-                  label: const Text('CHECK A MEDICINE'),
+                  label: const Text('Check a medicine'),
                 ),
                 const SizedBox(height: 12),
                 OutlinedButton.icon(
                   onPressed: _isProcessing ? null : _scanAllDrugRisks,
-                  icon: const Icon(Icons.manage_search),
-                  label: const Text('CHECK MY MEDICATION RISKS'),
+                  icon: const Icon(Icons.manage_search_rounded),
+                  label: const Text('Check all my medication risks'),
                 ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Both checks use the validated local medical engine. Raw VCF data stays on this device.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 12, color: Colors.grey),
-                ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 16),
               ],
-
+              const NoticeBanner(
+                tone: NoticeTone.info,
+                title: 'On-device by design',
+                message:
+                    'Your VCF is parsed on this device. Only the derived gene '
+                    'result is used for the checks — the raw file never leaves '
+                    'your phone.',
+              ),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildIntro(ThemeData theme) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(11),
+          decoration: BoxDecoration(
+            gradient: AppTheme.brandGradient,
+            borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+          ),
+          child: const Icon(Icons.biotech_rounded, color: Colors.white, size: 22),
+        ),
+        const SizedBox(width: 14),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Analyze your genetic profile',
+                style: theme.textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.3,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Upload your VCF file to find gene–medicine interactions '
+                'relevant to you.',
+                style: theme.textTheme.bodyMedium,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDropzone(ThemeData theme) {
+    final activeColor = _isValid ? AppTheme.safeGreen : AppTheme.accentEmerald;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: _isProcessing ? null : _pickVcfFile,
+        borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeOut,
+          padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 20),
+          decoration: BoxDecoration(
+            color: activeColor.withValues(alpha: 0.06),
+            borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+            border: Border.all(color: activeColor.withValues(alpha: 0.55), width: 1.6),
+          ),
+          child: _isProcessing
+              ? Column(
+                  children: [
+                    const SizedBox(
+                      width: 40,
+                      height: 40,
+                      child: CircularProgressIndicator(strokeWidth: 3),
+                    ),
+                    const SizedBox(height: 16),
+                    Text('Reading file…', style: theme.textTheme.titleMedium),
+                  ],
+                )
+              : Column(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: activeColor.withValues(alpha: 0.12),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        _isValid
+                            ? Icons.check_circle_rounded
+                            : Icons.upload_file_rounded,
+                        size: 40,
+                        color: activeColor,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Text(
+                      _isValid
+                          ? 'File loaded and validated'
+                          : 'Tap to choose a .vcf file',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                        color: _isValid ? AppTheme.safeGreen : AppTheme.primaryEmerald,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'VCF v4.2 · up to 5 MB',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFileCard(
+    ThemeData theme,
+    String filename,
+    dynamic parseResult,
+  ) {
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(9),
+                decoration: BoxDecoration(
+                  color: AppTheme.infoBlueBg,
+                  borderRadius: BorderRadius.circular(AppTheme.radiusSm),
+                ),
+                child: const Icon(
+                  Icons.description_rounded,
+                  color: AppTheme.infoBlue,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  filename,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.close_rounded, color: AppTheme.dangerRed),
+                onPressed: _removeFile,
+                tooltip: 'Remove file',
+              ),
+            ],
+          ),
+          if (parseResult != null) ...[
+            const Divider(height: 20),
+            Row(
+              children: [
+                Text(
+                  'Parsing quality',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const Spacer(),
+                PillBadge(
+                  label:
+                      '${(parseResult.qualityMetrics.annotationCompleteness * 100).toInt()}% covered',
+                  color: AppTheme.accentEmerald,
+                  icon: Icons.analytics_outlined,
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            KeyValueRow(
+              label: 'Genes detected',
+              value: parseResult.qualityMetrics.genesCovered.isEmpty
+                  ? 'None found'
+                  : parseResult.qualityMetrics.genesCovered.join(', '),
+            ),
+            KeyValueRow(
+              label: 'Variants',
+              value: '${parseResult.qualityMetrics.variantsDetected}',
+            ),
+            if (parseResult.qualityMetrics.diplotypeInferred)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(
+                  'One or more alleles defaulted to *1 (inferred).',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: AppTheme.warningAmber,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+          ],
+        ],
       ),
     );
   }

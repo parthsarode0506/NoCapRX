@@ -33,6 +33,7 @@ void main() {
     final result = await service.generateExplanation(
       userRole: 'patient',
       medicalResult: {'medicine': 'Clopidogrel', 'riskLabel': 'High Risk'},
+      allowCloudAi: true,
     );
 
     expect(result['summary'], contains('High Risk'));
@@ -54,6 +55,7 @@ void main() {
       () => service.generateExplanation(
         userRole: 'patient',
         medicalResult: {'medicine': 'Clopidogrel', 'riskLabel': 'High Risk'},
+        allowCloudAi: true,
       ),
       throwsA(isA<StateError>()),
     );
@@ -103,6 +105,7 @@ void main() {
           },
         ],
       },
+      allowCloudAi: true,
     );
 
     final userContent = (requestBody['messages'] as List)
@@ -153,6 +156,7 @@ void main() {
 
     final result = await service.answerHealthQuestion(
       question: 'What is a fever?',
+      allowCloudAi: true,
     );
 
     expect(result, contains('temporary rise'));
@@ -163,7 +167,10 @@ void main() {
     final service = GroqAIService(client: MockClient((_) async => http.Response('', 503)));
 
     expect(
-      () => service.answerHealthQuestion(question: 'What is a fever?'),
+      () => service.answerHealthQuestion(
+        question: 'What is a fever?',
+        allowCloudAi: true,
+      ),
       throwsA(isA<StateError>()),
     );
   });
@@ -186,7 +193,10 @@ void main() {
       model: 'unavailable-model',
     );
 
-    final result = await service.answerHealthQuestion(question: 'What is genetics?');
+    final result = await service.answerHealthQuestion(
+      question: 'What is genetics?',
+      allowCloudAi: true,
+    );
 
     expect(result, contains('inherited traits'));
     expect(calls, 2);
@@ -224,7 +234,10 @@ void main() {
       );
     });
     final service = GroqAIService(client: client, apiKey: 'test-key');
-    final result = await service.searchDrugOnline('Examplemab');
+    final result = await service.searchDrugOnline(
+      'Examplemab',
+      allowCloudAi: true,
+    );
 
     expect(result?['genericName'], 'Examplemab');
     expect(result?['uses'], 'Treatment of a condition');

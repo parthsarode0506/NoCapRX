@@ -1,85 +1,236 @@
-# Audit report
+# Repository audit
 
-## Summary
+Audit scope: current Flutter app, Firebase rules and configuration, clinical
+data/engine, persistence, and available tests. This audit records what was
+verified in source and local checks; it is not a clinical validation or
+production-readiness claim.
 
-This repository contains several privacy and safety issues that are incompatible with the required offline-first guidance. The highest-risk items are direct cloud AI calls from the client, committed secrets, and cloud OCR being enabled by default.
+## Current baseline
 
-## A. Data leaving the device
+- Flutter 3.47.2 and Dart 3.13.2 are installed. The package declares Dart
+  `^3.12.2`, Riverpod, Firebase Auth/Firestore, ML Kit OCR, Gemma, Hive,
+  SharedPreferences, PDF, and printing.
+- The app starts in `lib/main.dart`; Firebase and dotenv initialize before the
+  app. Riverpod providers hold session/profile and selected VCF/report state.
+  Screens navigate using `MaterialPageRoute`; there is no `go_router`.
+- Public email/password sign-up creates patient accounts only. Organization
+  accounts are provisioned separately by a trusted organization administrator;
+  there is no in-app professional credential verification or reviewer flow.
+- VCF upload is parsed from in-memory bytes with a 5 MB UI limit. There is no
+  Firebase Storage upload in that flow. A VCF parser and deterministic
+  drug/gene evaluator are present, alongside local medicine lookup and PDF
+  generation.
+- Local reports, patient data, and discovered medicine records use
+  SharedPreferences. Hive is declared as a dependency but an encrypted Hive
+  store is not wired into these flows.
+- `firestore.rules` is default-deny and defines owner-scoped users, reports,
+  patients, consents, checks, notes, lab orders, rule sets, and audit events.
+  The client currently uses `/users/{uid}` and nested `/reports`.
+- Storage rules permit user-owned PDF reports. The raw VCF upload grant was
+  removed in this audit; unmatched
+  Storage paths are denied.
+- Five Firestore/Storage Emulator tests pass using a demo project ID, covering
+  profile owner writes, protected profile fields, cross-user/anonymous writes,
+  and verified lab-tech raw VCF upload denial. Profile photo reads were
+  restricted to owners/platform admins; emulator coverage verifies owner access
+  and denies other/anonymous readers. Broader report, consent, and clinical-note
+  scenarios still need tests.
+- `firebase.json` references Cloud Functions. Organization patient workflow
+  callables build locally; production deployment is not verified.
 
-### Client-side cloud AI and OCR
-- [lib/features/chat/chat_service.dart](../lib/features/chat/chat_service.dart): direct fallback to Groq from the client when the local medicine record is missing or when a cloud response is available.
-- [lib/features/chat/cloud_fallback_service.dart](../lib/features/chat/cloud_fallback_service.dart): sends questions and patient context to Groq over the public internet using a bearer token embedded in the app environment.
-- [lib/services/groq_ai_service.dart](../lib/services/groq_ai_service.dart): performs cloud medical explanation and online drug lookup calls using a direct Groq API key.
-- [lib/services/prescription_ocr_service.dart](../lib/services/prescription_ocr_service.dart): sends prescription images to OpenRouter by default when a key is present.
-- [lib/services/online_evidence_service.dart](../lib/services/online_evidence_service.dart): enriches medicine lookups with external AI and online service data; the AI branch is not gated behind explicit consent.
-- [lib/services/firebase_service.dart](../lib/services/firebase_service.dart): Firestore writes are network-bound and should be treated as cloud data egress. Only derived calls should be synced with consent.
+## Findings
 
-### What is sent
-- Question text, drug name, and local safety facts.
-- OCR image bytes or prescription text.
-- Derived clinical results, medicine name, gene, phenotype, and risk summaries.
-- If the app is not corrected, these may include patient-linked data and de-identified care context without a clear consent gate.
+### Implemented and locally verified
 
-## B. Hardcoded API keys or secrets
+- The Android app and Web app use dotenv-backed Firebase options. Local
+  `android/app/google-services.json`, `.env`, and `lib/firebase_options.dart`
+  are git-ignored. Android and Web options identify the same Firebase project.
+- Profile writes in `FirebaseService.saveUserProfile` now write only
+  `displayName` and a server timestamp for new profiles. Existing profiles are
+  updated narrowly so fields such as `phone` and `locale` are preserved.
+  Profile reads derive UID from the document path and email from Firebase Auth,
+  matching the current `/users/{uid}` rules allowlist.
+- New PGx reports are saved locally only. Automatic cloud upload is disabled
+  until an explicit derived-genetic-data sync consent flow and bounded cloud
+  schema are implemented; report serialization currently includes patient
+  identifiers, filenames, detailed findings, and explanations.
+- VCF bytes are held in memory for the active session and are not sent to
+  Storage by the upload UI.
+- Cloud AI/OCR paths expose opt-in flags which default to false; the local
+  medicine/PGx flow exists independently.
+- `flutter analyze` completes with no issues.
+- `flutter build web --debug` succeeds, with WebAssembly dry-run warnings in
+  Gemma MediaPipe and TTS dependencies.
+- `:app:compileFlutterBuildDebug` succeeded. A full Android APK build did not
+  complete reliably in this OneDrive workspace: generated build outputs are
+  cloud-file/reparse entries, and Gradle later failed to find `R.jar`.
 
-The repository contained committed secrets in the local development environment and the app bundle:
-- [.env](../.env): Groq and OpenRouter keys were committed.
-- Firebase Web API key and app settings are loaded from the ignored local `.env` at runtime. Client-side Firebase API keys are public identifiers, not secrets; restrict their API and application usage in Google Cloud/Firebase settings.
-- [build/**](../build): generated assets also contained the same environment secrets.
+### Incomplete or unverified
 
-These are not acceptable for production or even a shared developer workspace.
+- The profile sync fix has not been exercised against the deployed Firestore
+  rules. The previous browser run logged `permission-denied`; Firebase CLI
+  deployment preflight failed because the CLI is not authenticated.
+- Firebase emulator tests cover profile access, deny raw VCF
+  Storage writes, and restrict profile-photo reads. Production rule deployment
+  and direct behavior against the live project remain unverified.
+- Firebase Auth initialization is configured, but email/password provider
+  enablement, Web API-key restrictions, account recovery, consent capture, and
+  deployed Firestore behavior depend on Firebase Console settings not checked
+  in this audit.
+- An Android debug build was installed and launched on device
+  `10BFAX1BTP0010U`. Device logs show Firebase App Check API is disabled in the
+  project, so protected callable operations are not yet verified live.
 
-## C. Clinical rules hardcoded in Dart
+### Release blockers and security gaps
 
-The deterministic domain logic is still embedded in Dart and is not yet fully controlled by a signed ruleset file:
-- [lib/rules_engine/cpic_rule_engine.dart](../lib/rules_engine/cpic_rule_engine.dart)
-- [lib/services/personalized_side_effect_engine.dart](../lib/services/personalized_side_effect_engine.dart)
-- [lib/services/universal_medicine_safety_engine.dart](../lib/services/universal_medicine_safety_engine.dart)
-- [lib/services/medicine_analysis_service.dart](../lib/services/medicine_analysis_service.dart)
+1. **Clinical content provenance and correctness are not established.** The
+   evaluator and VCF phenotype logic contain hardcoded calls/rules, while
+   `assets/data/cpic_rules.json` also contains clinical claims. Rule-pack
+   signature verification, ingestion provenance, independent clinical review,
+   and complete input/engine traceability are not demonstrated. Do not use the
+   current catalogue for care until qualified clinical review and source
+   verification are complete.
+2. **Role-based clinical workflows are incomplete.** Organization patient
+   search/registration/details callables are implemented locally, but backend
+   deployment and authorization tests for the callables are outstanding.
+   Patient-authorized sharing, doctor review notes, and report sync remain
+   incomplete. UI selections must not be treated as authorization.
+3. **Privileged backend is incomplete.** Grant lifecycle, deletion/erasure,
+   notifications, and broader trusted audit workflows are not implemented.
+4. **Raw VCF upload was allowed by Storage rules.** The grant has been removed
+   locally and an emulator test denies it, preserving the device-only genome
+   boundary. Production Storage rules are not verified.
+5. **Local persistence is not encrypted.** SharedPreferences stores reports,
+   patient profile data, and medicine-discovery records. No secure key or
+   encrypted local database migration is present.
+6. **Cloud provider credentials are client-side.** Groq and OpenRouter calls
+   originate in the Flutter client when explicitly enabled; a bundled API key
+   is extractable and is not a trusted backend secret. A Groq key was exposed
+   in shared development text and should be revoked/rotated. Do not reuse it.
+7. **Error handling and privacy need hardening.** Several services catch
+   broad exceptions and return fallbacks; logs and user-facing messages need a
+   systematic PHI/credential review. Profile writes previously hid permission
+   failures; that behavior should be made explicit.
+8. **Storage profile images** are now owner/platform-admin readable in the
+   local rules; deployed rule behavior remains unverified.
+9. **Consent, retention, erasure, audit visibility, App Check, and account
+   suspension enforcement are incomplete or unverified.**
+10. **Localization, accessibility, dark mode, and 2x text-scale coverage need
+    broader verification.** Current UI contains many literal English strings.
 
-These should be migrated behind a signed ruleset schema and versioned registry.
+## Architecture and files to preserve
 
-## D. Unencrypted Hive storage
+- Keep the Flutter/Riverpod app entry and existing feature screens.
+- Preserve `lib/parser/vcf_parser.dart`, the deterministic
+  `lib/rules_engine/cpic_rule_engine.dart`, local drug repository, and local
+  report/PDF services while clinical content and decision paths are validated.
+- Preserve Firestore default-deny rules and narrow ownership checks. Resolve
+  client/schema mismatches by changing the client or schema deliberately; do
+  not broaden permissions to silence errors.
+- Keep VCF parsing on-device and cloud AI/OCR disabled unless the user explicitly
+  opts in through an informed, per-use consent flow.
 
-There is no evidence of a Keystore-backed encrypted Hive layer yet. The project still uses Hive as a local persistence layer and requires a one-time migration to encrypted storage.
-- [pubspec.yaml](../pubspec.yaml): `hive` and `hive_flutter` are enabled.
-- The app must move to `HiveAesCipher` with a key from `flutter_secure_storage` before persisting patient-derived records.
+## Prioritized implementation plan
 
-## E. Directive or prescriptive wording in UI or AI prompts
+1. **Stabilize and test:** fix test harness failures, add Firestore and Storage
+   Emulator Suite tests, verify the profile write against deployed rules, and
+   make Firebase sync errors observable without exposing PHI.
+2. **Security/data boundaries:** validate the local rule set, restrict profile
+   Storage reads, add consent/grant tests, encrypt local records, and remove
+   direct client cloud credentials in favor of a consent-gated trusted proxy.
+3. **Clinical provenance:** define and validate a rule-pack schema, create a
+   reproducible CPIC ingestion pipeline, verify signatures/version retention,
+   and obtain clinical review before activating rule data.
+4. **Patient workflow:** complete consent, report lifecycle, local/offline
+   history, deletion/export, and authorized sharing.
+5. **Organization workflow:** securely provision organization memberships,
+   implement authorized patient/report queries, immutable review notes, and
+   patient-visible access logs. Professional credential verification is
+   intentionally outside the app scope.
+6. **Release verification:** run Flutter tests/analyze, Firebase Emulator Suite
+   tests, Android and Web builds, accessibility/localization checks, and a
+   security/regulatory review. Do not call the app production-ready before
+   clinical validation and regulatory review.
 
-The app contains wording that is too direct for a CDS-style clinical advisory tool:
-- [lib/features/chat/chat_service.dart](../lib/features/chat/chat_service.dart): default Groq failure message explicitly tells the user to inspect environment configuration instead of staying local-first.
-- [lib/services/groq_ai_service.dart](../lib/services/groq_ai_service.dart): direct answer prompts are not strictly bounded to local evidence and may drift into medical advice without a deterministic result branch.
-- Jurisdictional or advisory wording should be checked and replaced with the required language set in the pack: “Consider…”, “Guideline suggests…”, and “Discuss with your clinician.”
+## Current disposition
 
-## F. Missing tests
+This is an early functional prototype, not a production-ready clinical system.
+The local profile-write mismatch was corrected and the Storage VCF upload grant
+was removed. Rules deployment remains blocked until an authorized Firebase CLI
+session is available; clinical interpretation, security, privacy, and regulatory
+gaps above remain release blockers.
 
-The repo does not yet include the required privacy and rules coverage for the pack:
-- no consent-gated cloud AI test;
-- no Firestore rules unit test suite for patient and verification paths;
-- no golden tests per gene-drug phenotype;
-- no offline sync conflict test;
-- no recovery test for ruleset rollback.
+## Follow-up verification
 
-## Prioritized fix list
+This section supersedes the earlier baseline test counts and Storage-test notes.
 
-### P0 (must fix first)
-1. Remove committed secrets and move any cloud AI pipeline behind a secure backend proxy with App Check and rate limits.
-2. Disable cloud AI/OCR by default; require explicit per-use consent and de-identified payloads only.
-3. Encrypt Hive and add a versioned migration.
-4. Replace the Groq/OpenRouter client path with a local-first fallback and a consent sheet.
-5. Add the redacting logger and stop sending raw patient details to logs.
+- Full Flutter suite: **61 passed** after removing professional-verification
+  screens and signup options.
+- Firebase Emulator Suite: **9 rules tests passed**, including no raw VCF or
+  professional registration document uploads. Run them with:
+  `firebase emulators:exec --only firestore,storage --project demo-nocaprx "npm.cmd --prefix test/rules test"`.
+- `npm audit --prefix test/rules`: **0 vulnerabilities** after pinning a
+  compatible patched `@grpc/grpc-js` override.
+- `flutter analyze`: no issues.
+- `flutter build web --debug`: succeeds; third-party Gemma/TTS WebAssembly
+  dry-run warnings remain.
+- `npm --prefix functions run build` succeeds and `npm audit --prefix functions`
+  reports **0 vulnerabilities**.
+- Android device `10BFAX1BTP0010U` is connected and the debug build launched.
+  Device logs report that the Firebase App Check API is disabled for the project.
+- Firebase CLI production deployment remains blocked by missing CLI
+  authentication. No production rules were deployed.
 
-### P1
-1. Introduce a signed, versioned ruleset loader with rollback support.
-2. Add the deterministic engine split into pure Dart modules under lib/engine.
-3. Add consent and audit event structures for patient data sharing.
+## Organization workspace follow-up
 
-### P2
-1. Add Firestore rules tests and role verification flow.
-2. Add offline sync and workmanager backoff coverage.
-3. Add golden tests and rule-version badges.
+- Organization users with active server-provisioned membership are
+  routed to an organization workspace. Search, registration, organization-name
+  lookup, and patient details are App-Check-protected callable Functions.
+- Search and detail access re-check active membership in the same Firestore
+  transaction as their server-side audit record. Registration is retry-safe via
+  an idempotency key, rejects exact normalized-name/birth-year duplicates, and
+  writes its patient, organization link, idempotency record, and audit entry in
+  one transaction.
+- Added `firestore.indexes.json` for the compound duplicate lookup. Deploying
+  Functions and indexes remains a project-owner action; neither was deployed.
+- The current local `firestore.rules` schema still uses `/orgs` and
+  `/auditEvents`, while these callables use `/organizations` and `/auditLogs`.
+  Admin SDK calls bypass Firestore client rules, but client access should remain
+  denied until the project owner manually publishes a reviewed ruleset. A
+  proposed ruleset is supplied in the work-session response; this change set
+  did not edit or deploy Firestore Rules.
+- No organization provisioning flow currently assigns the `orgId` custom claim
+  and active `organizations/{orgId}/members/{uid}` record. A trusted
+  organization administrator must provision both before a user can use
+  these organization callables.
+- The organization workspace shows actual persisted status values and clearly
+  states that cloud VCF upload/analysis/reporting are unavailable. Raw VCFs
+  remain on-device. Patient-authorized consent/linking, report sharing, clinical
+  notes, and prescription review are not implemented.
+- Latest checks: Flutter tests **61 passed**, rules emulator tests **9 passed**,
+  `flutter analyze` clean, Functions TypeScript build succeeded, and Web debug
+  build succeeded with dependency WebAssembly dry-run warnings. The Android
+  debug build installed/launched on `10BFAX1BTP0010U`; runtime logs indicate
+  Firebase App Check API is disabled in the Firebase project, preventing a
+  verified live callable test.
 
-## Current status
+## Current follow-up implementation
 
-The repository has been updated to the local-first pattern for the immediate security fix: cloud AI is gated behind explicit consent, the default path stays on-device, and the committed secret values have been removed from the project root local environment file.
+- Signup stores a Patient or Organization workspace preference. Selecting
+  Organization routes to its dashboard, but does not grant patient-data access.
+- Organization access requires server-provisioned doctor/pharmacist role and
+  organization ID claims plus an active organization membership. The backend
+  checks membership on every organization callable. The app has no professional
+  credential collection, verification request, or reviewer queue.
+- Organization patient callables compile locally but are not deployed. Firebase
+  CLI authentication is unavailable in this environment.
+- Google popup onboarding is implemented for Web; Android Google OAuth still
+  needs native sign-in integration and a Firebase Android OAuth client.
+- The local Firestore Rules now allow a self-owned `accountType` workspace
+  preference of `patient` or `organization`; it is not used for authorization.
+  Publish the updated user-profile rules manually in Firebase Console. Legacy
+  `/verifications` and `/providers` blocks remain in the local rules file.
+- Integrated report grants/revocation, cloud report synchronization, doctor
+  patient dashboard, clinical notes/amendments, and patient-visible access logs
+  are still not implemented. Report content remains local and is not made
+  available to organization users simply by selecting that workspace at login.

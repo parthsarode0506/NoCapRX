@@ -11,7 +11,9 @@ service cloud.firestore {
     function isClinician(){ return isVerified() && role() in ['doctor', 'pharmacist']; }
     function isLabTech()  { return isVerified() && role() == 'lab_tech'; }
     function isOrgAdmin(o){ return isVerified() && role() == 'org_admin' && myOrg() == o; }
-    function isPlatformAdmin() { return signedIn() && role() == 'platform_admin'; }
+    function isPlatformAdmin() {
+      return signedIn() && role() == 'platform_admin' && isVerified();
+    }
     function isSelf(uid)  { return signedIn() && request.auth.uid == uid; }
     function onlyKeys(keys)    { return request.resource.data.keys().hasOnly(keys); }
     function hasAllKeys(keys)  { return request.resource.data.keys().hasAll(keys); }
@@ -40,12 +42,34 @@ service cloud.firestore {
     match /users/{uid} {
       allow read: if isSelf(uid) || isPlatformAdmin();
       allow create: if isSelf(uid)
-        && onlyKeys(['displayName', 'phone', 'locale', 'createdAt'])
+        && onlyKeys(['displayName', 'phone', 'locale', 'accountType', 'createdAt'])
+        && request.resource.data.displayName is string
+        && request.resource.data.displayName.size() <= 120
+        && request.resource.data.get('locale', 'en') in ['en', 'hi', 'mr']
+        && request.resource.data.get('accountType', 'patient')
+             in ['patient', 'organization']
         && request.resource.data.createdAt == request.time;
       allow update: if isSelf(uid)
-        && onlyKeys(['displayName', 'phone', 'locale', 'createdAt'])
+        && onlyKeys(['displayName', 'phone', 'locale', 'accountType', 'createdAt'])
+        && request.resource.data.displayName is string
+        && request.resource.data.displayName.size() <= 120
+        && request.resource.data.get('locale', 'en') in ['en', 'hi', 'mr']
+        && request.resource.data.get('accountType', 'patient')
+             in ['patient', 'organization']
         && immutable(['createdAt']);
       allow delete: if false; // DPDP erasure via Cloud Function
+
+      match /consents/{consentId} {
+        allow read: if isSelf(uid);
+        allow create: if isSelf(uid)
+          && consentId == 'privacy_notice'
+          && onlyKeys(['accepted', 'noticeVersion', 'createdAt'])
+          && hasAllKeys(['accepted', 'noticeVersion', 'createdAt'])
+          && request.resource.data.accepted == true
+          && request.resource.data.noticeVersion == '1.0'
+          && request.resource.data.createdAt == request.time;
+        allow update, delete: if false;
+      }
 
       // ---------- synced derived reports (existing B2C history) ----------
       // Derived calls only. Raw VCF content must never be written here.
@@ -72,13 +96,28 @@ service cloud.firestore {
     match /verifications/{uid} {
       allow read: if isSelf(uid) || isPlatformAdmin();
       allow create: if isSelf(uid)
-        && onlyKeys(['type', 'registrationNumber', 'council', 'docPaths', 'submittedAt', 'status'])
-        && hasAllKeys(['type', 'registrationNumber', 'docPaths', 'submittedAt', 'status'])
+        && onlyKeys(['type', 'registrationNumber', 'council', 'institution', 'docPaths', 'submittedAt', 'status'])
+        && hasAllKeys(['type', 'registrationNumber', 'council', 'institution', 'docPaths', 'submittedAt', 'status'])
         && request.resource.data.status == 'pending'
         && request.resource.data.type in ['doctor', 'pharmacy', 'lab']
+        && request.resource.data.registrationNumber is string
+        && request.resource.data.registrationNumber.size() >= 4
+        && request.resource.data.registrationNumber.size() <= 80
+        && request.resource.data.council is string
+        && request.resource.data.council.size() >= 2
+        && request.resource.data.council.size() <= 120
+        && request.resource.data.institution is string
+        && request.resource.data.institution.size() <= 120
+        && request.resource.data.docPaths is list
         && request.resource.data.docPaths.size() <= 5
         && request.resource.data.submittedAt == request.time;
       allow update, delete: if false; // decisions in Cloud Functions only
+    }
+
+    // ---------- verified professional directory ----------
+    match /providers/{uid} {
+      allow get, list: if signedIn() && resource.data.verified == true;
+      allow write: if false;
     }
 
     // ---------- orgs ----------

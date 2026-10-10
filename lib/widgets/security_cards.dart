@@ -55,7 +55,7 @@ class OnDevicePrivacyMicroCard extends StatelessWidget {
                 const SizedBox(height: 3),
                 Text(
                   subtext ??
-                      'Raw genetic files are analyzed locally and never stored in the cloud. Encryption keys stay on your hardware.',
+                      'Raw genetic files are analyzed locally on this device and are never uploaded. Results are advisory and should be confirmed with your prescriber or pharmacist.',
                   style: TextStyle(
                     fontSize: 11.5,
                     color: AppTheme.secondaryInk.withValues(alpha: 0.9),

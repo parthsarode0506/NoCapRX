@@ -7,9 +7,12 @@ import '../services/firebase_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/security_cards.dart';
 import 'home_screen.dart';
+import 'organization_dashboard_screen.dart';
 
 class SignUpScreen extends ConsumerStatefulWidget {
-  const SignUpScreen({super.key});
+  const SignUpScreen({super.key, this.organizationWorkspaceRequested = false});
+
+  final bool organizationWorkspaceRequested;
 
   @override
   ConsumerState<SignUpScreen> createState() => _SignUpScreenState();
@@ -25,7 +28,11 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
   bool _isLoading = false;
+  bool _privacyNoticeAccepted = false;
+  bool _accountSetupIncomplete = false;
+  late bool _organizationAccount = widget.organizationWorkspaceRequested;
   String? _errorMessage;
+  String _locale = 'en';
 
   @override
   void dispose() {
@@ -58,6 +65,12 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
   Future<void> _handleSignUp() async {
     if (!_formKey.currentState!.validate()) return;
     if (_isLoading) return;
+    if (!_privacyNoticeAccepted) {
+      setState(() {
+        _errorMessage = 'Please acknowledge the privacy notice to continue.';
+      });
+      return;
+    }
 
     setState(() {
       _isLoading = true;
@@ -65,14 +78,28 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
     });
 
     try {
-      final cred = await FirebaseService.signUpWithEmail(
-        email: _emailController.text,
-        password: _passwordController.text,
-        displayName: _nameController.text.trim(),
-        role: 'User',
-      );
+      final existingUser = FirebaseService.currentUser;
+      if (existingUser != null &&
+          existingUser.email == _emailController.text.trim()) {
+        await FirebaseService.completeAccountOnboarding(
+          user: existingUser,
+          displayName: _nameController.text.trim(),
+          locale: _locale,
+          privacyNoticeAccepted: _privacyNoticeAccepted,
+          accountType: _organizationAccount ? 'organization' : 'patient',
+        );
+      } else {
+        await FirebaseService.signUpWithEmail(
+          email: _emailController.text,
+          password: _passwordController.text,
+          displayName: _nameController.text.trim(),
+          locale: _locale,
+          privacyNoticeAccepted: _privacyNoticeAccepted,
+          accountType: _organizationAccount ? 'organization' : 'patient',
+        );
+      }
 
-      final user = cred.user;
+      final user = FirebaseService.currentUser;
       if (user != null) {
         final profile = await FirebaseService.getUserProfile(user.uid);
         if (profile != null) {
@@ -82,14 +109,24 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
 
       if (mounted) {
         Navigator.of(context).pushAndRemoveUntil(
-              MaterialPageRoute(builder: (_) => const HomeScreen()),
+          MaterialPageRoute(
+            builder: (_) => _organizationAccount
+                ? const OrganizationDashboardScreen()
+                : const HomeScreen(),
+          ),
           (route) => false,
         );
       }
     } catch (e) {
       if (mounted) {
+        final authAccountExists =
+            FirebaseService.currentUser?.email == _emailController.text.trim();
         setState(() {
-          _errorMessage = FirebaseService.mapAuthError(e);
+          _accountSetupIncomplete = authAccountExists;
+          _errorMessage = FirebaseService.mapAccountSetupError(
+            e,
+            authAccountExists: authAccountExists,
+          );
         });
       }
     } finally {
@@ -103,6 +140,18 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
 
   Future<void> _handleGoogleSignUp() async {
     if (_isLoading) return;
+    if (!_privacyNoticeAccepted) {
+      setState(() {
+        _errorMessage = 'Please acknowledge the privacy notice to continue.';
+      });
+      return;
+    }
+    if (_nameController.text.trim().isEmpty) {
+      setState(() {
+        _errorMessage = 'Enter your name before continuing.';
+      });
+      return;
+    }
 
     setState(() {
       _isLoading = true;
@@ -112,14 +161,29 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
     try {
       final cred = await FirebaseService.signInWithGoogle();
       if (cred != null && cred.user != null) {
-        final profile = await FirebaseService.getUserProfile(cred.user!.uid);
+        var profile = await FirebaseService.getUserProfile(cred.user!.uid);
+        await FirebaseService.completeAccountOnboarding(
+          user: cred.user!,
+          displayName: _nameController.text.trim().isNotEmpty
+              ? _nameController.text.trim()
+              : profile?.displayName ?? cred.user!.displayName ?? 'User',
+          locale: _locale,
+          privacyNoticeAccepted: _privacyNoticeAccepted,
+          accountType: _organizationAccount ? 'organization' : 'patient',
+        );
+        profile = await FirebaseService.getUserProfile(cred.user!.uid);
+        _accountSetupIncomplete = false;
         if (profile != null) {
           ref.read(userProfileProvider.notifier).state = profile;
         }
 
         if (mounted) {
           Navigator.of(context).pushAndRemoveUntil(
-                MaterialPageRoute(builder: (_) => const HomeScreen()),
+            MaterialPageRoute(
+              builder: (_) => _organizationAccount
+                  ? const OrganizationDashboardScreen()
+                  : const HomeScreen(),
+            ),
             (route) => false,
           );
         }
@@ -127,6 +191,7 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
     } catch (e) {
       if (mounted) {
         setState(() {
+          _accountSetupIncomplete = FirebaseService.currentUser != null;
           _errorMessage = FirebaseService.mapAuthError(e);
         });
       }
@@ -179,7 +244,10 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
                       // Inline Error Banner if present
                       if (_errorMessage != null) ...[
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 10,
+                          ),
                           decoration: BoxDecoration(
                             color: AppTheme.dangerRedBg,
                             borderRadius: BorderRadius.circular(10),
@@ -211,6 +279,38 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
                         const SizedBox(height: 16),
                       ],
 
+                      Text(
+                        'Choose which workspace to open after signup. Organization patient access still requires administrator provisioning.',
+                      ),
+                      const SizedBox(height: 12),
+                      SegmentedButton<bool>(
+                        segments: const [
+                          ButtonSegment(
+                            value: false,
+                            label: Text('Patient'),
+                            icon: Icon(Icons.person_outline),
+                          ),
+                          ButtonSegment(
+                            value: true,
+                            label: Text('Organization'),
+                            icon: Icon(Icons.apartment_outlined),
+                          ),
+                        ],
+                        selected: {_organizationAccount},
+                        onSelectionChanged: (selection) => setState(
+                          () => _organizationAccount = selection.first,
+                        ),
+                      ),
+                      if (_organizationAccount) ...[
+                        const SizedBox(height: 10),
+                        const Text(
+                          'This opens the organization dashboard. Your organization administrator must assign access before you can search or register patients.',
+                        ),
+                      ],
+                      const SizedBox(height: 16),
+                      _buildLocaleSelector(),
+                      const SizedBox(height: 16),
+
                       // Full Name field with Legal name sublabel
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -236,7 +336,10 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
                       const SizedBox(height: 6),
                       TextFormField(
                         controller: _nameController,
-                        style: GoogleFonts.inter(fontSize: 14, color: AppTheme.deepInk),
+                        style: GoogleFonts.inter(
+                          fontSize: 14,
+                          color: AppTheme.deepInk,
+                        ),
                         decoration: InputDecoration(
                           hintText: 'Alex Morgan',
                           prefixIcon: const Icon(
@@ -267,7 +370,10 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
                       TextFormField(
                         controller: _emailController,
                         keyboardType: TextInputType.emailAddress,
-                        style: GoogleFonts.inter(fontSize: 14, color: AppTheme.deepInk),
+                        style: GoogleFonts.inter(
+                          fontSize: 14,
+                          color: AppTheme.deepInk,
+                        ),
                         decoration: InputDecoration(
                           hintText: 'alex@example.com',
                           prefixIcon: const Icon(
@@ -288,7 +394,6 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
                       ),
                       const SizedBox(height: 16),
 
-
                       // Password Field
                       Text(
                         'Password',
@@ -303,7 +408,10 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
                         controller: _passwordController,
                         obscureText: _obscurePassword,
                         onChanged: (_) => setState(() {}),
-                        style: GoogleFonts.inter(fontSize: 14, color: AppTheme.deepInk),
+                        style: GoogleFonts.inter(
+                          fontSize: 14,
+                          color: AppTheme.deepInk,
+                        ),
                         decoration: InputDecoration(
                           hintText: '••••••••',
                           prefixIcon: const Icon(
@@ -346,7 +454,10 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
                               height: 4,
                               margin: EdgeInsets.only(right: i < 3 ? 6 : 0),
                               decoration: BoxDecoration(
-                                color: _getStrengthSegmentColor(i, strengthScore),
+                                color: _getStrengthSegmentColor(
+                                  i,
+                                  strengthScore,
+                                ),
                                 borderRadius: BorderRadius.circular(2),
                               ),
                             ),
@@ -366,11 +477,16 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
                           ),
                           if (passwordText.isNotEmpty)
                             Text(
-                              strengthScore >= 3 ? 'Strong' : 'Required: 8+ chars',
+                              strengthScore >= 3
+                                  ? 'Strong'
+                                  : 'Required: 8+ chars',
                               style: GoogleFonts.inter(
                                 fontSize: 11,
                                 fontWeight: FontWeight.w600,
-                                color: _getStrengthSegmentColor(strengthScore - 1, strengthScore),
+                                color: _getStrengthSegmentColor(
+                                  strengthScore - 1,
+                                  strengthScore,
+                                ),
                               ),
                             ),
                         ],
@@ -390,7 +506,10 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
                       TextFormField(
                         controller: _confirmPasswordController,
                         obscureText: _obscureConfirmPassword,
-                        style: GoogleFonts.inter(fontSize: 14, color: AppTheme.deepInk),
+                        style: GoogleFonts.inter(
+                          fontSize: 14,
+                          color: AppTheme.deepInk,
+                        ),
                         decoration: InputDecoration(
                           hintText: '••••••••',
                           prefixIcon: const Icon(
@@ -408,7 +527,8 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
                             ),
                             onPressed: () {
                               setState(() {
-                                _obscureConfirmPassword = !_obscureConfirmPassword;
+                                _obscureConfirmPassword =
+                                    !_obscureConfirmPassword;
                               });
                             },
                           ),
@@ -424,6 +544,33 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
                         },
                       ),
                       const SizedBox(height: 24),
+
+                      Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: AppTheme.mintSurface,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: AppTheme.cardBorder),
+                        ),
+                        child: const Text(
+                          'Privacy notice v1.0: your name, account type, and language are stored with your account. Raw VCF files are parsed locally and are not uploaded. Analysis reports remain on this device unless a separately designed, explicit sharing feature is offered. Cloud AI stays off unless you opt in for a specific use. This signup does not collect professional registration details; organization access is provisioned by an administrator.',
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Material(
+                        color: Colors.transparent,
+                        child: CheckboxListTile(
+                          contentPadding: EdgeInsets.zero,
+                          controlAffinity: ListTileControlAffinity.leading,
+                          value: _privacyNoticeAccepted,
+                          onChanged: (value) => setState(() {
+                            _privacyNoticeAccepted = value ?? false;
+                          }),
+                          title: const Text(
+                            'I acknowledge the privacy notice above.',
+                          ),
+                        ),
+                      ),
 
                       // Primary CTA: Create Account →
                       SizedBox(
@@ -451,7 +598,9 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
                                     Text(
-                                      'Create Account',
+                                      _accountSetupIncomplete
+                                          ? 'Retry account setup'
+                                          : 'Create Account',
                                       style: GoogleFonts.inter(
                                         fontSize: 15,
                                         fontWeight: FontWeight.w700,
@@ -459,7 +608,10 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
                                       ),
                                     ),
                                     const SizedBox(width: 6),
-                                    const Icon(Icons.arrow_forward_rounded, size: 18),
+                                    const Icon(
+                                      Icons.arrow_forward_rounded,
+                                      size: 18,
+                                    ),
                                   ],
                                 ),
                         ),
@@ -491,7 +643,10 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
                         onPressed: _isLoading ? null : _handleGoogleSignUp,
                         style: OutlinedButton.styleFrom(
                           padding: const EdgeInsets.symmetric(vertical: 12),
-                          side: const BorderSide(color: AppTheme.cardBorder, width: 1),
+                          side: const BorderSide(
+                            color: AppTheme.cardBorder,
+                            width: 1,
+                          ),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
                           ),
@@ -503,7 +658,9 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
                             Container(
                               width: 18,
                               height: 18,
-                              decoration: const BoxDecoration(shape: BoxShape.circle),
+                              decoration: const BoxDecoration(
+                                shape: BoxShape.circle,
+                              ),
                               child: const Center(
                                 child: Text(
                                   'G',
@@ -536,7 +693,7 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
               // Footer & Disclaimers
               const SecurityCalloutCard(
                 text:
-                    'Your account stores your generated reports, not your raw genetic file. We uphold zero-knowledge patient data privacy.',
+                    'Raw VCF files are parsed on this device. Organization dashboard access is assigned by an organization administrator.',
               ),
               const SizedBox(height: 18),
 
@@ -573,6 +730,20 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
     );
   }
 
+  Widget _buildLocaleSelector() => DropdownButtonFormField<String>(
+    initialValue: _locale,
+    decoration: const InputDecoration(
+      labelText: 'Preferred language',
+      prefixIcon: Icon(Icons.language),
+    ),
+    items: const [
+      DropdownMenuItem(value: 'en', child: Text('English')),
+      DropdownMenuItem(value: 'hi', child: Text('Hindi')),
+      DropdownMenuItem(value: 'mr', child: Text('Marathi')),
+    ],
+    onChanged: (value) => setState(() => _locale = value ?? 'en'),
+  );
+
   Widget _buildHeaderSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -600,7 +771,7 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
                   ),
                   const SizedBox(width: 5),
                   Text(
-                    'HIPAA COMPLIANT • SAFE',
+                    'PRIVATE BY DEFAULT • ADVISORY',
                     style: GoogleFonts.inter(
                       fontSize: 10.5,
                       fontWeight: FontWeight.w700,
@@ -633,7 +804,7 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
 
         // Heading & Subtitle
         Text(
-          'Create your OnCapRX account',
+          'Create your NoCapRX account',
           style: GoogleFonts.inter(
             fontSize: 23,
             fontWeight: FontWeight.w800,

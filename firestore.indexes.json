@@ -1,0 +1,19 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "patientLinks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "normalizedName",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "birthYear",
+          "order": "ASCENDING"
+        }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

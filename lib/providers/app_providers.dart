@@ -13,9 +13,16 @@ final authStateProvider = StreamProvider<User?>((ref) {
   return FirebaseService.authStateChanges;
 });
 
+final organizationWorkspaceProvider = FutureProvider<bool>((ref) {
+  ref.watch(authStateProvider);
+  return FirebaseService.hasOrganizationWorkspace();
+});
+
 // Current User Profile State
 final userProfileProvider = StateProvider<AppUser?>((ref) => null);
-final patientProfileProvider = StateProvider<PatientProfile>((ref) => const PatientProfile());
+final patientProfileProvider = StateProvider<PatientProfile>(
+  (ref) => const PatientProfile(),
+);
 
 // Picked VCF data is retained in memory so the same flow works in browsers,
 // where the selected file does not have a filesystem path.
@@ -34,7 +41,9 @@ final customDrugTextProvider = StateProvider<String>((ref) => '');
 
 // Current Active Analysis Multi-Report
 final currentReportProvider = StateProvider<PgxMultiReport?>((ref) => null);
-final genomicScanReportProvider = StateProvider<GenomicDrugScanReport?>((ref) => null);
+final genomicScanReportProvider = StateProvider<GenomicDrugScanReport?>(
+  (ref) => null,
+);
 
 // User Reports History Stream
 final userReportsStreamProvider = StreamProvider<List<PgxMultiReport>>((ref) {

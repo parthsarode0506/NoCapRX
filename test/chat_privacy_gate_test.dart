@@ -56,6 +56,6 @@ void main() {
 
     expect(cloud.called, isFalse);
     expect(answer.sourceLabel, isNot(contains('Live AI')));
-    expect(answer.text, contains('No verified local medicine record was found'));
+    expect(answer.text, contains('offline answer'));
   });
 }

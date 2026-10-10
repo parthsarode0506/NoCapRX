@@ -40,6 +40,7 @@ void main() {
       image.path,
       client: client,
       apiKey: 'test-key',
+      allowCloudAi: true,
     );
 
     expect(result, 'Amoxicillin 500 mg');
@@ -66,6 +67,7 @@ void main() {
       client: client,
       apiKey: 'test-key',
       model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+      allowCloudAi: true,
     );
   });
 }

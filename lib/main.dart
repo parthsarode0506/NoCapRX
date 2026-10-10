@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_gemma/flutter_gemma.dart';
 import 'package:flutter_gemma_mediapipe/flutter_gemma_mediapipe.dart';
+import 'package:firebase_app_check/firebase_app_check.dart';
 
 import 'providers/app_providers.dart';
 import 'services/firebase_service.dart';
@@ -31,6 +33,39 @@ void main() async {
     await FirebaseService.init();
   } catch (e) {
     RedactingLogger.log('Firebase startup error: $e');
+  }
+
+  if (FirebaseService.isCloudAvailable) {
+    try {
+      if (kIsWeb) {
+        final siteKey = dotenv.env['FIREBASE_APPCHECK_WEB_KEY'];
+        if (siteKey != null && siteKey.isNotEmpty) {
+          await FirebaseAppCheck.instance.activate(
+            providerWeb: ReCaptchaV3Provider(siteKey),
+          );
+        } else if (kDebugMode) {
+          await FirebaseAppCheck.instance.activate(
+            providerWeb: WebDebugProvider(),
+          );
+          RedactingLogger.log(
+            'Register the App Check debug token shown in the browser console before calling protected cloud functions.',
+          );
+        } else {
+          RedactingLogger.log(
+            'App Check is not configured for Web; protected cloud functions will be unavailable.',
+          );
+        }
+      } else if (kDebugMode) {
+        await FirebaseAppCheck.instance.activate(
+          providerAndroid: const AndroidDebugProvider(),
+          providerApple: const AppleDebugProvider(),
+        );
+      } else {
+        await FirebaseAppCheck.instance.activate();
+      }
+    } catch (e) {
+      RedactingLogger.log('App Check startup error: $e');
+    }
   }
 
   await LocalDiscoveryCache.init();

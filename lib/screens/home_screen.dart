@@ -18,6 +18,7 @@ import 'prescription_scan_screen.dart';
 import 'results_screen.dart';
 import 'sign_in_screen.dart';
 import 'upload_screen.dart';
+import 'organization_dashboard_screen.dart';
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -36,40 +37,56 @@ class HomeScreen extends ConsumerWidget {
   }
 
   void _openUpload(BuildContext context) {
-    Navigator.of(context)
-        .push(MaterialPageRoute(builder: (_) => const UploadScreen()));
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const UploadScreen()));
   }
 
   void _openMedicine(BuildContext context, WidgetRef ref) {
     if (ref.read(vcfParseResultProvider) == null) {
-      Navigator.of(context).push(MaterialPageRoute(
-        builder: (_) =>
-            const UploadScreen(returnToMedicine: true, returnToDashboard: false),
-      ));
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => const UploadScreen(
+            returnToMedicine: true,
+            returnToDashboard: false,
+          ),
+        ),
+      );
       return;
     }
-    Navigator.of(context)
-        .push(MaterialPageRoute(builder: (_) => const DrugInputScreen()));
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const DrugInputScreen()));
   }
 
   void _openWatchlist(
-      BuildContext context, WidgetRef ref, GenomicDrugScanReport? scan) {
+    BuildContext context,
+    WidgetRef ref,
+    GenomicDrugScanReport? scan,
+  ) {
     if (scan == null) {
       _openUpload(context);
       return;
     }
-    Navigator.of(context)
-        .push(MaterialPageRoute(builder: (_) => GenomicScanScreen(report: scan)));
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => GenomicScanScreen(report: scan)));
   }
 
   Future<void> _openPrescriptionScan(
-      BuildContext context, WidgetRef ref) async {
+    BuildContext context,
+    WidgetRef ref,
+  ) async {
     // If no VCF yet, go to upload first
     if (ref.read(vcfParseResultProvider) == null) {
-      Navigator.of(context).push(MaterialPageRoute(
-        builder: (_) =>
-            const UploadScreen(returnToMedicine: true, returnToDashboard: false),
-      ));
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => const UploadScreen(
+            returnToMedicine: true,
+            returnToDashboard: false,
+          ),
+        ),
+      );
       return;
     }
 
@@ -82,13 +99,15 @@ class HomeScreen extends ConsumerWidget {
 
     // Pre-fill the drug input screen with OCR medicines
     if (result.medicines.isNotEmpty) {
-      ref.read(customDrugTextProvider.notifier).state =
-          result.medicines.join(', ');
+      ref.read(customDrugTextProvider.notifier).state = result.medicines.join(
+        ', ',
+      );
     }
 
     if (context.mounted) {
-      Navigator.of(context)
-          .push(MaterialPageRoute(builder: (_) => const DrugInputScreen()));
+      Navigator.of(
+        context,
+      ).push(MaterialPageRoute(builder: (_) => const DrugInputScreen()));
     }
   }
 
@@ -96,6 +115,33 @@ class HomeScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final organizationWorkspace = ref.watch(organizationWorkspaceProvider);
+    if (organizationWorkspace.isLoading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+    if (organizationWorkspace.hasError) {
+      return Scaffold(
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('Could not verify your workspace permissions.'),
+                TextButton(
+                  onPressed: () =>
+                      ref.invalidate(organizationWorkspaceProvider),
+                  child: const Text('Retry'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+    if (organizationWorkspace.valueOrNull == true) {
+      return const OrganizationDashboardScreen();
+    }
     final parseResult = ref.watch(vcfParseResultProvider);
     final scan = ref.watch(genomicScanReportProvider);
     final reportsAsync = ref.watch(userReportsStreamProvider);
@@ -103,12 +149,14 @@ class HomeScreen extends ConsumerWidget {
         ? reportsAsync.valueOrNull!.first
         : null;
     final genes = parseResult?.geneProfiles.length ?? 0;
-    final actionableGenes = parseResult?.geneProfiles.values
+    final actionableGenes =
+        parseResult?.geneProfiles.values
             .where((g) => g.phenotype != 'Unknown')
             .length ??
         0;
     final watchCount = scan?.actionableReports.length ?? 0;
-    final displayName = ref.watch(userProfileProvider)?.displayName ??
+    final displayName =
+        ref.watch(userProfileProvider)?.displayName ??
         FirebaseService.currentUser?.displayName ??
         'there';
     final hasVcf = parseResult != null;
@@ -119,11 +167,7 @@ class HomeScreen extends ConsumerWidget {
         backgroundColor: AppTheme.surfaceLight,
         title: Row(
           children: [
-            const NoCapRxEmblem(
-              size: 32,
-              borderRadius: 9,
-              showShadow: false,
-            ),
+            const NoCapRxEmblem(size: 32, borderRadius: 9, showShadow: false),
             const SizedBox(width: 10),
             Text(
               'NoCapRX',
@@ -147,18 +191,22 @@ class HomeScreen extends ConsumerWidget {
               switch (value) {
                 case 'profile':
                   Navigator.of(context).push(
-                      MaterialPageRoute(builder: (_) => const PatientProfileScreen()));
+                    MaterialPageRoute(
+                      builder: (_) => const PatientProfileScreen(),
+                    ),
+                  );
                   break;
                 case 'reports':
                   Navigator.of(context).push(
-                      MaterialPageRoute(builder: (_) => const HistoryScreen()));
+                    MaterialPageRoute(builder: (_) => const HistoryScreen()),
+                  );
                   break;
                 case 'sign_out':
                   _signOut(context, ref);
                   break;
               }
             },
-            itemBuilder: (_) => const [
+            itemBuilder: (_) => [
               PopupMenuItem(value: 'profile', child: Text('My profile')),
               PopupMenuItem(value: 'reports', child: Text('Reports')),
               PopupMenuItem(value: 'sign_out', child: Text('Sign out')),
@@ -172,6 +220,15 @@ class HomeScreen extends ConsumerWidget {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(20, 14, 20, 32),
             children: [
+              Text(
+                'Patient dashboard',
+                style: GoogleFonts.inter(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w800,
+                  color: AppTheme.deepInk,
+                ),
+              ),
+              const SizedBox(height: 12),
               // ── Hero card ────────────────────────────────────────────
               _buildHeroCard(displayName, hasVcf, () => _openUpload(context)),
               const SizedBox(height: 18),
@@ -261,7 +318,9 @@ class HomeScreen extends ConsumerWidget {
 
                 // ── Insight card ───────────────────────────────────────
                 _buildInsightCard(
-                    actionableGenes, () => _openProfile(context, parseResult)),
+                  actionableGenes,
+                  () => _openProfile(context, parseResult),
+                ),
               ],
 
               const SizedBox(height: 18),
@@ -283,8 +342,7 @@ class HomeScreen extends ConsumerWidget {
 
   // ─── Widget builders ──────────────────────────────────────────────────────
 
-  Widget _buildHeroCard(
-      String name, bool analyzed, VoidCallback onUpload) {
+  Widget _buildHeroCard(String name, bool analyzed, VoidCallback onUpload) {
     return Container(
       padding: const EdgeInsets.all(22),
       decoration: BoxDecoration(
@@ -326,12 +384,16 @@ class HomeScreen extends ConsumerWidget {
                 ),
               ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 5,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.white.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.2)),
+                    color: Colors.white.withValues(alpha: 0.2),
+                  ),
                 ),
                 child: Text(
                   'v2.4',
@@ -363,7 +425,9 @@ class HomeScreen extends ConsumerWidget {
               child: Row(
                 children: [
                   Icon(
-                    analyzed ? Icons.check_circle_rounded : Icons.upload_file_rounded,
+                    analyzed
+                        ? Icons.check_circle_rounded
+                        : Icons.upload_file_rounded,
                     color: analyzed ? AppTheme.vibrantMint : Colors.amberAccent,
                     size: 18,
                   ),
@@ -404,7 +468,11 @@ class HomeScreen extends ConsumerWidget {
         padding: const EdgeInsets.all(24),
         child: Column(
           children: [
-            const Icon(Icons.biotech_outlined, size: 52, color: AppTheme.accentEmerald),
+            const Icon(
+              Icons.biotech_outlined,
+              size: 52,
+              color: AppTheme.accentEmerald,
+            ),
             const SizedBox(height: 14),
             Text(
               'Build your medication safety profile',
@@ -479,13 +547,16 @@ class HomeScreen extends ConsumerWidget {
             icon: Icons.assignment_outlined,
             color: Colors.indigo,
             label: 'Reports',
-            value: latest != null ? '${latest.drugReports.length} last' : 'None yet',
+            value: latest != null
+                ? '${latest.drugReports.length} last'
+                : 'None yet',
             onTap: latest == null
                 ? null
                 : () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                          builder: (_) => ResultsScreen(report: latest)),
+                    MaterialPageRoute(
+                      builder: (_) => ResultsScreen(report: latest),
                     ),
+                  ),
           ),
         ),
       ],
@@ -543,7 +614,9 @@ class HomeScreen extends ConsumerWidget {
                         const SizedBox(width: 8),
                         Container(
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 6, vertical: 2),
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
                           decoration: BoxDecoration(
                             color: badgeColor ?? Colors.deepOrange,
                             borderRadius: BorderRadius.circular(6),
@@ -562,7 +635,9 @@ class HomeScreen extends ConsumerWidget {
                         const SizedBox(width: 8),
                         Container(
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 7, vertical: 2),
+                            horizontal: 7,
+                            vertical: 2,
+                          ),
                           decoration: BoxDecoration(
                             color: Colors.deepOrange,
                             borderRadius: BorderRadius.circular(10),
@@ -592,8 +667,11 @@ class HomeScreen extends ConsumerWidget {
               ),
             ),
             const SizedBox(width: 8),
-            const Icon(Icons.arrow_forward_ios_rounded,
-                size: 14, color: AppTheme.mutedGrey),
+            const Icon(
+              Icons.arrow_forward_ios_rounded,
+              size: 14,
+              color: AppTheme.mutedGrey,
+            ),
           ],
         ),
       ),
@@ -604,9 +682,9 @@ class HomeScreen extends ConsumerWidget {
     final drugs = report.drugReports.map((d) => d.drug).join(', ');
     final date = report.timestamp.split('T').first;
     return InkWell(
-      onTap: () => Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => ResultsScreen(report: report)),
-      ),
+      onTap: () => Navigator.of(
+        context,
+      ).push(MaterialPageRoute(builder: (_) => ResultsScreen(report: report))),
       borderRadius: BorderRadius.circular(14),
       child: Container(
         padding: const EdgeInsets.all(14),
@@ -623,8 +701,11 @@ class HomeScreen extends ConsumerWidget {
                 color: Colors.indigo.shade50,
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: const Icon(Icons.assignment_turned_in_outlined,
-                  color: Colors.indigo, size: 20),
+              child: const Icon(
+                Icons.assignment_turned_in_outlined,
+                color: Colors.indigo,
+                size: 20,
+              ),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -645,13 +726,18 @@ class HomeScreen extends ConsumerWidget {
                   Text(
                     '$date · ${report.drugReports.length} medicine(s)',
                     style: GoogleFonts.inter(
-                        fontSize: 11.5, color: AppTheme.secondaryInk),
+                      fontSize: 11.5,
+                      color: AppTheme.secondaryInk,
+                    ),
                   ),
                 ],
               ),
             ),
-            const Icon(Icons.arrow_forward_ios_rounded,
-                size: 13, color: AppTheme.mutedGrey),
+            const Icon(
+              Icons.arrow_forward_ios_rounded,
+              size: 13,
+              color: AppTheme.mutedGrey,
+            ),
           ],
         ),
       ),
@@ -668,7 +754,8 @@ class HomeScreen extends ConsumerWidget {
           color: AppTheme.mintSurface,
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
-              color: AppTheme.accentEmerald.withValues(alpha: 0.3)),
+            color: AppTheme.accentEmerald.withValues(alpha: 0.3),
+          ),
         ),
         child: Row(
           children: [
@@ -679,7 +766,7 @@ class HomeScreen extends ConsumerWidget {
                 actionable == 0
                     ? 'No major actionable pharmacogenomic findings in your current profile.'
                     : '$actionable gene(s) may affect how some medicines work for you. '
-                        'Tap to see your full genetic profile.',
+                          'Tap to see your full genetic profile.',
                 style: GoogleFonts.inter(
                   fontSize: 12.5,
                   color: AppTheme.primaryDarkEmerald,
@@ -696,9 +783,9 @@ class HomeScreen extends ConsumerWidget {
 
   Widget _buildAiCard(BuildContext context, PgxMultiReport? latest) {
     return InkWell(
-      onTap: () => Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => ChatbotScreen(report: latest)),
-      ),
+      onTap: () => Navigator.of(
+        context,
+      ).push(MaterialPageRoute(builder: (_) => ChatbotScreen(report: latest))),
       borderRadius: BorderRadius.circular(14),
       child: Container(
         padding: const EdgeInsets.all(16),
@@ -715,8 +802,11 @@ class HomeScreen extends ConsumerWidget {
                 color: Colors.purple.shade50,
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: const Icon(Icons.smart_toy_rounded,
-                  color: Colors.purple, size: 22),
+              child: const Icon(
+                Icons.smart_toy_rounded,
+                color: Colors.purple,
+                size: 22,
+              ),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -734,13 +824,18 @@ class HomeScreen extends ConsumerWidget {
                   Text(
                     'Ask about your verified medication results.',
                     style: GoogleFonts.inter(
-                        fontSize: 12, color: AppTheme.secondaryInk),
+                      fontSize: 12,
+                      color: AppTheme.secondaryInk,
+                    ),
                   ),
                 ],
               ),
             ),
-            const Icon(Icons.arrow_forward_ios_rounded,
-                size: 13, color: AppTheme.mutedGrey),
+            const Icon(
+              Icons.arrow_forward_ios_rounded,
+              size: 13,
+              color: AppTheme.mutedGrey,
+            ),
           ],
         ),
       ),
@@ -749,20 +844,53 @@ class HomeScreen extends ConsumerWidget {
 
   Widget _buildAskNocapRxCard(BuildContext context) {
     return InkWell(
-      onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AskNocapRxScreen())),
+      onTap: () => Navigator.of(
+        context,
+      ).push(MaterialPageRoute(builder: (_) => const AskNocapRxScreen())),
       borderRadius: BorderRadius.circular(14),
       child: Container(
         padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(color: AppTheme.primaryEmerald, borderRadius: BorderRadius.circular(14)),
-        child: Row(children: [
-          const Icon(Icons.chat_bubble_outline_rounded, color: Colors.white, size: 24),
-          const SizedBox(width: 12),
-          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('Ask NOCAPRx', style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w800, color: Colors.white)),
-            Text('Simple answers from your local medicine facts.', style: GoogleFonts.inter(fontSize: 12, color: Colors.white.withValues(alpha: .85))),
-          ])),
-          const Icon(Icons.arrow_forward_ios_rounded, size: 13, color: Colors.white),
-        ]),
+        decoration: BoxDecoration(
+          color: AppTheme.primaryEmerald,
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Row(
+          children: [
+            const Icon(
+              Icons.chat_bubble_outline_rounded,
+              color: Colors.white,
+              size: 24,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Ask NOCAPRx',
+                    style: GoogleFonts.inter(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.white,
+                    ),
+                  ),
+                  Text(
+                    'Simple answers from your local medicine facts.',
+                    style: GoogleFonts.inter(
+                      fontSize: 12,
+                      color: Colors.white.withValues(alpha: .85),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(
+              Icons.arrow_forward_ios_rounded,
+              size: 13,
+              color: Colors.white,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -774,26 +902,30 @@ class HomeScreen extends ConsumerWidget {
         color: AppTheme.mintSurface,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
-            color: AppTheme.accentEmerald.withValues(alpha: 0.25)),
+          color: AppTheme.accentEmerald.withValues(alpha: 0.25),
+        ),
       ),
       child: Column(
         children: [
-            Row(
+          Row(
             children: [
-              const Icon(Icons.lock_rounded,
-                  size: 16, color: AppTheme.primaryEmerald),
+              const Icon(
+                Icons.lock_rounded,
+                size: 16,
+                color: AppTheme.primaryEmerald,
+              ),
               const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'Genomic Privacy: AI explains; the rule engine decides.',
-                    softWrap: true,
-                    style: GoogleFonts.inter(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      color: AppTheme.primaryDarkEmerald,
-                    ),
+              Expanded(
+                child: Text(
+                  'Genomic Privacy: AI explains; the rule engine decides.',
+                  softWrap: true,
+                  style: GoogleFonts.inter(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.primaryDarkEmerald,
                   ),
                 ),
+              ),
             ],
           ),
           const SizedBox(height: 8),
@@ -815,7 +947,9 @@ class HomeScreen extends ConsumerWidget {
               '$label: ',
               softWrap: true,
               style: GoogleFonts.inter(
-                  fontSize: 11, color: AppTheme.secondaryInk),
+                fontSize: 11,
+                color: AppTheme.secondaryInk,
+              ),
             ),
           ),
           Text(
@@ -832,8 +966,11 @@ class HomeScreen extends ConsumerWidget {
   }
 
   void _openProfile(BuildContext context, dynamic parseResult) {
-    Navigator.of(context).push(MaterialPageRoute(
-        builder: (_) => _GeneticProfileScreen(parseResult: parseResult)));
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => _GeneticProfileScreen(parseResult: parseResult),
+      ),
+    );
   }
 }
 
@@ -882,7 +1019,9 @@ class _MetricTile extends StatelessWidget {
             Text(
               label,
               style: GoogleFonts.inter(
-                  fontSize: 11, color: AppTheme.secondaryInk),
+                fontSize: 11,
+                color: AppTheme.secondaryInk,
+              ),
             ),
           ],
         ),
@@ -948,9 +1087,7 @@ class _GeneticProfileScreen extends StatelessWidget {
                           'Variants',
                           gene.variants.isEmpty
                               ? 'Not detected in VCF'
-                              : gene.variants
-                                  .map((v) => v.rsid)
-                                  .join(', '),
+                              : gene.variants.map((v) => v.rsid).join(', '),
                         ),
                         if (gene.isInferred)
                           Container(
@@ -963,8 +1100,10 @@ class _GeneticProfileScreen extends StatelessWidget {
                             ),
                             child: const Text(
                               '⚠ Diplotype inferred — no direct VCF annotation for this gene.',
-                              style:
-                                  TextStyle(fontSize: 11, color: Colors.black87),
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.black87,
+                              ),
                             ),
                           ),
                       ],
@@ -989,13 +1128,10 @@ class _GeneticProfileScreen extends StatelessWidget {
             width: 90,
             child: Text(
               '$label:',
-              style: const TextStyle(
-                  fontWeight: FontWeight.w600, fontSize: 12),
+              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
             ),
           ),
-          Expanded(
-            child: Text(value, style: const TextStyle(fontSize: 12)),
-          ),
+          Expanded(child: Text(value, style: const TextStyle(fontSize: 12))),
         ],
       ),
     );

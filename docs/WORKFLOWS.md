@@ -15,7 +15,7 @@
 
 ## 2.2 Patient (B2C) Workflow
 
-1. Sign up (email/Google/phone) → create self + family profiles.
+1. Sign up as Patient (email, or Google on Web) → choose a preferred language and acknowledge the privacy notice. Raw VCF uploads remain on-device.
 2. Import VCF or order a partner-lab test.
 3. Scan prescription ("check before you take").
 4. Plain-language result with "talk to your doctor" CTA.
@@ -28,18 +28,55 @@
 
 ---
 
-## 2.3 Doctor Workflow
+## 2.3 Organization Workflow
 
-1. Sign up → NMC/state council registration number + ID upload.
-2. Tier: `pending` (sandbox patients only).
-3. Cloud Function verification (register lookup where permitted, else manual review queue).
-4. Claims set to `verified/full`.
-5. Roster (search, create, link via consent QR/OTP).
-6. Draft prescription → real-time risk flag → alternatives + genotype-adjusted dosing.
-7. Auto clinical note → clinician confirms.
-8. Export e-prescription PDF / FHIR payload with PGx rationale.
-9. Optional time-limited second-opinion share.
-10. Audit trail view.
+1. A patient creates an account through public signup. Organization accounts
+   are provisioned separately by a trusted organization administrator.
+2. An organization administrator assigns server-managed role/org claims and an
+   active organization membership. There is no in-app professional credential
+   verification or reviewer queue.
+3. The user selects Organization at login. That selection is navigation only;
+   the backend still checks the trusted role, organization ID, and active
+   membership on every patient operation.
+4. The organization dashboard searches only records linked to that
+   organization and supports explicit registration when no matching patient
+   exists.
+5. Prescription authoring, clinician acknowledgment, clinical notes and
+   patient-authorized report sharing are not implemented yet.
+
+### Current organization workspace implementation boundary
+
+- The sign-in screen offers separate Patient and Organization dashboard
+  choices. The choice is a navigation preference only; it does not grant
+  permissions. Organization entry requires server-provisioned doctor/pharmacist
+  claims with an organization ID, and every callable checks active membership.
+- Choosing Sign Up while Organization is selected carries that workspace
+  intent through signup, stores `accountType: organization` as a workspace
+  preference, and opens the organization dashboard shell. Existing organization
+  preferences also open that dashboard by default after sign-in or app restart.
+  The preference never grants access: patient search and registration are
+  available in the UI, but callable Functions continue to enforce trusted
+  organization claims and active membership before returning or creating data.
+- Public signup never assigns organization roles. There is no
+  professional-verification workflow in the app.
+- Patient accounts open the patient dashboard. The organization dashboard is
+  not hidden behind a client-side membership check; each patient-data callable
+  still denies unauthorized access server-side and returns no patient data.
+- Patient search is paged/capped and callable-only; it returns records from that
+  organization's patient links. Search results do not silently select one of
+  multiple matching patients.
+- New patient registration is explicit, server-authorized, idempotent, and
+  audited. An exact normalized name plus birth-year match is rejected so the
+  user can search and select the existing record.
+- The organization landing screen presents patient search/registration and
+  visibly labels report generation and prescription authoring as unavailable.
+- The Patient Details workspace reports actual stored statuses and returned
+  report/prescription counts. It presents the same unavailable clinical actions
+  instead of suggesting that they work. The client does not upload or retrieve
+  raw VCFs because genome data remains on-device. Cloud analysis, report
+  publication, prescription approval, and cross-dashboard report sync remain
+  unavailable until an approved processing and consent architecture is
+  implemented.
 
 ---
 
@@ -85,8 +122,10 @@
 
 ---
 
-## 2.8 Verification and Consent
+## 2.8 Organization Access and Consent
 
-- **Tiers**: `pending` (sandbox only) → `basic` → `full`. Re-verify periodically.
+- Organization membership and custom claims are provisioned by trusted
+  organization administration. The app does not collect credentials or provide
+  professional-review screens.
 - **Consent doc** per grantee: `scope[]`, `active`, `expiresAt` (max 365 days).
 - Revoke by setting `active=false`; the grantee's next read fails immediately.

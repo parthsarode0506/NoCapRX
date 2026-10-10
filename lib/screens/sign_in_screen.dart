@@ -6,8 +6,12 @@ import '../providers/app_providers.dart';
 import '../services/firebase_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/security_cards.dart';
+import '../widgets/ui_kit.dart';
 import 'home_screen.dart';
+import 'organization_dashboard_screen.dart';
 import 'sign_up_screen.dart';
+
+enum _DashboardChoice { patient, organization }
 
 class SignInScreen extends ConsumerStatefulWidget {
   const SignInScreen({super.key});
@@ -24,6 +28,8 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
   bool _obscurePassword = true;
   bool _rememberDevice = true;
   bool _isLoading = false;
+  _DashboardChoice _dashboardChoice = _DashboardChoice.patient;
+  bool _dashboardChoiceExplicitlySelected = false;
   String? _errorMessage;
 
   @override
@@ -49,18 +55,7 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
       );
 
       final user = cred.user;
-      if (user != null) {
-        final profile = await FirebaseService.getUserProfile(user.uid);
-        if (profile != null) {
-          ref.read(userProfileProvider.notifier).state = profile;
-        }
-      }
-
-      if (mounted) {
-        Navigator.of(context).pushReplacement(MaterialPageRoute(
-          builder: (_) => const HomeScreen(),
-        ));
-      }
+      if (user != null) await _openSelectedDashboard(user.uid);
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -78,14 +73,49 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
 
   Future<void> _handleBiometricLogin() async {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Biometric authentication verified on-device.'),
-        backgroundColor: AppTheme.primaryEmerald,
-      ),
+      const SnackBar(content: Text('Biometric sign-in is not configured yet.')),
     );
-      Navigator.of(context).pushReplacement(MaterialPageRoute(
-        builder: (_) => const HomeScreen(),
-      ));
+  }
+
+  Future<void> _openSelectedDashboard(String uid) async {
+    final profileBeforeRouting = await FirebaseService.getUserProfile(uid);
+    if (!mounted) return;
+    final openOrganization = _dashboardChoiceExplicitlySelected
+        ? _dashboardChoice == _DashboardChoice.organization
+        : profileBeforeRouting?.role == 'organization';
+    final accountType = openOrganization ? 'organization' : 'patient';
+    String? workspacePreferenceWarning;
+    try {
+      await FirebaseService.setWorkspacePreference(
+        uid: uid,
+        accountType: accountType,
+      );
+    } catch (_) {
+      workspacePreferenceWarning =
+          'Dashboard opened, but the workspace choice could not be saved. Publish the updated Firestore user-profile rules to keep it after sign-out.';
+    }
+    final profile = await FirebaseService.getUserProfile(uid);
+    if (!mounted) return;
+    if (!openOrganization) {
+      if (profile != null) {
+        ref.read(userProfileProvider.notifier).state = profile;
+      }
+      Navigator.of(
+        context,
+      ).pushReplacement(MaterialPageRoute(builder: (_) => const HomeScreen()));
+    } else {
+      if (profile != null) {
+        ref.read(userProfileProvider.notifier).state = profile;
+      }
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => const OrganizationDashboardScreen()),
+      );
+    }
+    if (workspacePreferenceWarning != null && mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(workspacePreferenceWarning)));
+    }
   }
 
   Future<void> _handleGoogleSignIn() async {
@@ -100,15 +130,21 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
       final cred = await FirebaseService.signInWithGoogle();
       if (cred != null && cred.user != null) {
         final profile = await FirebaseService.getUserProfile(cred.user!.uid);
-        if (profile != null) {
-          ref.read(userProfileProvider.notifier).state = profile;
+        if (profile == null) {
+          await FirebaseService.signOut();
+          if (mounted) {
+            Navigator.of(context).pushReplacement(
+              MaterialPageRoute(
+                builder: (_) => SignUpScreen(
+                  organizationWorkspaceRequested:
+                      _dashboardChoice == _DashboardChoice.organization,
+                ),
+              ),
+            );
+          }
+          return;
         }
-
-        if (mounted) {
-          Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (_) => const HomeScreen()),
-          );
-        }
+        await _openSelectedDashboard(cred.user!.uid);
       }
     } catch (e) {
       if (mounted) {
@@ -130,7 +166,9 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
     if (email.isEmpty || !email.contains('@')) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Please enter a valid email address in the field first.'),
+          content: Text(
+            'Please enter a valid email address in the field first.',
+          ),
           backgroundColor: AppTheme.warningAmber,
         ),
       );
@@ -195,38 +233,45 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
                     children: [
                       // Inline Error Banner if present
                       if (_errorMessage != null) ...[
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                          decoration: BoxDecoration(
-                            color: AppTheme.dangerRedBg,
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(
-                              color: AppTheme.dangerRed.withValues(alpha: 0.3),
-                            ),
-                          ),
-                          child: Row(
-                            children: [
-                              const Icon(
-                                Icons.error_outline_rounded,
-                                color: AppTheme.dangerRed,
-                                size: 18,
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  _errorMessage!,
-                                  style: GoogleFonts.inter(
-                                    color: AppTheme.dangerRed,
-                                    fontSize: 12.5,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
+                        NoticeBanner(
+                          tone: NoticeTone.danger,
+                          message: _errorMessage!,
                         ),
                         const SizedBox(height: 16),
                       ],
+
+                      Text(
+                        'Sign in to your dashboard',
+                        style: GoogleFonts.inter(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: AppTheme.deepInk,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      SegmentedButton<_DashboardChoice>(
+                        segments: const [
+                          ButtonSegment(
+                            value: _DashboardChoice.patient,
+                            label: Text('Patient'),
+                            icon: Icon(Icons.person_outline),
+                          ),
+                          ButtonSegment(
+                            value: _DashboardChoice.organization,
+                            label: Text('Organization'),
+                            icon: Icon(Icons.local_hospital_outlined),
+                          ),
+                        ],
+                        selected: {_dashboardChoice},
+                        onSelectionChanged: (selection) {
+                          setState(() {
+                            _dashboardChoice = selection.first;
+                            _dashboardChoiceExplicitlySelected = true;
+                            _errorMessage = null;
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 18),
 
                       // Email input field
                       Text(
@@ -241,7 +286,10 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
                       TextFormField(
                         controller: _emailController,
                         keyboardType: TextInputType.emailAddress,
-                        style: GoogleFonts.inter(fontSize: 14, color: AppTheme.deepInk),
+                        style: GoogleFonts.inter(
+                          fontSize: 14,
+                          color: AppTheme.deepInk,
+                        ),
                         decoration: InputDecoration(
                           hintText: 'name@example.com',
                           prefixIcon: const Icon(
@@ -291,7 +339,10 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
                       TextFormField(
                         controller: _passwordController,
                         obscureText: _obscurePassword,
-                        style: GoogleFonts.inter(fontSize: 14, color: AppTheme.deepInk),
+                        style: GoogleFonts.inter(
+                          fontSize: 14,
+                          color: AppTheme.deepInk,
+                        ),
                         decoration: InputDecoration(
                           hintText: '••••••••',
                           prefixIcon: const Icon(
@@ -376,7 +427,9 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
                                 color: AppTheme.lightEmeraldPill,
                                 borderRadius: BorderRadius.circular(8),
                                 border: Border.all(
-                                  color: AppTheme.accentEmerald.withValues(alpha: 0.2),
+                                  color: AppTheme.accentEmerald.withValues(
+                                    alpha: 0.2,
+                                  ),
                                 ),
                               ),
                               child: Row(
@@ -437,7 +490,10 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
                                       ),
                                     ),
                                     const SizedBox(width: 6),
-                                    const Icon(Icons.arrow_forward_rounded, size: 18),
+                                    const Icon(
+                                      Icons.arrow_forward_rounded,
+                                      size: 18,
+                                    ),
                                   ],
                                 ),
                         ),
@@ -469,7 +525,10 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
                         onPressed: _isLoading ? null : _handleGoogleSignIn,
                         style: OutlinedButton.styleFrom(
                           padding: const EdgeInsets.symmetric(vertical: 12),
-                          side: const BorderSide(color: AppTheme.cardBorder, width: 1),
+                          side: const BorderSide(
+                            color: AppTheme.cardBorder,
+                            width: 1,
+                          ),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
                           ),
@@ -481,7 +540,9 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
                             Container(
                               width: 18,
                               height: 18,
-                              decoration: const BoxDecoration(shape: BoxShape.circle),
+                              decoration: const BoxDecoration(
+                                shape: BoxShape.circle,
+                              ),
                               child: const Center(
                                 child: Text(
                                   'G',
@@ -526,7 +587,13 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
                   GestureDetector(
                     onTap: () {
                       Navigator.of(context).push(
-                        MaterialPageRoute(builder: (_) => const SignUpScreen()),
+                        MaterialPageRoute(
+                          builder: (_) => SignUpScreen(
+                            organizationWorkspaceRequested:
+                                _dashboardChoice ==
+                                _DashboardChoice.organization,
+                          ),
+                        ),
                       );
                     },
                     child: Text(
@@ -575,7 +642,9 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(19)),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(19),
+              ),
             ),
             child: Stack(
               children: [
@@ -610,7 +679,10 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
                   top: 14,
                   right: 14,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.black.withValues(alpha: 0.35),
                       borderRadius: BorderRadius.circular(14),
@@ -629,7 +701,7 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
                         ),
                         const SizedBox(width: 5),
                         Text(
-                          'Clinically Validated (CPIC)',
+                          'CPIC-sourced decision support',
                           style: GoogleFonts.inter(
                             fontSize: 10.5,
                             fontWeight: FontWeight.w600,

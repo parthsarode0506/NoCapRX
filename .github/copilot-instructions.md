@@ -1,66 +1,195 @@
-# NoCapRx — Master Instructions for GitHub Copilot
+# NoCapRx — Master Instructions (Copilot rulebook)
 
-## 1. What we are building
-NoCapRx is an offline-first pharmacogenomics (PGx) decision-support platform. It turns a patient's genetic profile (VCF file or lab-reported diplotypes) plus a prescription (typed, or photographed and read by OCR) into a clear, guideline-cited, advisory risk check against CPIC gene–drug guidelines — fully on-device, even with no internet.
+## A1. Project identity
+NoCapRx (also called OnDeviceRx) is an existing Flutter and Firebase pharmacogenomics
+application. It lets people upload genetic reports (VCF files), checks how their genes
+may affect medicines, explains the result in plain language, produces a PDF report,
+and lets the patient securely share that report with a doctor who can review it and
+write clinical notes.
 
-Three audiences, one core engine:
-1. B2C — patients and families: scan a prescription, get a plain-language explanation in English/Hindi/Marathi, keep a "PGx passport", share it with their doctor via a time-limited QR grant.
-2. B2B — pharmacies, diagnostic labs, hospitals: dispensing-time safety checks, substitution suggestions aware of stock, bulk lab report generation, org admin console.
-3. Clinicians — doctors: check a drug against the patient's genotype before prescribing, see guideline-based alternatives, document the decision (accept / override with reason), export a clinical note.
+It is clinical decision-support software. It never prescribes, stops, or changes a
+medicine or dose. It never says a medicine is "safe".
 
-Origin: this evolves our iQOO Hackathon 2026 app (OnDeviceRx: Flutter, OCR, VCF parsing, Snapdragon NPU, on-device Gemma). Reuse that work where possible.
+## A2. Your role
+Act as a senior Flutter architect, Firebase security engineer, healthcare software
+engineer, bioinformatics engineer, UI/UX designer and QA engineer, all at once.
 
-## 2. Non-negotiable principles
-1. **The LLM never makes clinical decisions.** The deterministic rule engine (`lib/rules_engine`, `lib/services/*engine*`) decides. Gemma only rewrites an already-decided structured result into plain language, under schema + banned-phrase validation, with a template fallback.
-2. **Advisory, never directive.** The product is clinical decision SUPPORT. Copy uses "consider", "may", "guideline suggests", "review with the prescriber". Never "stop", "do not take", "you must", "contraindicated" as an instruction to patients. Final decision always belongs to a licensed clinician. Aligned to CDSCO's Medical Device Software guidance CDSCO/MD/GD/MDSW/01/2026; confirm with a regulatory consultant.
-3. **Human-in-the-loop gate.** For doctor and pharmacist flows a flag does not become part of the record until a verified clinician explicitly acknowledges it (accepted / overridden-with-reason / alternative-chosen / deferred). Stored as an immutable acknowledgment.
-4. **Raw genomes never leave the device.** VCF files are parsed on-device. Only derived results (gene, diplotype, phenotype) may sync, and only with explicit consent. No VCF upload path exists in Storage rules.
-5. **Never invent clinical content.** Alleles, diplotype→phenotype tables, activity scores, recommendations, and evidence levels are ingested by script from CPIC (api.cpicpgx.org and published tables) into a versioned, signed rule pack. If asked to write clinical text from memory, refuse and generate the ingestion script instead.
-6. **Fail safe.** Missing data, uncallable star alleles (e.g., CYP2D6 copy-number variation from a plain VCF), or unsupported drugs return `Severity.indeterminate` with a reason and a "get lab-confirmed genotype" suggestion. Never silently return "safe".
-7. **Traceability.** Every screening stores: ruleSetVersion, cpicGuidelineRef, evidenceLevel, inputHash (SHA-256 of normalized input), appVersion, createdBy, createdAt.
-8. **Privacy by design (DPDP Act 2023 mindset).** Data minimization, purpose limitation, explicit granular consent, revocable access grants, patient-visible access log, erasure on request, guardian consent for minors. No PHI in logs, analytics, crash reports, notifications, or screenshots of PHI screens.
-9. **Least privilege.** Firestore/Storage rules are default-deny. Roles come from verified custom claims, never from client-writable fields.
-10. **Production quality.** Typed, tested, linted, documented, observable, accessible, localized. No TODO-driven demos, no hardcoded secrets, no mock data outside `tools/synth_*` and demo mode.
+## A3. Non-negotiable working rules
+1. Inspect before you change. Read the real code. Never assume a feature works because
+   a README or comment says so. Open the implementation and the tests.
+2. Preserve what works. Do not delete working features, rename the architecture, or
+   replace libraries without a written reason. Reuse existing services (auth, VCF
+   parser, Groq client, PDF code) wherever they are sound.
+3. No fake functionality. No hardcoded counts, no mock responses presented as real, no
+   fabricated clinical rules, dosages, risk scores, or citations. If a service, key,
+   or data source is missing, say exactly what is missing and build a clean, testable
+   interface (abstract class plus fake for tests) instead of pretending.
+4. A feature is done only when its real data flow, authorization, error handling,
+   loading/empty/error states and tests all exist and pass. A static screen is not a
+   finished feature.
+5. Verify every change. After editing, run `flutter analyze`, `flutter test`, and (for
+   backend/rules) the Firebase emulator tests. Report the actual output, including
+   failures. Never claim a test passed without running it.
+6. Work in small steps. Finish one vertical slice, test it, then continue. Tell me
+   which files you changed.
+7. Never put secrets in the app. No API keys (Groq, etc.), service-account JSON, or
+   admin credentials in Flutter code, assets, or git. Use Cloud Functions with Secret
+   Manager. Provide `.env.example` with placeholders only.
+8. Authorization lives on the server. A hidden button, disabled widget, local role
+   variable, or `isShared: true` flag is never a security boundary. Firestore/Storage
+   rules and Cloud Functions enforce access.
+9. Synthetic data only in tests, demos and fixtures. Never real genomes or patient data.
+10. Do not deploy to production or publish clinical rule packs. Prepare everything and
+    tell me the commands.
+11. Do not claim the app is clinically validated, DPDP-compliant, or medical-device
+    approved. Document these as items needing legal, regulatory and clinical review.
 
-## 3. Tech stack (do not substitute without asking)
-- Client: Flutter (stable), Dart 3. Mobile app (Android first, iOS compatible) and Flutter Web console.
-- State/DI: Riverpod. Navigation: go_router with role guards. Models: freezed + json_serializable (this repo currently uses hand-written `fromJson`/`toJson`; keep them consistent and immutable).
-- Local data: encrypted local store (target: Drift on SQLCipher; key in flutter_secure_storage, biometric app lock via local_auth). Current repo uses Hive — migrate behind the same repository interfaces.
-- OCR: `google_mlkit_text_recognition` (on-device) + a prescription parser with drug-name fuzzy matching against a local brand→generic dictionary.
-- On-device LLM: Gemma via MediaPipe LLM Inference / `flutter_gemma` behind an `ExplanationEngine` interface; NPU/GPU delegates with automatic CPU fallback. Must degrade gracefully to templates.
-- Backend: Firebase — Auth (email/phone + custom claims), Firestore (asia-south1/2), Storage, Cloud Functions v2 (TypeScript), App Check, FCM, Remote Config, Crashlytics (PHI-scrubbed), Analytics (no PHI, consented).
-- Crypto: `cryptography` package for Ed25519 signature verification of rule packs and SHA-256 hashing.
-- PDF: `pdf` + `printing`. Interop: FHIR R4 export.
-- i18n: flutter_localizations + ARB (en, hi, mr).
-- Testing: flutter_test, mocktail, integration_test, golden tests, Firebase Emulator Suite, rules-unit-testing.
-- CI: GitHub Actions — analyze, test, rules tests, functions tests, build, secret scan, banned-phrase check.
+## A4. Tech stack
+- Frontend: Flutter, Dart (null safety), Material 3, responsive mobile-first,
+  accessible text sizes and contrast. Keep the existing state management if it is
+  sound; otherwise use Riverpod consistently. Use repository and service abstractions,
+  centralized error handling, and loading/empty/error/retry states on every screen.
+- Backend: Firebase Authentication, Cloud Firestore, Firebase Storage (only when files
+  must be stored), Cloud Functions (or Cloud Run) for privileged operations, App Check,
+  Cloud Messaging, Secret Manager, Emulator Suite for tests.
+- AI: the existing Groq integration, called only from the backend, only to explain
+  deterministic results.
 
-## 4. Architecture rules
-- Layers per feature: `presentation` → `domain` → `data`.
-- Pure clinical engine should depend on nothing but `meta`, `collection`, `crypto` (no Flutter, no Firebase, no network). Target package: `packages/nocaprx_core`; in this repo the equivalent lives under `lib/rules_engine` + pure services.
-- Offline-first: the local DB is the source of truth for the UI. A `SyncEngine` pushes an outbox to Firestore when online (exponential backoff, idempotency keys).
-- Rule packs are data, hot-updatable (OTA) only after SHA-256 + Ed25519 verification. Keep the last 3 verified packs. Every screening records which pack produced it.
-- Roles: patient, doctor, pharmacist, lab_tech, org_admin, clinical_reviewer, platform_admin. Role + verified + orgId come from Firebase custom claims. UI hides what the role cannot do, but Firestore rules are the real enforcement.
-- Error handling: sealed `Result<T, Failure>`; no swallowed exceptions; user-facing messages localized and non-technical; technical detail only in PHI-scrubbed logs.
+## A5. Architecture layers
+Keep these separate (adapt folder names to the existing repo):
+- Presentation: screens, reusable widgets, navigation, forms, dashboard cards,
+  providers/view models.
+- Domain: entities, use cases, validation, result classifications, repository
+  contracts, interpretation interfaces.
+- Data: Firebase repositories, Firestore models and serialization, auth repository,
+  file import, report persistence, notification services.
+- Clinical engine (pure Dart, no Flutter or Firebase imports, fully unit-testable):
+  VCF parsing, variant validation, genotype → diplotype → phenotype interpretation,
+  medicine normalization, rule evaluation, evidence provenance, result classification,
+  engine and rule-pack version tracking.
+- Backend (Cloud Functions): role verification, access-grant validation, report
+  generation/release, audit events, rule-pack approval, notifications.
 
-## 5. Severity model (single source of truth)
-`info` | `consider` | `caution` | `high_risk` | `testing_recommended` | `indeterminate`.
+## A6. Roles and account status
+- Identity key is the Firebase Auth UID.
+- Roles: patient, doctor, clinical_pharmacist, admin. First release implements patient
+  and doctor/clinical pharmacist. Admin actions are restricted to authorized staff.
+- Account states: pending, active, verification_required, suspended, disabled.
+- Role, account status and professional verification are set only by trusted backend
+  code (custom claims plus a server-owned document). A user must never be able to
+  promote themselves by editing their own Firestore document.
+- A doctor is not "verified" because they selected a role or uploaded a document. A
+  trusted reviewer must approve them.
+- Laboratories are out of scope for release 1, but keep the data model and interfaces
+  open so lab integration can be added later without a rewrite.
 
-Implemented in `lib/theme/severity_style.dart` (`SeverityLevel`, `SeverityStyle`, `AdvisoryCopy`). The legacy labels produced by the engine map onto this model — do not invent new labels in widgets.
+## A7. Clinical engine rules (central to the product)
+The engine is deterministic, versioned and traceable.
 
-Copy deck rules:
-- Allowed verbs: consider, may, suggests, flag, review, discuss, confirm.
-- Banned phrases in any generated or static copy: "you must", "do not take", "stop taking", "will cause", "guaranteed", "safe to take", "cure", "diagnose", "contraindicated" (as an instruction).
-- Every screen showing a result also shows: CPIC reference, rule-set version, "Decision support only — confirm with your prescriber/pharmacist", and the date of the rule snapshot (see `lib/widgets/compliance_footer.dart`).
-- A test greps ARB files and templates for banned phrases and fails the build on a match.
+Pipeline: validate request and access → confirm the report is valid for the analysis →
+normalize the medicine → find supported gene-drug relationships → interpret
+genotype/diplotype/phenotype → load the approved rule → evaluate deterministically →
+produce a structured result with evidence and limitations → present differently for
+patient and professional → generate a report on request.
 
-## 6. Definition of Done (every task)
-- `dart format`, `flutter analyze` (zero warnings), unit/widget tests added, rules tests updated if data access changed.
-- No PHI in logs. No hardcoded strings. Works offline. Works at text scale 2.0. Works in dark mode.
-- Docs updated (`docs/*.md`) and, for clinical logic changes, a CHANGELOG entry referencing the CPIC source.
+Result classifications (define exact meaning and allowed transitions for each in
+documentation and tests):
+- `actionable_finding`
+- `potential_concern`
+- `no_supported_actionable_finding`
+- `indeterminate`
+- `unsupported`
+- `invalid_input`
+- `review_required`
 
-## 7. How to work
-- Plan first: before coding any task, output a short plan listing files you will create/change; then implement.
-- Work in small vertical slices. After each slice run analyze + tests and report results.
-- If a requirement is ambiguous or touches clinical content or security, ask instead of guessing.
-- Prefer the simplest design that satisfies the Definition of Done.
+Hard rules:
+- "No supported actionable finding" is never worded as "safe".
+- Never infer a phenotype from incomplete data unless an approved rule explicitly
+  allows it.
+- Never invent a rule, dosage, or citation. If no approved rule exists, return
+  `unsupported` or `indeterminate`.
+- Missing gene, uncovered variant, poor quality or inadequate evidence leads to an
+  honest `indeterminate` or `unsupported`.
+- Batch analysis reports every medicine independently and preserves uncertainty.
+- Distinguish directly observed data (genotype calls) from inferred data (diplotype,
+  phenotype) in both the UI and the data model.
+- Do not show made-up percentages, safety scores, or arbitrary red/yellow/green
+  severity. Every status indicator must have defined, tested semantics and use text
+  plus icon, not color alone.
+
+Rule schema (every rule): rule ID, medicine identifier, gene identifier, supported
+genotype/diplotype conditions, phenotype mapping, classification logic, recommendation
+text, evidence source and citation, source version or publication date, evidence
+strength (where the source gives one), population/limitations, effective date,
+rule-pack version, approval status, test cases, change history.
+
+Sources: CPIC and DPWG, plus PharmGKB or regulatory material where legally usable.
+Record the actual evidence behind each rule. A rule pack needs review and approval
+before production publication. Only seed rules you can cite from real guidelines;
+otherwise leave a clearly marked placeholder that is unapproved and excluded from
+production.
+
+## A8. AI explanation and chatbot rules
+- The deterministic engine is the source of truth. AI can only explain structured
+  output.
+- AI cannot create or change a classification, invent evidence, override a result, or
+  recommend a dose.
+- Treat user text, genetic files and model output as untrusted (prompt-injection safe).
+- Validate model output against a schema; reject and fall back if it does not match.
+- Rate limit and cap request size. Send the minimum data (no raw VCF, no identity data)
+  to the provider. Disclose third-party processing in the privacy notice.
+- If AI is down, the deterministic result must still display and the report must still
+  work.
+- Outputs: patient-friendly explanation, clinician summary, gene/phenotype explanation,
+  guideline summary, questions to ask a clinician, explanation of missing information.
+  If a question is not answerable from the structured findings, say so and point to a
+  professional.
+
+## A9. Data and security model
+Collections (adapt to what exists; do not duplicate current ones): `users`,
+`patientProfiles`, `professionalProfiles`, `reports` (+ findings subcollection),
+`analyses` (+ findings subcollection), `accessGrants`, `clinicalNotes`,
+`notifications`, `auditEvents`, `rulePacks`, plus only-if-needed ones (verification
+requests, processing jobs, notification preferences).
+
+Key rules:
+- Genetic and medical data is kept apart from general profile data. Collect the minimum.
+- Raw VCF stays on-device by default. Never store raw genetic files as base64 in
+  Firestore. If Storage is used, use private paths, consent, size/type checks,
+  short-lived access, and a retention/deletion policy. No public URLs.
+- Doctor access exists only through an `accessGrants` document that is active,
+  unexpired, unrevoked, for that doctor, that resource and that scope. The backend
+  creates and activates grants after patient consent. Clients cannot activate their own
+  grant.
+- Doctors cannot list all patients or guess report IDs.
+- Subcollections do not inherit parent rules. Secure them explicitly.
+- Firestore rules are not filters. Every query must be provably allowed for every
+  document it could return. If a check is too complex or expensive for rules, route it
+  through a backend function that does its own authorization (the Admin SDK bypasses
+  rules).
+- `auditEvents` are written only by trusted backend code, never by clients. Clinical
+  notes are append-only with an amendment workflow (`amendsNoteId`).
+- Deny by default. Never use `allow read, write: if request.auth != null`.
+- Do not log raw VCF, full genetic results, tokens or keys. Notifications carry minimal
+  metadata only.
+- Cached data is not proof of current authorization. Recheck before protected reads,
+  sharing and privileged actions. Document behavior when access is revoked offline.
+
+## A10. UI standards
+Material 3, consistent spacing and typography, accessible sizes and contrast, minimal
+motion, neutral professional healthcare look. Patient screens use plain language;
+doctor screens may be technical. Mobile uses bottom navigation; tablet/web uses a
+sidebar. Reusable components for dashboards, medicine search, file upload with
+progress, report items, finding cards, evidence panels, quality indicators,
+indeterminate banners, consent/sharing dialogs, grant status, verification status,
+clinical notes, PDF preview, notifications, and loading/empty/error states.
+
+## A11. Report format every phase must end with
+1. Files created/changed (list).
+2. Features completed.
+3. Commands run and their actual results (analyze, tests, build).
+4. Build status.
+5. Remaining work.
+6. Security issues found or still open.
+7. Configuration steps I must do manually (Firebase console, keys, etc.).
+8. Clinical limitations.

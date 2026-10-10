@@ -4,9 +4,9 @@ Region: create the Firestore database in **asia-south1 (Mumbai)** or
 **asia-south2 (Delhi)**. Native mode. The location cannot be changed later.
 
 ```
-users/{uid}                        self profile (displayName, locale, fcmTokens, requestedRole, createdAt). NO role/verified here.
-providers/{uid}                    public provider card, written by Functions only: displayName, role, verified, orgId, specialty, verifiedAt, verificationExpiresAt
-verifications/{uid}                type, registrationNumber, issuingBody, state, documentPaths[], status(pending|approved|rejected|expired), submittedAt, reviewedBy, reviewedAt, reason
+users/{uid}                        self profile (displayName, phone, locale, accountType, createdAt). UID is the document ID; email comes from Firebase Auth. `accountType` is a display preference only, never an authorization claim.
+users/{uid}/consents/privacy_notice immutable acknowledgment (accepted, noticeVersion, createdAt); optional processing consents must use separately versioned, revocable records.
+users/{uid}/reports/{id}           legacy cloud report history; new reports remain local until an explicit derived-data sync consent flow is implemented.
 orgs/{orgId}                       displayName, type(pharmacy|lab|hospital|clinic), plan, status, logoUrl, contactEmail, kybStatus
 orgs/{orgId}/members/{uid}         role, status, invitedBy, joinedAt                 (Functions write)
 orgs/{orgId}/invites/{inviteId}    email, role, expiresAt, status                    (Functions write)
@@ -36,3 +36,15 @@ users/{uid}/notifications/{id}        type, title, body(no PHI), read, createdAt
 - Rules allow at most 10 document-access calls per request. Denormalize `ownerUid`
   onto subcollection docs if the limit is hit.
 - List queries must include the same filter the rule checks, else Firestore rejects the query.
+- Public signup creates patient accounts only. Organization access is provisioned
+  out-of-band by a trusted organization administrator; the application does not
+  implement professional credential verification or a reviewer queue.
+- Organization patient search and registration are callable-only operations.
+  `organizations/{orgId}/patientLinks/{patientId}` is the scoped search index;
+  it points to the single canonical `patients/{patientId}` record. The
+  `idempotency` subcollection stores request-key results to make registration
+  retry-safe. Clients must not read the full patient collection.
+- The current organization workspace returns only identity and workflow
+  status. It does not upload raw VCFs, run a server analysis, or publish a
+  report. Those fields must not be represented as complete without a trusted,
+  privacy-approved, clinically validated pipeline.
