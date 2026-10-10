@@ -25,6 +25,7 @@ class _PatientOrganizationAccessScreenState
   @override
   void initState() {
     super.initState();
+    _loadOrganizations();
     _loadRequests();
   }
 
@@ -34,15 +35,7 @@ class _PatientOrganizationAccessScreenState
     super.dispose();
   }
 
-  Future<void> _searchOrganizations() async {
-    final query = _searchController.text.trim();
-    if (query.length < 2) {
-      setState(() {
-        _organizations = const [];
-        _searchError = 'Enter at least two characters to search.';
-      });
-      return;
-    }
+  Future<void> _loadOrganizations([String query = '']) async {
     setState(() {
       _searching = true;
       _searchError = null;
@@ -59,14 +52,37 @@ class _PatientOrganizationAccessScreenState
     }
   }
 
+  Future<void> _searchOrganizations() async {
+    await _loadOrganizations(_searchController.text.trim());
+  }
+
   Future<void> _loadRequests() async {
     setState(() {
       _loadingRequests = true;
       _requestError = null;
     });
     try {
-      final requests = await FirebaseService.listPatientOrganizationRequests();
-      if (mounted) setState(() => _requests = requests);
+      final directoryRequests =
+          await FirebaseService.listPatientDirectoryContactRequests();
+      var organizationRequests = <OrganizationAccessRequest>[];
+      try {
+        organizationRequests =
+            await FirebaseService.listPatientOrganizationRequests();
+      } catch (error) {
+        debugPrint('Enterprise organization requests callable skipped: $error');
+      }
+      final requestsByOrganization = <String, OrganizationAccessRequest>{
+        for (final request in organizationRequests)
+          request.organizationId: request,
+        for (final request in directoryRequests)
+          request.organizationId: request,
+      };
+      if (mounted) {
+        setState(() {
+          _requests = requestsByOrganization.values.toList(growable: false);
+          _requestError = null;
+        });
+      }
     } catch (error) {
       if (mounted) {
         setState(() => _requestError = FirebaseService.mapAuthError(error));
@@ -75,6 +91,7 @@ class _PatientOrganizationAccessScreenState
       if (mounted) setState(() => _loadingRequests = false);
     }
   }
+
 
   Future<void> _requestAccess(OrganizationDirectoryEntry organization) async {
     setState(() => _busyOrganizationId = organization.organizationId);
@@ -158,17 +175,28 @@ class _PatientOrganizationAccessScreenState
       padding: const EdgeInsets.all(20),
       children: [
         const Text(
-          'Find an organization by name. It must review your request before you decide whether to share your basic profile.',
+          'Find an organization by name and send a request. For self-registered listings, only your display name is sent; no patient profile or genetic data is shared.',
         ),
         const SizedBox(height: 16),
         TextField(
           controller: _searchController,
           textInputAction: TextInputAction.search,
           onSubmitted: (_) => _searchOrganizations(),
-          decoration: const InputDecoration(
-            labelText: 'Organization name',
-            prefixIcon: Icon(Icons.search),
-            border: OutlineInputBorder(),
+          onChanged: (val) => _loadOrganizations(val.trim()),
+          decoration: InputDecoration(
+            labelText: 'Search Hospital or Organization',
+            hintText: 'Type hospital name or city...',
+            prefixIcon: const Icon(Icons.search),
+            suffixIcon: _searchController.text.isNotEmpty
+                ? IconButton(
+                    icon: const Icon(Icons.clear),
+                    onPressed: () {
+                      _searchController.clear();
+                      _loadOrganizations('');
+                    },
+                  )
+                : null,
+            border: const OutlineInputBorder(),
           ),
         ),
         const SizedBox(height: 10),
@@ -183,6 +211,17 @@ class _PatientOrganizationAccessScreenState
           label: Text(_searching ? 'Searching…' : 'Search organizations'),
         ),
         if (_searchError != null) _ErrorText(_searchError!),
+        if (!_searching && _organizations.isEmpty)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 24),
+            child: Center(
+              child: Text(
+                'No registered hospitals found. When a clinic signs up, it will appear here immediately.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey),
+              ),
+            ),
+          ),
         ..._organizations.map(_organizationTile),
         const SizedBox(height: 24),
         Row(
@@ -233,16 +272,11 @@ class _PatientOrganizationAccessScreenState
         title: Text(organization.name),
         subtitle: Text(
           organization.selfRegistered
-              ? '${organization.city} · Self-registered, not verified'
+              ? '${organization.city} · Self-registered'
               : organization.city,
         ),
-        trailing:
-            status == 'pending_org_review' ||
-                status == 'awaiting_patient_confirmation' ||
-                status == 'accepted'
-            ? Text(_statusLabel(status!))
-            : !organization.canRequestAccess
-            ? const Text('Listing only')
+        trailing: status != null
+            ? Text(_statusLabel(status))
             : FilledButton(
                 onPressed: _busyOrganizationId == organization.organizationId
                     ? null
@@ -264,6 +298,12 @@ class _PatientOrganizationAccessScreenState
             Text(request.organizationName),
             const SizedBox(height: 4),
             Text(_statusLabel(request.status)),
+            if (request.isDirectoryContactRequest) ...[
+              const SizedBox(height: 6),
+              const Text(
+                'This is a contact request only. No patient record, medical profile, or genetic data was shared.',
+              ),
+            ],
             if (request.status == 'awaiting_patient_confirmation') ...[
               const SizedBox(height: 8),
               const Text(
@@ -304,6 +344,9 @@ class _PatientOrganizationAccessScreenState
     'accepted' => 'Profile shared',
     'declined' => 'Declined',
     'revoked' => 'Access revoked',
+    'directory_request_pending' => 'Request sent — awaiting organization',
+    'directory_request_acknowledged' => 'Organization acknowledged request',
+    'directory_request_declined' => 'Organization declined request',
     _ => status.replaceAll('_', ' '),
   };
 }

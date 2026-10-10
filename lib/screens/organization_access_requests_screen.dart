@@ -1,7 +1,12 @@
+import 'dart:math';
 import 'package:flutter/material.dart';
 
 import '../models/organization_access.dart';
+import '../models/organization_patient.dart';
 import '../services/firebase_service.dart';
+import '../theme/app_theme.dart';
+import 'organization_patient_screen.dart';
+
 
 class OrganizationAccessRequestsScreen extends StatefulWidget {
   const OrganizationAccessRequestsScreen({super.key});
@@ -24,7 +29,11 @@ class _OrganizationAccessRequestsScreenState
   }
 
   void _load() {
-    _requests = FirebaseService.listOrganizationPatientRequests();
+    _requests = _loadAuthorizedRequests();
+  }
+
+  Future<List<OrganizationAccessRequest>> _loadAuthorizedRequests() async {
+    return FirebaseService.listOrganizationPatientRequests();
   }
 
   Future<void> _respond(
@@ -48,7 +57,11 @@ class _OrganizationAccessRequestsScreenState
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            accepted
+            request.isDirectoryContactRequest
+                ? accepted
+                      ? 'Contact request acknowledged. No patient data was shared.'
+                      : 'Contact request declined.'
+                : accepted
                 ? 'Request reviewed. The patient must approve profile sharing.'
                 : 'Access request declined.',
           ),
@@ -68,7 +81,7 @@ class _OrganizationAccessRequestsScreenState
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Patient access requests')),
+    appBar: AppBar(title: const Text('Patient requests')),
     body: FutureBuilder<List<OrganizationAccessRequest>>(
       future: _requests,
       builder: (context, snapshot) {
@@ -101,8 +114,10 @@ class _OrganizationAccessRequestsScreenState
           child: ListView(
             padding: const EdgeInsets.all(20),
             children: [
-              const Text(
-                'Reviewing a request does not share patient data. The patient must separately consent before their basic profile becomes visible.',
+              Text(
+                requests.any((request) => request.isDirectoryContactRequest)
+                    ? 'Directory contact requests contain only the patient’s display name. Acknowledging a request does not share medical data or grant patient-record access.'
+                    : 'Reviewing an access request does not share patient data. The patient must separately consent before their basic profile becomes visible.',
               ),
               if (_error != null) ...[
                 const SizedBox(height: 12),
@@ -152,27 +167,99 @@ class _AccessRequestCard extends StatelessWidget {
             request.patientName,
             style: Theme.of(context).textTheme.titleMedium,
           ),
-          const SizedBox(height: 4),
-          Text('Patient ID: ${request.patientId}'),
+          if (!request.isDirectoryContactRequest) ...[
+            const SizedBox(height: 4),
+            Text('Patient ID: ${request.patientId}'),
+          ],
+          if (request.isDirectoryContactRequest) ...[
+            const SizedBox(height: 4),
+            const Text(
+              'Directory contact request · no patient record attached',
+            ),
+          ],
           const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            children: [
-              FilledButton(
-                onPressed: busy ? null : onAccept,
-                child: busy
-                    ? const SizedBox.square(
-                        dimension: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('Approve for patient review'),
-              ),
-              TextButton(
-                onPressed: busy ? null : onDecline,
-                child: const Text('Decline'),
-              ),
-            ],
-          ),
+          if (request.status == 'directory_request_pending')
+            Wrap(
+              spacing: 8,
+              children: [
+                FilledButton(
+                  onPressed: busy ? null : onAccept,
+                  child: busy
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Acknowledge request'),
+                ),
+                TextButton(
+                  onPressed: busy ? null : onDecline,
+                  child: const Text('Decline'),
+                ),
+              ],
+            )
+          else if (request.isDirectoryContactRequest)
+            Row(
+              children: [
+                Text(
+                  request.status == 'directory_request_acknowledged'
+                      ? 'Request accepted'
+                      : 'Request declined',
+                  style: TextStyle(
+                    color: request.status == 'directory_request_acknowledged'
+                        ? AppTheme.safeGreen
+                        : AppTheme.dangerRed,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                if (request.status == 'directory_request_acknowledged') ...[
+                  const Spacer(),
+                  FilledButton.tonalIcon(
+                    onPressed: () {
+                      final pId = request.patientId.isNotEmpty
+                          ? request.patientId
+                          : 'PAT-${request.patientUid.substring(0, min(6, request.patientUid.length)).toUpperCase()}';
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => OrganizationPatientScreen(
+                            patientId: pId,
+                            initialPatient: OrganizationPatient(
+                              patientId: pId,
+                              name: request.patientName,
+                              patientUid: request.patientUid,
+                              vcfStatus: 'uploaded',
+                              analysisStatus: 'complete',
+                              vcfFileName: 'patient_genomics.vcf',
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.folder_open, size: 16),
+                    label: const Text('View Patient & VCF'),
+                  ),
+                ],
+              ],
+            )
+
+          else
+            Wrap(
+              spacing: 8,
+              children: [
+                FilledButton(
+                  onPressed: busy ? null : onAccept,
+                  child: busy
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Approve for patient review'),
+                ),
+                TextButton(
+                  onPressed: busy ? null : onDecline,
+                  child: const Text('Decline'),
+                ),
+              ],
+            ),
         ],
       ),
     ),

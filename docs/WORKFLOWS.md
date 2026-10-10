@@ -15,7 +15,7 @@
 
 ## 2.2 Patient (B2C) Workflow
 
-1. Sign up as Patient (email, or Google on Web) → choose a preferred language and acknowledge the privacy notice. Raw VCF uploads remain on-device.
+1. Sign up as Patient (email, or Google on Web) → choose a preferred language and acknowledge the privacy notice. If Authentication creates the account but Firestore setup is incomplete, signing in resumes profile/consent setup for that same account instead of creating a duplicate. Raw VCF uploads remain on-device.
 2. Import VCF or order a partner-lab test.
 3. Scan prescription ("check before you take").
 4. Plain-language result with "talk to your doctor" CTA.
@@ -30,64 +30,76 @@
 
 ## 2.3 Organization Workflow
 
-1. A patient creates an account through public signup. Organization accounts
-   are provisioned separately by a trusted organization administrator.
-2. An organization administrator assigns server-managed role/org claims and an
-   active organization membership. There is no in-app professional credential
-   verification or reviewer queue.
-3. The user selects Organization at login. That selection is navigation only;
-   the backend still checks the trusted role, organization ID, and active
-   membership on every patient operation.
-4. A patient can search the registered-organization directory and send an
-   access request. An authorized organization member may review or decline it.
-5. Organization approval only advances the request. The patient must separately
-   consent to sharing the basic profile (`read_profile`) before organization
-   search or profile access is enabled.
-6. The patient can revoke organization consent; subsequent callable reads are
+1. A patient or organization creates an account through public signup.
+   Organization signup immediately publishes the entered name and city in the
+   patient-search directory; no professional verification is required to be
+   listed or receive contact requests.
+2. A patient can search the directory and send a request to a self-registered
+   organization. The organization account receives the patient's display name
+   and may acknowledge or decline. The request does not reveal a patient record,
+   genomic data, email, or grant profile access.
+3. Organizations that need patient-record search still require trusted
+   server-managed role/org claims and active membership. These backend
+   credentials authorize clinical record operations only; they are not a
+   prerequisite for listing or receiving a directory contact request.
+4. For provisioned organizations, a patient can request profile access. An
+   authorized organization member may review it, then the patient must
+   separately consent to sharing the basic profile (`read_profile`).
+5. The patient can revoke organization consent; subsequent callable reads are
    denied. Raw VCF and derived genomic profiles remain on-device.
-7. Prescription authoring, clinician acknowledgment, clinical notes and
+6. Prescription authoring, clinician acknowledgment, clinical notes and
    patient-authorized report synchronization are not implemented.
 
 ### Current organization workspace implementation boundary
 
 - The sign-in screen offers separate Patient and Organization dashboard
   choices. The choice is a navigation preference only; it does not grant
-  permissions. Organization entry requires server-provisioned doctor/pharmacist
-  claims with an organization ID, and every callable checks active membership.
+  permissions. Any organization account can enter its directory-request
+  workspace; patient-record search requires server-provisioned doctor or
+  pharmacist claims with an organization ID, and every callable checks active
+  membership.
 - Choosing Sign Up while Organization is selected carries that workspace
-  intent through signup, stores `accountType: organization` as a workspace
-  preference, and opens the organization dashboard shell. Existing organization
-  preferences also open that dashboard by default after sign-in or app restart.
-  The preference never grants access: patient search is available in the UI,
-  but callable Functions enforce trusted organization claims, active
-  membership, and patient consent before returning profile data.
+  intent through signup, stores `accountType: organization`, publishes the
+  directory listing, and opens the organization dashboard. Existing
+  organization accounts return to that dashboard after sign-in or app restart.
+  The account type does not grant patient-record access; callable Functions
+  enforce trusted organization claims, active membership, and patient consent.
 - Public signup never assigns organization roles. There is no
   professional-verification workflow in the app.
-- Organization signup stores organization name and city only as self-entered
-  profile details; they do not create an organization or grant member claims.
+- Organization signup stores organization name and city as self-entered
+  profile details and immediately creates a patient-discoverable listing. It
+  does not create a clinical organization or grant member claims.
 - The patient-facing organization directory exposes only active organization
   names and locations. Organization signup automatically publishes the
-  self-entered name and city as a self-registered, unverified listing.
-- Patients can discover these self-registered listings, but cannot request
-  patient-data access through a listing that has no provisioned organization.
+  self-entered name and city as a self-registered listing.
+- Patients can send contact requests to self-registered listings. These requests
+  contain the patient's display name only and do not share patient data.
 - Privacy notice v1.1 explains that organization name and city become publicly
   discoverable to signed-in patients. Acknowledgment is recorded at signup.
-- Patient access requests and mirrored request status for provisioned
-  organizations are written by callable Functions and audited server-side.
+- Self-registered directory contact requests are stored in a patient-and-
+  organization-readable Firestore request record, with rules restricting each
+  side to the minimum request fields. Provisioned patient access requests and
+  their mirrored status are written by callable Functions and audited
+  server-side.
 - Organization members can review patient requests. Their approval does not
   grant access; the patient must separately approve basic-profile sharing.
 - Patient links and organization search are callable-only. Search and profile
   reads check active membership and unexpired patient consent; report and
   prescription workflows are not implemented. Raw VCF files are never uploaded.
-- Patient accounts open the patient dashboard. The organization dashboard is
-  not hidden behind a client-side membership check; each patient-data callable
-  still denies unauthorized access server-side and returns no patient data.
+- Patient accounts open the patient dashboard. The organization dashboard
+  shell remains visible to self-registered accounts, but patient search and
+  request-review controls are shown only when trusted organization claims are
+  present. Every patient-data callable independently denies unauthorized access
+  server-side and returns no patient data.
 - Patient search is paged/capped and callable-only; it returns records from
   that organization's patient links only when organization consent is active.
   Search results do not silently select one of multiple matching patients.
-- The organization landing screen provides patient search and a patient-request
-  review pathway. It labels report generation and prescription authoring as
-  unavailable.
+- The organization landing screen lets a self-registered account review
+  directory contact requests without professional verification. Patient-record
+  search remains limited to trusted, provisioned accounts and queries real
+  server results; no sample patient profiles or clinical counts are displayed.
+  Server Functions enforce active membership and patient consent; report
+  generation and prescription authoring remain unavailable.
 - The Patient Details workspace returns the shared basic profile only. VCF,
   genomic findings, reports and prescriptions are explicitly shown as not
   shared or not synchronized; missing records are not represented as zero

@@ -71,4 +71,23 @@ void main() {
       findsOneWidget,
     );
   });
+
+  testWidgets('account recovery does not ask for a new password', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const ProviderScope(
+        child: MaterialApp(home: SignUpScreen(resumeExistingAccount: true)),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.textContaining('no new account will be created'),
+      findsOneWidget,
+    );
+    expect(find.text('Password'), findsNothing);
+    expect(find.text('Confirm Password'), findsNothing);
+    expect(find.text('Retry account setup'), findsOneWidget);
+  });
 }

@@ -20,7 +20,7 @@ void main() {
     },
   );
 
-  test('identifies which Firestore onboarding write was denied', () {
+  test('explains the stale privacy-notice rule that blocks signup', () {
     final message = FirebaseService.mapAccountSetupError(
       AccountSetupFailure(
         step: 'privacy acknowledgment (users/{uid}/consents/privacy_notice)',
@@ -32,10 +32,26 @@ void main() {
       authAccountExists: true,
     );
 
-    expect(
-      message,
-      contains('privacy acknowledgment (users/{uid}/consents/privacy_notice)'),
+    expect(message, contains('rules are outdated'));
+    expect(message, contains('version 1.0'));
+    expect(message, contains('version 1.1'));
+    expect(message, contains('Retry account setup'));
+  });
+
+  test('explains when organization directory rules block signup', () {
+    final message = FirebaseService.mapAccountSetupError(
+      AccountSetupFailure(
+        step: 'public organization directory listing',
+        cause: FirebaseException(
+          plugin: 'cloud_firestore',
+          code: 'permission-denied',
+        ),
+      ),
+      authAccountExists: true,
     );
+
+    expect(message, contains('organization directory listing'));
+    expect(message, contains('Retry account setup'));
   });
 
   test(

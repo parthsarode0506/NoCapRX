@@ -19,9 +19,14 @@ import 'patient_organization_access_screen.dart';
 import 'patient_profile_screen.dart';
 import 'prescription_scan_screen.dart';
 import 'results_screen.dart';
-import 'sign_in_screen.dart';
 import 'upload_screen.dart';
+import 'my_prescriptions_screen.dart';
+import 'sign_in_screen.dart';
 import 'organization_dashboard_screen.dart';
+import '../models/prescription.dart';
+import '../services/prescription_service.dart';
+import '../widgets/ui_kit.dart';
+
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -246,6 +251,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     MaterialPageRoute(builder: (_) => const HistoryScreen()),
                   );
                   break;
+                case 'prescriptions':
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const MyPrescriptionsScreen(),
+                    ),
+                  );
+                  break;
                 case 'organization_access':
                   Navigator.of(context).push(
                     MaterialPageRoute(
@@ -260,10 +272,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             },
             itemBuilder: (_) => [
               PopupMenuItem(value: 'profile', child: Text('My profile')),
+              PopupMenuItem(value: 'prescriptions', child: Text('My prescriptions')),
               PopupMenuItem(value: 'reports', child: Text('Reports')),
               PopupMenuItem(
                 value: 'organization_access',
-                child: Text('Organization access'),
+                child: Text('Organization access & sharing'),
               ),
               PopupMenuItem(value: 'sign_out', child: Text('Sign out')),
             ],
@@ -295,7 +308,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
               // ── VCF empty state ───────────────────────────────────────
               if (!hasVcf)
-                _buildEmptyState(() => _openUpload(context))
+                _buildEmptyState(context, () => _openUpload(context))
               else ...[
                 // ── Summary row ────────────────────────────────────────
                 _buildSummaryRow(
@@ -359,7 +372,148 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   badgeCount: watchCount,
                   onTap: () => _openWatchlist(context, ref, scan),
                 ),
+                const SizedBox(height: 10),
+
+                // My Prescriptions
+                _buildActionCard(
+                  icon: Icons.receipt_long_rounded,
+                  iconColor: AppTheme.primaryEmerald,
+                  iconBg: AppTheme.mintSurface,
+                  title: 'My Prescriptions',
+                  subtitle:
+                      'Review doctor-issued prescriptions from connected hospitals and doctors.',
+                  onTap: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const MyPrescriptionsScreen(),
+                      ),
+                    );
+                  },
+                ),
+                const SizedBox(height: 10),
+
+                // Hospital Access & Sharing
+                _buildActionCard(
+                  icon: Icons.apartment_rounded,
+                  iconColor: Colors.blueAccent,
+                  iconBg: Colors.blue.shade50,
+                  title: 'Hospital Access & Sharing',
+                  subtitle:
+                      'Find registered clinics & hospitals, send access requests, and manage sharing.',
+                  onTap: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const PatientOrganizationAccessScreen(),
+                      ),
+                    );
+                  },
+                ),
+
+                // ── Doctor Prescriptions Banner ──────────────────────────
+                StreamBuilder<List<Prescription>>(
+                  stream: PrescriptionService.instance.streamPatientPrescriptions(
+                    ref.watch(patientProfileProvider).patientId.isNotEmpty
+                        ? ref.watch(patientProfileProvider).patientId
+                        : 'PATIENT_001',
+                    patientUid: FirebaseService.currentUser?.uid,
+                  ),
+                  builder: (context, snapshot) {
+                    final rxList = snapshot.data ?? [];
+                    if (rxList.isEmpty) return const SizedBox.shrink();
+                    final latestRx = rxList.first;
+                    return Container(
+                      margin: const EdgeInsets.only(top: 12),
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: AppTheme.primaryEmerald.withValues(alpha: 0.35),
+                          width: 1.5,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppTheme.primaryEmerald.withValues(alpha: 0.08),
+                            blurRadius: 10,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: AppTheme.mintSurface,
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: const Icon(
+                                  Icons.medication_rounded,
+                                  color: AppTheme.primaryEmerald,
+                                  size: 20,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Hospital Prescription Issued',
+                                      style: GoogleFonts.inter(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w700,
+                                        color: AppTheme.deepInk,
+                                      ),
+                                    ),
+                                    Text(
+                                      '${latestRx.organizationName} · ${latestRx.prescriberName}',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: AppTheme.secondaryInk,
+                                      ),
+                                    ),
+
+                                  ],
+                                ),
+                              ),
+                              PillBadge(
+                                label: latestRx.status.toUpperCase(),
+                                color: latestRx.isIssued
+                                    ? AppTheme.safeGreen
+                                    : AppTheme.warningAmber,
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            '${latestRx.items.length} prescribed medication(s) checked against your genetic markers.',
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                          const SizedBox(height: 10),
+                          FilledButton.tonal(
+                            style: FilledButton.styleFrom(
+                              minimumSize: const Size.fromHeight(36),
+                            ),
+                            onPressed: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => const MyPrescriptionsScreen(),
+                                ),
+                              );
+                            },
+                            child: const Text('View Full Prescription'),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
                 const SizedBox(height: 18),
+
 
                 // ── Latest report ──────────────────────────────────────
                 if (latestReport != null) ...[
@@ -593,7 +747,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
-  Widget _buildEmptyState(VoidCallback onUpload) {
+  Widget _buildEmptyState(BuildContext context, VoidCallback onUpload) {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(24),
@@ -634,6 +788,37 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 backgroundColor: AppTheme.primaryEmerald,
                 minimumSize: const Size(200, 48),
               ),
+            ),
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              alignment: WrapAlignment.center,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const MyPrescriptionsScreen(),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.receipt_long_outlined, size: 16),
+                  label: const Text('My Prescriptions'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            const PatientOrganizationAccessScreen(),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.apartment_outlined, size: 16),
+                  label: const Text('Find Hospital'),
+                ),
+              ],
             ),
           ],
         ),

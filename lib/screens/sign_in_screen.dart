@@ -15,7 +15,9 @@ import 'sign_up_screen.dart';
 enum _DashboardChoice { patient, organization }
 
 class SignInScreen extends ConsumerStatefulWidget {
-  const SignInScreen({super.key});
+  const SignInScreen({super.key, this.initialError});
+
+  final String? initialError;
 
   @override
   ConsumerState<SignInScreen> createState() => _SignInScreenState();
@@ -32,6 +34,12 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
   _DashboardChoice _dashboardChoice = _DashboardChoice.patient;
   bool _dashboardChoiceExplicitlySelected = false;
   String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _errorMessage = widget.initialError;
+  }
 
   @override
   void dispose() {
@@ -94,9 +102,40 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
     ref.read(userProfileProvider.notifier).state = null;
     final profileBeforeRouting = await FirebaseService.getUserProfile(uid);
     if (!mounted) return;
+    if (profileBeforeRouting == null) {
+      // Only possible if Firebase isn't initialized at all AND no local cache exists.
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => SignUpScreen(
+            organizationWorkspaceRequested:
+                _dashboardChoice == _DashboardChoice.organization,
+            resumeExistingAccount: true,
+          ),
+        ),
+      );
+      return;
+    }
+    final setupComplete = await FirebaseService.hasCompletedAccountSetup(
+      uid: uid,
+      profile: profileBeforeRouting,
+    );
+    if (!mounted) return;
+    if (!setupComplete) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => SignUpScreen(
+            organizationWorkspaceRequested:
+                profileBeforeRouting.role == 'organization',
+            resumeExistingAccount: true,
+            existingProfile: profileBeforeRouting,
+          ),
+        ),
+      );
+      return;
+    }
     final openOrganization = _dashboardChoiceExplicitlySelected
         ? _dashboardChoice == _DashboardChoice.organization
-        : profileBeforeRouting?.role == 'organization';
+        : profileBeforeRouting.role == 'organization';
     final accountType = openOrganization ? 'organization' : 'patient';
     String? workspacePreferenceWarning;
     try {
@@ -108,19 +147,24 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
       workspacePreferenceWarning =
           'Dashboard opened, but the workspace choice could not be saved. Publish the updated Firestore user-profile rules to keep it after sign-out.';
     }
-    final profile = await FirebaseService.getUserProfile(uid);
+    final profile =
+        await FirebaseService.getUserProfile(uid) ?? profileBeforeRouting;
     if (!mounted) return;
     if (!openOrganization) {
-      if (profile != null) {
-        ref.read(userProfileProvider.notifier).state = profile;
-      }
+      ref.read(userProfileProvider.notifier).state = profile;
       Navigator.of(
         context,
       ).pushReplacement(MaterialPageRoute(builder: (_) => const HomeScreen()));
     } else {
-      if (profile != null) {
-        ref.read(userProfileProvider.notifier).state = profile;
+      final user = FirebaseService.currentUser;
+      if (user != null) {
+        FirebaseService.ensureOrganizationDirectoryPublished(
+          user: user,
+          name: profile.organizationName,
+          city: profile.city,
+        );
       }
+      ref.read(userProfileProvider.notifier).state = profile;
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (_) => const OrganizationDashboardScreen()),
       );
@@ -146,13 +190,13 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
         _clearPreviousPatientSession();
         final profile = await FirebaseService.getUserProfile(cred.user!.uid);
         if (profile == null) {
-          await FirebaseService.signOut();
           if (mounted) {
             Navigator.of(context).pushReplacement(
               MaterialPageRoute(
                 builder: (_) => SignUpScreen(
                   organizationWorkspaceRequested:
                       _dashboardChoice == _DashboardChoice.organization,
+                  resumeExistingAccount: true,
                 ),
               ),
             );

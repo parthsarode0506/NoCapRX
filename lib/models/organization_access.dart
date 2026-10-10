@@ -4,13 +4,22 @@ class OrganizationDirectoryEntry {
     required this.name,
     required this.city,
     this.selfRegistered = false,
+    this.active = true,
   });
 
   final String organizationId;
   final String name;
   final String city;
   final bool selfRegistered;
-  bool get canRequestAccess => !selfRegistered;
+  final bool active;
+
+  Map<String, dynamic> toJson() => {
+        'organizationId': organizationId,
+        'name': name,
+        'city': city,
+        'selfRegistered': selfRegistered,
+        'active': active,
+      };
 
   factory OrganizationDirectoryEntry.fromJson(Map<String, dynamic> json) =>
       OrganizationDirectoryEntry(
@@ -18,6 +27,7 @@ class OrganizationDirectoryEntry {
         name: json['name'] as String? ?? 'Organization',
         city: json['city'] as String? ?? '',
         selfRegistered: json['selfRegistered'] as bool? ?? false,
+        active: json['active'] as bool? ?? true,
       );
 }
 
@@ -30,6 +40,7 @@ class OrganizationAccessRequest {
     required this.patientName,
     required this.status,
     this.requestedAt,
+    this.isDirectoryContactRequest = false,
   });
 
   final String organizationId;
@@ -39,6 +50,18 @@ class OrganizationAccessRequest {
   final String patientName;
   final String status;
   final DateTime? requestedAt;
+  final bool isDirectoryContactRequest;
+
+  Map<String, dynamic> toJson() => {
+        'organizationId': organizationId,
+        'organizationName': organizationName,
+        'patientUid': patientUid,
+        'patientId': patientId,
+        'patientName': patientName,
+        'status': status,
+        'requestedAt': requestedAt?.toIso8601String(),
+        'isDirectoryContactRequest': isDirectoryContactRequest,
+      };
 
   factory OrganizationAccessRequest.fromJson(Map<String, dynamic> json) {
     final requestedAt = json['requestedAt'];
@@ -54,6 +77,9 @@ class OrganizationAccessRequest {
           : requestedAt is String
           ? DateTime.tryParse(requestedAt)
           : null,
+      isDirectoryContactRequest:
+          json['isDirectoryContactRequest'] as bool? ?? false,
     );
   }
 }
+

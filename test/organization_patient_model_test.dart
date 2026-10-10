@@ -3,16 +3,33 @@ import 'package:ondevicerx/models/organization_access.dart';
 import 'package:ondevicerx/models/organization_patient.dart';
 
 void main() {
-  test('self-registered organizations are discoverable but not verified', () {
-    final organization = OrganizationDirectoryEntry.fromJson({
+  test(
+    'self-registered organizations are discoverable without verification',
+    () {
+      final organization = OrganizationDirectoryEntry.fromJson({
+        'organizationId': 'org-uid',
+        'name': 'Sample Hospital',
+        'city': 'Pune',
+        'selfRegistered': true,
+      });
+
+      expect(organization.selfRegistered, isTrue);
+    },
+  );
+
+  test('parses a directory contact request without patient-record sharing', () {
+    final request = OrganizationAccessRequest.fromJson({
       'organizationId': 'org-uid',
-      'name': 'Sample Hospital',
-      'city': 'Pune',
-      'selfRegistered': true,
+      'organizationName': 'Sample Hospital',
+      'patientUid': 'patient-uid',
+      'patientName': 'Asha Rao',
+      'status': 'directory_request_pending',
+      'isDirectoryContactRequest': true,
     });
 
-    expect(organization.selfRegistered, isTrue);
-    expect(organization.canRequestAccess, isFalse);
+    expect(request.isDirectoryContactRequest, isTrue);
+    expect(request.patientId, isEmpty);
+    expect(request.status, 'directory_request_pending');
   });
 
   test(

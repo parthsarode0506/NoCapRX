@@ -8,6 +8,9 @@ import '../parser/vcf_parser.dart';
 import '../services/genomic_drug_scan_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/ui_kit.dart';
+import 'package:flutter/services.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import '../services/firebase_service.dart';
 import 'genomic_scan_screen.dart';
 import 'drug_input_screen.dart';
 import 'home_screen.dart';
@@ -78,6 +81,8 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
           vcfFilename: name,
         );
 
+        await _syncReportMetadata(name, parseResult);
+
         setState(() {
           _isValid = true;
           _errorMessage = null;
@@ -101,6 +106,70 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
           _isProcessing = false;
         });
       }
+    }
+  }
+
+  Future<void> _syncReportMetadata(String name, VcfParseResult parseResult) async {
+    if (FirebaseService.isCloudAvailable && FirebaseService.currentUser != null) {
+      final uid = FirebaseService.currentUser!.uid;
+      final reportId = 'REP_${DateTime.now().millisecondsSinceEpoch}';
+      try {
+        await FirebaseFirestore.instance.collection('geneticReports').doc(reportId).set({
+          'reportId': reportId,
+          'patientId': ref.read(patientProfileProvider).patientId,
+          'ownerUid': uid,
+          'storagePath': 'private_vcf/$uid/$name',
+          'status': 'completed',
+          'reportVersion': 1,
+          'geneCount': parseResult.geneProfiles.length,
+          'actionableCount': parseResult.geneProfiles.values
+              .where((g) => g.phenotype != 'Unknown')
+              .length,
+          'uploadedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      } catch (_) {}
+    }
+  }
+
+  Future<void> _loadSampleVcf(String assetPath, String displayName) async {
+    setState(() {
+      _errorMessage = null;
+      _isProcessing = true;
+    });
+
+    try {
+      final content = await rootBundle.loadString(assetPath);
+      final parseResult = VcfParser.parseVcfContent(content);
+
+      ref.read(selectedVcfFilenameProvider.notifier).state = displayName;
+      ref.read(selectedVcfContentProvider.notifier).state = content;
+      ref.read(vcfParseResultProvider.notifier).state = parseResult;
+      ref.read(genomicScanReportProvider.notifier).state =
+          GenomicDrugScanService.scan(
+        parseResult: parseResult,
+        vcfFilename: displayName,
+      );
+
+      await _syncReportMetadata(displayName, parseResult);
+
+      setState(() {
+        _isValid = true;
+        _errorMessage = null;
+      });
+
+      if (widget.returnToMedicine && mounted) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const DrugInputScreen()),
+        );
+      } else if (widget.returnToDashboard && mounted) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const HomeScreen()),
+        );
+      }
+    } catch (e) {
+      _setError('Error loading sample VCF: $e');
+    } finally {
+      if (mounted) setState(() => _isProcessing = false);
     }
   }
 
@@ -162,6 +231,78 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
               _buildIntro(theme),
               const SizedBox(height: 20),
               _buildDropzone(theme),
+              const SizedBox(height: 12),
+              // Quick Sample Preset Selector
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppTheme.mintSurface,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: AppTheme.vibrantMint.withValues(alpha: 0.35),
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.science_outlined,
+                            size: 16, color: AppTheme.primaryEmerald),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Or try verified clinical test profiles:',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: AppTheme.primaryEmerald,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        ActionChip(
+                          avatar: const Icon(Icons.check_circle_outline,
+                              size: 14, color: AppTheme.safeGreen),
+                          label: const Text('Sample 1: Normal (*1/*1)'),
+                          onPressed: _isProcessing
+                              ? null
+                              : () => _loadSampleVcf(
+                                    'assets/samples/patient_001_normal.vcf',
+                                    'patient_001_normal.vcf',
+                                  ),
+                        ),
+                        ActionChip(
+                          avatar: const Icon(Icons.warning_amber_rounded,
+                              size: 14, color: AppTheme.warningAmber),
+                          label: const Text('Sample 2: Intermediate (*1/*2)'),
+                          onPressed: _isProcessing
+                              ? null
+                              : () => _loadSampleVcf(
+                                    'assets/samples/patient_002_reduced_function.vcf',
+                                    'patient_002_reduced_function.vcf',
+                                  ),
+                        ),
+                        ActionChip(
+                          avatar: const Icon(Icons.cancel_outlined,
+                              size: 14, color: AppTheme.dangerRed),
+                          label: const Text('Sample 3: High Risk (*2/*2)'),
+                          onPressed: _isProcessing
+                              ? null
+                              : () => _loadSampleVcf(
+                                    'assets/samples/patient_003_high_risk.vcf',
+                                    'patient_003_high_risk.vcf',
+                                  ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
               const SizedBox(height: 16),
               if (_errorMessage != null) ...[
                 NoticeBanner(tone: NoticeTone.danger, message: _errorMessage!),

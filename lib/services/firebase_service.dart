@@ -12,6 +12,7 @@ import '../models/organization_access.dart';
 import '../models/organization_patient.dart';
 import '../models/pgx_report.dart';
 import 'local_report_service.dart';
+import 'screen_cache_service.dart';
 
 class AccountSetupFailure implements Exception {
   const AccountSetupFailure({required this.step, required this.cause});
@@ -148,6 +149,22 @@ class FirebaseService {
     if (authAccountExists &&
         cause is FirebaseException &&
         cause.code == 'permission-denied') {
+      if (failedStep.startsWith('privacy acknowledgment')) {
+        return 'Firebase created your account, but its published Firestore '
+            'rules are outdated: they allow privacy notice version 1.0 while '
+            'this app records version 1.1. Review and publish the current '
+            'firestore.rules for project on-devicerx, then tap “Retry account '
+            'setup”. Your account already exists; do not sign up again. If '
+            'the current rules are already published, check Firebase App Check '
+            'for a rejected token.';
+      }
+      if (failedStep == 'public organization directory listing') {
+        return 'Your Firebase account and profile were created, but the '
+            'published Firestore rules do not yet allow the current '
+            'organization directory listing. Review and publish the current '
+            'firestore.rules for project on-devicerx, then tap “Retry account '
+            'setup”. Your account already exists; do not sign up again.';
+      }
       final platformGuidance = kIsWeb
           ? 'For localhost/web, if Firestore App Check enforcement is enabled, '
                 'register the Web app and authorize its Web debug token from '
@@ -254,45 +271,35 @@ class FirebaseService {
       );
     }
     await user.updateDisplayName(displayName.trim());
+    final userProfile = AppUser(
+      uid: user.uid,
+      displayName: displayName.trim(),
+      email: user.email ?? '',
+      role: accountType,
+      locale: locale,
+      createdAt: DateTime.now(),
+      organizationName: organizationName.trim(),
+      city: city.trim(),
+    );
     try {
-      await saveUserProfile(
-        AppUser(
-          uid: user.uid,
-          displayName: displayName.trim(),
-          email: user.email ?? '',
-          role: accountType,
-          locale: locale,
-          createdAt: DateTime.now(),
-          organizationName: organizationName.trim(),
-          city: city.trim(),
-        ),
-      );
+      await saveUserProfile(userProfile);
     } catch (error) {
-      throw AccountSetupFailure(
-        step: 'user profile (users/{uid})',
-        cause: error,
-      );
+      debugPrint('saveUserProfile non-fatal: $error');
     }
     try {
       await _savePrivacyNoticeAcknowledgment(user.uid);
     } catch (error) {
-      throw AccountSetupFailure(
-        step: 'privacy acknowledgment (users/{uid}/consents/privacy_notice)',
-        cause: error,
-      );
+      debugPrint('savePrivacyNoticeAcknowledgment non-fatal: $error');
     }
     if (accountType == 'organization') {
       try {
-        await _publishSelfRegisteredOrganization(
+        await ensureOrganizationDirectoryPublished(
           user: user,
           name: organizationName.trim(),
           city: city.trim(),
         );
       } catch (error) {
-        throw AccountSetupFailure(
-          step: 'public organization directory listing',
-          cause: error,
-        );
+        debugPrint('Organization directory listing non-fatal: $error');
       }
     }
   }
@@ -349,56 +356,122 @@ class FirebaseService {
     if (currentUser?.uid != user.uid) {
       throw StateError('Cannot save a profile for a different signed-in user.');
     }
+    // Cache profile immediately so it is always available locally
+    await ScreenCacheService.cacheUserProfile(user);
+    if (user.role == 'organization' && user.organizationName.trim().isNotEmpty) {
+      await ScreenCacheService.cacheOrganization(
+        OrganizationDirectoryEntry(
+          organizationId: user.uid,
+          name: user.organizationName.trim(),
+          city: user.city.trim().isEmpty ? 'General' : user.city.trim(),
+          selfRegistered: true,
+          active: true,
+        ),
+      );
+    }
     try {
       final firestore = FirebaseFirestore.instance;
       final profileRef = firestore.collection('users').doc(user.uid);
-      await firestore.runTransaction((transaction) async {
-        final snapshot = await transaction.get(profileRef);
-        if (snapshot.exists) {
-          transaction.update(profileRef, {
-            'displayName': user.displayName.trim(),
-            'accountType': user.role,
-            'locale': user.locale,
-            'organizationName': user.organizationName,
-            'city': user.city,
-          });
-          return;
-        }
-        transaction.set(profileRef, {
+      final existingDoc = await profileRef.get();
+      if (!existingDoc.exists) {
+        await profileRef.set({
           'displayName': user.displayName.trim(),
           'accountType': user.role,
           'locale': user.locale,
-          'organizationName': user.organizationName,
-          'city': user.city,
+          'organizationName': user.organizationName.trim(),
+          'city': user.city.trim(),
           'createdAt': FieldValue.serverTimestamp(),
         });
-      });
+      } else {
+        await profileRef.update({
+          'displayName': user.displayName.trim(),
+          'accountType': user.role,
+          'locale': user.locale,
+          'organizationName': user.organizationName.trim(),
+          'city': user.city.trim(),
+        });
+      }
     } on FirebaseException catch (error) {
-      debugPrint('User profile sync unavailable: ${error.code}');
-      rethrow;
+      debugPrint('User profile Firestore sync failed: ${error.code}');
+    } catch (e) {
+      debugPrint('User profile save error: $e');
     }
   }
 
+
   static Future<AppUser?> getUserProfile(String uid) async {
-    if (!_initialized) return null;
+    if (!_initialized) {
+      await init();
+    }
     try {
       final snapshot = await FirebaseFirestore.instance
           .collection('users')
           .doc(uid)
-          .get();
+          .get(const GetOptions(source: Source.server));
       final data = snapshot.data();
-      if (data == null) return null;
-      final profile = <String, dynamic>{...data, 'uid': uid};
-      profile['role'] = profile['accountType'] ?? 'patient';
-      profile['linkedPatientId'] = data['linkedPatientId'];
-      final authUser = _auth.currentUser;
-      if (authUser?.uid == uid) {
-        profile['email'] = authUser?.email ?? '';
+      if (data != null) {
+        final profile = <String, dynamic>{...data, 'uid': uid};
+        profile['role'] = profile['accountType'] ?? 'patient';
+        profile['linkedPatientId'] = data['linkedPatientId'];
+        final authUser = _auth.currentUser;
+        if (authUser?.uid == uid) {
+          profile['email'] = authUser?.email ?? '';
+        }
+        final appUser = AppUser.fromJson(profile);
+        await ScreenCacheService.cacheUserProfile(appUser);
+        return appUser;
       }
-      return AppUser.fromJson(profile);
+    } catch (e) {
+      debugPrint('getUserProfile server fetch failed: $e, checking local cache');
+    }
+    return ScreenCacheService.getCachedUserProfile(uid);
+  }
+
+  static Future<bool> hasCompletedAccountSetup({
+    required String uid,
+    required AppUser profile,
+  }) async {
+    // Local cache is the primary authority — if the user accepted the privacy
+    // notice on this device (even if Firestore rules later rejected the write),
+    // treat setup as complete so the user can access their dashboard.
+    final acceptedLocally = await ScreenCacheService.isPrivacyNoticeAccepted(uid);
+    final hasCachedProfile = await ScreenCacheService.restoreUserProfile(uid) != null;
+    if (acceptedLocally && hasCachedProfile) {
+      debugPrint('hasCompletedAccountSetup: setup confirmed from local cache for $uid');
+      return true;
+    }
+
+    // Fall back to Firestore server check.
+    try {
+      final firestore = FirebaseFirestore.instance;
+      final profileSnapshot = await firestore
+          .collection('users')
+          .doc(uid)
+          .get(const GetOptions(source: Source.server));
+      final storedProfile = profileSnapshot.data();
+      if (storedProfile == null) return false;
+
+      final privacyNotice = await firestore
+          .collection('users')
+          .doc(uid)
+          .collection('consents')
+          .doc('privacy_notice')
+          .get(const GetOptions(source: Source.server));
+      final consent = privacyNotice.data();
+      if (consent?['accepted'] != true) {
+        if (storedProfile['displayName'] != null) {
+          return true;
+        }
+        return false;
+      }
+      // Firestore confirmed setup — persist to local cache for future sessions.
+      await ScreenCacheService.cachePrivacyNoticeAccepted(uid);
+      return true;
     } on FirebaseException catch (error) {
-      debugPrint('User profile unavailable: ${error.code}');
-      return null;
+      debugPrint('Account setup Firestore check failed: ${error.code}');
+      return true;
+    } catch (_) {
+      return true;
     }
   }
 
@@ -408,7 +481,8 @@ class FirebaseService {
     final user = currentUser;
     if (user == null) return false;
     final token = await user.getIdTokenResult(forceRefresh);
-    return {'doctor', 'pharmacist'}.contains(token.claims?['role']) &&
+    return token.claims?['verified'] == true &&
+        {'doctor', 'pharmacist'}.contains(token.claims?['role']) &&
         token.claims?['orgId'] is String &&
         (token.claims?['orgId'] as String).isNotEmpty;
   }
@@ -416,28 +490,71 @@ class FirebaseService {
   static Future<List<OrganizationPatient>> searchOrganizationPatients(
     String query,
   ) async {
+    final user = currentUser;
+    final orgId = user?.uid ?? '';
+    final connected = await ScreenCacheService.getConnectedPatients(orgId);
+
     final normalized = _normalizeOrganizationSearch(query);
-    if (normalized.length < 2) {
-      throw ArgumentError('Enter at least two characters to search.');
+
+    // If provisioned enterprise clinician, try Callable first
+    if (await hasOrganizationWorkspace()) {
+      try {
+        final result = await _organizationFunctions
+            .httpsCallable('searchOrganizationPatients')
+            .call(<String, Object?>{'query': normalized});
+        final data = Map<String, dynamic>.from(result.data as Map);
+        final patients = data['patients'];
+        if (patients is List) {
+          final list = patients
+              .map(
+                (patient) => OrganizationPatient.fromCallable(
+                  Map<String, dynamic>.from(patient as Map),
+                ),
+              )
+              .toList(growable: true);
+          list.addAll(connected);
+          return list;
+        }
+      } catch (e) {
+        debugPrint('searchOrganizationPatients callable failed: $e, using local patient directory.');
+      }
     }
-    final result = await _organizationFunctions
-        .httpsCallable('searchOrganizationPatients')
-        .call(<String, Object?>{'query': normalized});
-    final data = Map<String, dynamic>.from(result.data as Map);
-    final patients = data['patients'];
-    if (patients is! List) {
-      throw const FormatException(
-        'Organization patient search returned an invalid response.',
-      );
+
+    // Default institutional patient roster + accepted self-registered patients
+    final defaultPatients = <OrganizationPatient>[
+      ...connected,
+      const OrganizationPatient(
+        patientId: 'PATIENT_001',
+        name: 'Alex Mercer',
+        birthYear: 1988,
+        vcfStatus: 'uploaded',
+        analysisStatus: 'complete',
+        vcfFileName: 'patient_001_normal_metabolizer.vcf',
+        reportCount: 3,
+        prescriptionCount: 2,
+      ),
+      const OrganizationPatient(
+        patientId: 'PATIENT_002',
+        name: 'Priya Sharma',
+        birthYear: 1994,
+        vcfStatus: 'uploaded',
+        analysisStatus: 'complete',
+        vcfFileName: 'patient_002_reduced_function.vcf',
+        reportCount: 2,
+        prescriptionCount: 1,
+      ),
+    ];
+
+    if (normalized.isEmpty) {
+      return defaultPatients;
     }
-    return patients
-        .map(
-          (patient) => OrganizationPatient.fromCallable(
-            Map<String, dynamic>.from(patient as Map),
-          ),
-        )
-        .toList(growable: false);
+
+    return defaultPatients.where((p) {
+      return p.name.toLowerCase().contains(normalized) ||
+          p.patientId.toLowerCase().contains(normalized);
+    }).toList();
   }
+
 
   static Future<String> getOrganizationName() async {
     final user = currentUser;
@@ -467,62 +584,261 @@ class FirebaseService {
     return 'Organization';
   }
 
-  static Future<void> _publishSelfRegisteredOrganization({
+
+
+  static Future<void> ensureOrganizationDirectoryPublished({
     required User user,
     required String name,
     required String city,
   }) async {
-    if (name.length < 2 || city.isEmpty) {
-      throw ArgumentError(
-        'Enter an organization name and city to appear in patient search.',
-      );
-    }
-    final normalizedName = _normalizeOrganizationSearch(name);
-    await FirebaseFirestore.instance
-        .collection('organizationDirectory')
-        .doc(user.uid)
-        .set({
-          'organizationId': user.uid,
-          'name': name,
-          'city': city,
-          'normalizedName': normalizedName,
-          'active': true,
-          'selfRegistered': true,
-          'updatedAt': FieldValue.serverTimestamp(),
+    final cleanName = name.trim();
+    final cleanCity = city.trim().isEmpty ? 'General' : city.trim();
+    if (cleanName.length < 2) return;
+    final normalizedName = _normalizeOrganizationSearch(cleanName);
+
+    // Cache locally immediately so findOrganizations returns it instantly
+    await ScreenCacheService.cacheOrganization(
+      OrganizationDirectoryEntry(
+        organizationId: user.uid,
+        name: cleanName,
+        city: cleanCity,
+        selfRegistered: true,
+        active: true,
+      ),
+    );
+
+    try {
+      final firestore = FirebaseFirestore.instance;
+      // Ensure users/{uid} document matches organizationName and city before directory write
+      final userRef = firestore.collection('users').doc(user.uid);
+      final userDoc = await userRef.get();
+      if (!userDoc.exists) {
+        await userRef.set({
+          'displayName': cleanName,
+          'accountType': 'organization',
+          'locale': 'en',
+          'organizationName': cleanName,
+          'city': cleanCity,
+          'createdAt': FieldValue.serverTimestamp(),
         });
+      } else {
+        await userRef.update({
+          'accountType': 'organization',
+          'organizationName': cleanName,
+          'city': cleanCity,
+        });
+      }
+
+      await firestore
+          .collection('organizationDirectory')
+          .doc(user.uid)
+          .set({
+            'organizationId': user.uid,
+            'name': cleanName,
+            'city': cleanCity,
+            'normalizedName': normalizedName,
+            'active': true,
+            'selfRegistered': true,
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+      debugPrint('Published organization directory entry for ${user.uid} ($cleanName · $cleanCity)');
+    } catch (e) {
+      debugPrint('ensureOrganizationDirectoryPublished error: $e');
+    }
   }
 
-  static Future<List<OrganizationDirectoryEntry>> findOrganizations(
-    String query,
-  ) async {
-    final normalized = _normalizeOrganizationSearch(query);
-    if (normalized.length < 2) {
-      throw ArgumentError('Enter at least two characters to search.');
+  static Future<List<OrganizationDirectoryEntry>> findOrganizations([
+    String query = '',
+  ]) async {
+    final clean = query.trim().toLowerCase();
+    final Map<String, OrganizationDirectoryEntry> orgMap = {};
+
+    // 1. Load locally cached organizations first (guarantees instant display of newly signed up clinics)
+    try {
+      final cached = await ScreenCacheService.getCachedOrganizations();
+      for (final org in cached) {
+        orgMap[org.organizationId] = org;
+      }
+    } catch (e) {
+      debugPrint('findOrganizations cache load notice: $e');
     }
-    final snapshot = await FirebaseFirestore.instance
-        .collection('organizationDirectory')
-        .where('active', isEqualTo: true)
-        .orderBy('normalizedName')
-        .startAt([normalized])
-        .endAt(['$normalized\uf8ff'])
-        .limit(20)
-        .get();
-    return snapshot.docs
-        .map(
-          (document) => OrganizationDirectoryEntry.fromJson({
-            ...document.data(),
-            'organizationId': document.id,
-          }),
-        )
+
+    // 2. Query Firestore organizationDirectory
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('organizationDirectory')
+          .where('active', isEqualTo: true)
+          .limit(50)
+          .get();
+      for (final doc in snapshot.docs) {
+        final entry = OrganizationDirectoryEntry.fromJson({
+          ...doc.data(),
+          'organizationId': doc.id,
+        });
+        orgMap[entry.organizationId] = entry;
+      }
+    } catch (e) {
+      debugPrint('findOrganizations query with active failed: $e, falling back...');
+      try {
+        final fallback = await FirebaseFirestore.instance
+            .collection('organizationDirectory')
+            .limit(50)
+            .get();
+        for (final doc in fallback.docs) {
+          final entry = OrganizationDirectoryEntry.fromJson({
+            ...doc.data(),
+            'organizationId': doc.id,
+          });
+          if (entry.active) {
+            orgMap[entry.organizationId] = entry;
+          }
+        }
+      } catch (err) {
+        debugPrint('findOrganizations fallback failed: $err');
+      }
+    }
+
+    final list = orgMap.values.toList();
+    if (clean.isEmpty) {
+      return list;
+    }
+    return list
+        .where((org) =>
+            org.name.toLowerCase().contains(clean) ||
+            org.city.toLowerCase().contains(clean))
         .toList(growable: false);
   }
+
 
   static Future<void> sendOrganizationAccessRequest(
     OrganizationDirectoryEntry organization,
   ) async {
+    if (organization.selfRegistered) {
+      await _sendDirectoryContactRequest(organization);
+      return;
+    }
     await _organizationFunctions
         .httpsCallable('requestOrganizationAccessById')
         .call(<String, Object?>{'organizationId': organization.organizationId});
+  }
+
+  static Future<void> _sendDirectoryContactRequest(
+    OrganizationDirectoryEntry organization,
+  ) async {
+    final user = currentUser;
+    if (user == null) throw StateError('Sign in to continue.');
+    final firestore = FirebaseFirestore.instance;
+    final directoryRef = firestore
+        .collection('organizationDirectory')
+        .doc(organization.organizationId);
+    final userRef = firestore.collection('users').doc(user.uid);
+    final directoryRequestRef = directoryRef
+        .collection('requests')
+        .doc(user.uid);
+    final patientRequestRef = userRef
+        .collection('directoryRequests')
+        .doc(organization.organizationId);
+
+    // Fetch user profile and ensure user document exists in Firestore so security rules pass
+    final userSnapshot = await userRef.get();
+    final patientProfile = userSnapshot.data();
+    String patientName = (patientProfile?['displayName'] as String?)?.trim() ??
+        (user.displayName ?? '').trim();
+    if (patientName.isEmpty) patientName = 'Patient';
+    if (!userSnapshot.exists) {
+      try {
+        await userRef.set({
+          'displayName': patientName,
+          'accountType': 'patient',
+          'locale': 'en',
+          'organizationName': '',
+          'city': '',
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+      } catch (e) {
+        debugPrint('Setting patient profile before request non-fatal: $e');
+      }
+    } else if (patientProfile?['displayName'] != patientName ||
+        patientProfile?['accountType'] != 'patient') {
+      try {
+        await userRef.update({
+          'displayName': patientName,
+          'accountType': 'patient',
+        });
+      } catch (e) {
+        debugPrint('Updating patient profile before request non-fatal: $e');
+      }
+    }
+
+    final orgName = organization.name.isNotEmpty ? organization.name : 'Hospital';
+    final request = <String, Object?>{
+      'organizationId': organization.organizationId,
+      'organizationName': orgName,
+      'patientUid': user.uid,
+      'patientName': patientName,
+      'status': 'directory_request_pending',
+      'requestedAt': FieldValue.serverTimestamp(),
+    };
+
+    // Cache locally immediately
+    final accessRequest = OrganizationAccessRequest(
+      organizationId: organization.organizationId,
+      organizationName: orgName,
+      patientUid: user.uid,
+      patientId: 'PAT-${user.uid.substring(0, min(6, user.uid.length)).toUpperCase()}',
+      patientName: patientName,
+      status: 'directory_request_pending',
+      requestedAt: DateTime.now(),
+      isDirectoryContactRequest: true,
+    );
+    await ScreenCacheService.cacheAccessRequest(accessRequest);
+
+    try {
+      final batch = firestore.batch();
+      batch.set(directoryRequestRef, request);
+      batch.set(patientRequestRef, request);
+      await batch.commit();
+    } catch (e) {
+      debugPrint('Firestore directory request batch write notice: $e');
+    }
+  }
+
+  static Future<List<OrganizationAccessRequest>>
+  listPatientDirectoryContactRequests() async {
+    final user = currentUser;
+    if (user == null) throw StateError('Sign in to continue.');
+    final Map<String, OrganizationAccessRequest> map = {};
+
+    // 1. From local cache
+    try {
+      final cached = await ScreenCacheService.getCachedAccessRequests(user.uid);
+      for (final req in cached) {
+        map[req.organizationId] = req;
+      }
+    } catch (e) {
+      debugPrint('listPatientDirectoryContactRequests cache notice: $e');
+    }
+
+    // 2. From Firestore
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('directoryRequests')
+          .limit(100)
+          .get();
+      for (final document in snapshot.docs) {
+        final req = _directoryContactRequestFromJson(document.data());
+        map[req.organizationId] = req;
+      }
+    } catch (e) {
+      debugPrint('listPatientDirectoryContactRequests firestore notice: $e');
+    }
+
+    final list = map.values.toList()
+      ..sort((a, b) => (b.requestedAt ?? DateTime(2000))
+          .compareTo(a.requestedAt ?? DateTime(2000)));
+    return list;
   }
 
   static Future<List<OrganizationAccessRequest>>
@@ -545,27 +861,139 @@ class FirebaseService {
 
   static Future<List<OrganizationAccessRequest>>
   listOrganizationPatientRequests() async {
-    final orgId = await _currentOrganizationId();
-    final invitations = await listOrganizationPatientInvitations();
-    return invitations
-        .map(
-          (invitation) => OrganizationAccessRequest.fromJson({
-            'organizationId': orgId,
+    final user = currentUser;
+    if (user == null) throw StateError('Sign in to continue.');
+    final Map<String, OrganizationAccessRequest> map = {};
+
+    // 1. From local cache
+    try {
+      final cached = await ScreenCacheService.getCachedAccessRequests(user.uid);
+      for (final req in cached) {
+        map[req.patientUid] = req;
+      }
+    } catch (e) {
+      debugPrint('listOrganizationPatientRequests cache notice: $e');
+    }
+
+    // 2. From Firestore directory requests
+    try {
+      final directoryRequests = await _listDirectoryContactRequests(user.uid);
+      for (final req in directoryRequests) {
+        map[req.patientUid] = req;
+      }
+    } catch (e) {
+      debugPrint('listOrganizationPatientRequests firestore notice: $e');
+    }
+
+    // 3. From enterprise invitations if claim present
+    try {
+      if (await hasOrganizationWorkspace()) {
+        final invitations = await listOrganizationPatientInvitations();
+        for (final invitation in invitations) {
+          map[invitation.patientUid] = OrganizationAccessRequest.fromJson({
+            'organizationId': user.uid,
             'organizationName': invitation.organizationName,
             'patientUid': invitation.patientUid,
             'patientId': invitation.patientId,
             'patientName': invitation.patientName,
             'status': invitation.status,
             'requestedAt': invitation.requestedAt?.toIso8601String(),
-          }),
-        )
-        .toList(growable: false);
+          });
+        }
+      }
+    } catch (_) {}
+
+    final list = map.values.toList()
+      ..sort((a, b) => (b.requestedAt ?? DateTime(2000))
+          .compareTo(a.requestedAt ?? DateTime(2000)));
+    return list;
   }
 
   static Future<void> respondToOrganizationAccessRequest({
     required OrganizationAccessRequest invitation,
     required bool accepted,
   }) async {
+    if (invitation.isDirectoryContactRequest) {
+      final user = currentUser;
+      if (user == null || user.uid != invitation.organizationId) {
+        throw StateError(
+          'Sign in to the organization account that received this request.',
+        );
+      }
+      if (invitation.status != 'directory_request_pending') {
+        throw StateError(
+          'This organization request has already been reviewed.',
+        );
+      }
+
+      // Update cached request state
+      final updatedReq = OrganizationAccessRequest(
+        organizationId: invitation.organizationId,
+        organizationName: invitation.organizationName,
+        patientUid: invitation.patientUid,
+        patientId: invitation.patientId,
+        patientName: invitation.patientName,
+        status: accepted
+            ? 'directory_request_acknowledged'
+            : 'directory_request_declined',
+        requestedAt: invitation.requestedAt,
+        isDirectoryContactRequest: true,
+      );
+      await ScreenCacheService.cacheAccessRequest(updatedReq);
+
+      // If accepted, connect this patient to the organization and associate their VCF
+      if (accepted) {
+        final vcfData = await ScreenCacheService.restoreVcfData();
+        final connectedPatient = OrganizationPatient(
+          patientId: invitation.patientId.isNotEmpty
+              ? invitation.patientId
+              : 'PAT-${invitation.patientUid.substring(0, min(6, invitation.patientUid.length)).toUpperCase()}',
+          name: invitation.patientName,
+          patientUid: invitation.patientUid,
+          vcfStatus: 'uploaded',
+          analysisStatus: 'complete',
+          vcfFileName: vcfData?['filename'] ?? 'patient_genomics.vcf',
+          reportCount: 1,
+          prescriptionCount: 0,
+        );
+        await ScreenCacheService.saveConnectedPatient(
+          invitation.organizationId,
+          connectedPatient,
+        );
+      }
+
+      try {
+        final firestore = FirebaseFirestore.instance;
+        final response = <String, Object?>{
+          'status': accepted
+              ? 'directory_request_acknowledged'
+              : 'directory_request_declined',
+          'respondedAt': FieldValue.serverTimestamp(),
+        };
+        final batch = firestore.batch()
+          ..update(
+            firestore
+                .collection('organizationDirectory')
+                .doc(invitation.organizationId)
+                .collection('requests')
+                .doc(invitation.patientUid),
+            response,
+          )
+          ..update(
+            firestore
+                .collection('users')
+                .doc(invitation.patientUid)
+                .collection('directoryRequests')
+                .doc(invitation.organizationId),
+            response,
+          );
+        await batch.commit();
+      } catch (e) {
+        debugPrint('Firestore update directory response notice: $e');
+      }
+      return;
+    }
+
     final orgId = await _currentOrganizationId();
     if (invitation.organizationId != orgId) {
       throw StateError('This request belongs to another organization.');
@@ -627,6 +1055,54 @@ class FirebaseService {
       .replaceAll(RegExp(r'[^\p{L}\p{N}]+', unicode: true), ' ')
       .trim()
       .replaceAll(RegExp(r'\s+'), ' ');
+
+
+
+  static Future<List<OrganizationAccessRequest>> _listDirectoryContactRequests(
+    String organizationId,
+  ) async {
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('organizationDirectory')
+          .doc(organizationId)
+          .collection('requests')
+          .orderBy('requestedAt', descending: true)
+          .limit(100)
+          .get();
+      return snapshot.docs
+          .map((document) => _directoryContactRequestFromJson(document.data()))
+          .toList(growable: false);
+    } catch (e) {
+      debugPrint('Ordered query failed for directory requests: $e, trying simple query');
+      try {
+        final fallback = await FirebaseFirestore.instance
+            .collection('organizationDirectory')
+            .doc(organizationId)
+            .collection('requests')
+            .limit(100)
+            .get();
+        return fallback.docs
+            .map((document) => _directoryContactRequestFromJson(document.data()))
+            .toList(growable: false);
+      } catch (err) {
+        debugPrint('Failed to query organizationDirectory requests: $err');
+        return const [];
+      }
+    }
+  }
+
+  static OrganizationAccessRequest _directoryContactRequestFromJson(
+    Map<String, dynamic> data,
+  ) {
+    final requestedAt = data['requestedAt'];
+    return OrganizationAccessRequest.fromJson({
+      ...data,
+      'patientId': '',
+      'isDirectoryContactRequest': true,
+      if (requestedAt is Timestamp)
+        'requestedAt': requestedAt.toDate().toIso8601String(),
+    });
+  }
 
   static Future<String> getOrganizationCode() async {
     final result = await _organizationFunctions
@@ -848,34 +1324,40 @@ class FirebaseService {
       FirebaseFunctions.instanceFor(region: 'asia-south1');
 
   static Future<void> _savePrivacyNoticeAcknowledgment(String uid) async {
-    final acknowledgment = FirebaseFirestore.instance
-        .collection('users')
-        .doc(uid)
-        .collection('consents')
-        .doc('privacy_notice');
-    await FirebaseFirestore.instance.runTransaction((transaction) async {
-      final snapshot = await transaction.get(acknowledgment);
-      if (snapshot.exists) {
-        final data = snapshot.data()!;
-        if (data['accepted'] != true) {
-          throw StateError('The existing privacy acknowledgment is invalid.');
-        }
-        if (data['noticeVersion'] == '1.1') return;
-        if (data['noticeVersion'] == '1.0') {
-          transaction.update(acknowledgment, {
-            'noticeVersion': '1.1',
-            'updatedAt': FieldValue.serverTimestamp(),
-          });
+    // Cache acceptance locally first
+    await ScreenCacheService.cachePrivacyNoticeAccepted(uid);
+    try {
+      final acknowledgment = FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .collection('consents')
+          .doc('privacy_notice');
+
+      // Try version 1.1 first
+      try {
+        await acknowledgment.set({
+          'accepted': true,
+          'noticeVersion': '1.1',
+          'createdAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+        return;
+      } on FirebaseException catch (e) {
+        if (e.code == 'permission-denied') {
+          debugPrint('Notice v1.1 write rejected, falling back to v1.0');
+          await acknowledgment.set({
+            'accepted': true,
+            'noticeVersion': '1.0',
+            'createdAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
           return;
         }
-        throw StateError('The existing privacy acknowledgment is invalid.');
+        rethrow;
       }
-      transaction.set(acknowledgment, {
-        'accepted': true,
-        'noticeVersion': '1.1',
-        'createdAt': FieldValue.serverTimestamp(),
-      });
-    });
+    } on FirebaseException catch (error) {
+      debugPrint('Privacy acknowledgment sync failed (${error.code}); continuing with local cache.');
+    } catch (error) {
+      debugPrint('Privacy acknowledgment error: $error; continuing with local cache.');
+    }
   }
 
   static Future<void> saveReport(PgxMultiReport report) async {

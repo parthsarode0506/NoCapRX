@@ -18,6 +18,7 @@ import {
   setDoc,
   updateDoc,
   where,
+  writeBatch,
 } from 'firebase/firestore';
 import { getBytes, ref, uploadBytes } from 'firebase/storage';
 
@@ -108,6 +109,143 @@ test('organization signup profile and privacy acknowledgment can both be stored'
   ));
   assert.equal(searchResults.docs.length, 1);
   assert.equal(searchResults.docs[0].data().selfRegistered, true);
+});
+
+test('patients can send contact requests to self-registered organizations without sharing records', async () => {
+  const organizationUid = 'directory-org';
+  const patientUid = 'directory-patient';
+  const organizationDb = testEnvironment.authenticatedContext(organizationUid).firestore();
+  const patientDb = testEnvironment.authenticatedContext(patientUid).firestore();
+
+  await assertSucceeds(setDoc(doc(organizationDb, `users/${organizationUid}`), {
+    displayName: 'Hospital Contact',
+    accountType: 'organization',
+    organizationName: 'Sample Hospital',
+    city: 'Pune',
+    locale: 'en',
+    createdAt: serverTimestamp(),
+  }));
+  await assertSucceeds(setDoc(
+    doc(organizationDb, `organizationDirectory/${organizationUid}`),
+    {
+      organizationId: organizationUid,
+      name: 'Sample Hospital',
+      city: 'Pune',
+      normalizedName: 'sample hospital',
+      active: true,
+      selfRegistered: true,
+      updatedAt: serverTimestamp(),
+    },
+  ));
+  await assertSucceeds(setDoc(doc(patientDb, `users/${patientUid}`), {
+    displayName: 'Synthetic Patient',
+    accountType: 'patient',
+    locale: 'en',
+    createdAt: serverTimestamp(),
+  }));
+
+  const request = {
+    organizationId: organizationUid,
+    organizationName: 'Sample Hospital',
+    patientUid,
+    patientName: 'Synthetic Patient',
+    status: 'directory_request_pending',
+    requestedAt: serverTimestamp(),
+  };
+  const requestBatch = writeBatch(patientDb);
+  requestBatch.set(
+    doc(
+      patientDb,
+      `organizationDirectory/${organizationUid}/requests/${patientUid}`,
+    ),
+    request,
+  );
+  requestBatch.set(
+    doc(patientDb, `users/${patientUid}/directoryRequests/${organizationUid}`),
+    request,
+  );
+  await assertSucceeds(requestBatch.commit());
+
+  const patientCopy = await getDoc(
+    doc(patientDb, `users/${patientUid}/directoryRequests/${organizationUid}`),
+  );
+  assert.equal(patientCopy.data()?.patientName, 'Synthetic Patient');
+  assert.equal(patientCopy.data()?.status, 'directory_request_pending');
+  const maliciousPatientUid = 'directory-patient-genomic';
+  const maliciousPatientDb = testEnvironment
+    .authenticatedContext(maliciousPatientUid)
+    .firestore();
+  await assertSucceeds(setDoc(
+    doc(maliciousPatientDb, `users/${maliciousPatientUid}`),
+    {
+      displayName: 'Synthetic Patient',
+      accountType: 'patient',
+      locale: 'en',
+      createdAt: serverTimestamp(),
+    },
+  ));
+  const requestWithGenomicData = {
+    ...request,
+    patientUid: maliciousPatientUid,
+    patientGenotype: 'synthetic-not-for-request',
+  };
+  const genomicDataBatch = writeBatch(maliciousPatientDb);
+  genomicDataBatch.set(
+    doc(
+      maliciousPatientDb,
+      `organizationDirectory/${organizationUid}/requests/${maliciousPatientUid}`,
+    ),
+    requestWithGenomicData,
+  );
+  genomicDataBatch.set(
+    doc(
+      maliciousPatientDb,
+      `users/${maliciousPatientUid}/directoryRequests/${organizationUid}`,
+    ),
+    requestWithGenomicData,
+  );
+  await assertFails(genomicDataBatch.commit());
+  await assertFails(getDoc(doc(patientDb, `users/${organizationUid}`)));
+
+  const organizationRequests = await getDocs(query(
+    collection(
+      organizationDb,
+      `organizationDirectory/${organizationUid}/requests`,
+    ),
+    orderBy('requestedAt', 'desc'),
+  ));
+  assert.equal(organizationRequests.docs.length, 1);
+  assert.equal(organizationRequests.docs[0].data().patientName, 'Synthetic Patient');
+
+  const response = {
+    status: 'directory_request_acknowledged',
+    respondedAt: serverTimestamp(),
+  };
+  const responseBatch = writeBatch(organizationDb);
+  responseBatch.update(
+    doc(
+      organizationDb,
+      `organizationDirectory/${organizationUid}/requests/${patientUid}`,
+    ),
+    response,
+  );
+  responseBatch.update(
+    doc(organizationDb, `users/${patientUid}/directoryRequests/${organizationUid}`),
+    response,
+  );
+  await assertSucceeds(responseBatch.commit());
+
+  const updatedPatientCopy = await getDoc(
+    doc(patientDb, `users/${patientUid}/directoryRequests/${organizationUid}`),
+  );
+  assert.equal(
+    updatedPatientCopy.data()?.status,
+    'directory_request_acknowledged',
+  );
+  await assertFails(updateDoc(
+    doc(patientDb, `users/${patientUid}/directoryRequests/${organizationUid}`),
+    { status: 'accepted' },
+  ));
 });
 
 test('a user cannot assign a privileged or unsupported account type', async () => {

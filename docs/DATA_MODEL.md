@@ -9,6 +9,8 @@ organizations/{orgId}/patientLinks/{patientId} organization-scoped patient searc
 organizations/{orgId}/patientInvitations/{patientUid} server-managed patient access request and review state.
 users/{uid}/organizationInvitations/{orgId} mirrored server-managed patient access request state.
 organizationDirectory/{uid} public-safe organization name and city; signup creates a selfRegistered listing that is explicitly unverified.
+organizationDirectory/{orgUid}/requests/{patientUid} patient display-name-only contact request for a self-registered listing; the owner may acknowledge or decline without gaining patient-record access.
+users/{patientUid}/directoryRequests/{orgUid} patient-readable mirror of the directory contact request and its status.
 users/{uid}/consents/privacy_notice privacy-notice acknowledgment (accepted, noticeVersion, createdAt); v1.1 includes public self-registered directory listings.
 users/{uid}/reports/{id}           legacy cloud report history; new reports remain local until an explicit derived-data sync consent flow is implemented.
 orgs/{orgId}                       displayName, type(pharmacy|lab|hospital|clinic), plan, status, logoUrl, contactEmail, kybStatus
@@ -41,19 +43,22 @@ users/{uid}/notifications/{id}        type, title, body(no PHI), read, createdAt
 - Rules allow at most 10 document-access calls per request. Denormalize `ownerUid`
   onto subcollection docs if the limit is hit.
 - List queries must include the same filter the rule checks, else Firestore rejects the query.
-- Signup lets users choose Patient or Organization as a dashboard preference.
+- Signup lets users choose Patient or Organization as a dashboard choice.
   Organization sign-up automatically publishes the self-entered name and city
-  to the patient-search directory with `selfRegistered: true`. This is a public
-  unverified listing, not a verified organization identity or access claim.
+  to the patient-search directory with `selfRegistered: true`; no professional
+  verification is required for listing or receiving contact requests. This
+  listing is not a clinical organization identity or patient-data access claim.
   Only the owner can create/update their own matching listing; patient profiles
   remain protected by server authorization and explicit consent.
 - Organization membership, access requests, patient links, consent and audit
   records are managed by callable Functions. They require a supported Firebase
   plan, deployed Functions and App Check configuration.
-- Patients may search the public-safe organization directory. Self-registered
-  unverified listings are discoverable only; access requests are available
-  only for provisioned organizations. Organization review alone never grants
-  access; the patient must separately consent to `read_profile`.
+- Patients may search the public-safe organization directory and send a
+  display-name-only contact request to a self-registered listing. The
+  organization can acknowledge or decline; these actions never reveal patient
+  records or genomic information. Requests for patient-record access remain
+  available only for provisioned organizations, and the patient must separately
+  consent to `read_profile`.
 - Organization patient search is callable-only and returns only linked records
   after active-membership and organization-consent checks.
   `organizations/{orgId}/patientLinks/{patientId}` is the scoped search index;

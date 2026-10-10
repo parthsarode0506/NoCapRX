@@ -2,17 +2,27 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../models/app_user.dart';
 import '../providers/app_providers.dart';
 import '../services/firebase_service.dart';
+import '../services/screen_cache_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/security_cards.dart';
 import 'home_screen.dart';
 import 'organization_dashboard_screen.dart';
+import 'sign_in_screen.dart';
 
 class SignUpScreen extends ConsumerStatefulWidget {
-  const SignUpScreen({super.key, this.organizationWorkspaceRequested = false});
+  const SignUpScreen({
+    super.key,
+    this.organizationWorkspaceRequested = false,
+    this.resumeExistingAccount = false,
+    this.existingProfile,
+  });
 
   final bool organizationWorkspaceRequested;
+  final bool resumeExistingAccount;
+  final AppUser? existingProfile;
 
   @override
   ConsumerState<SignUpScreen> createState() => _SignUpScreenState();
@@ -35,8 +45,32 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
   bool _accountSetupIncomplete = false;
   bool _awaitingInvitationEmailVerification = false;
   late bool _organizationAccount = widget.organizationWorkspaceRequested;
+  late bool _resumeExistingAccount = widget.resumeExistingAccount;
   String? _errorMessage;
   String _locale = 'en';
+
+  @override
+  void initState() {
+    super.initState();
+    if (!_resumeExistingAccount) return;
+    _accountSetupIncomplete = true;
+    final user = FirebaseService.currentUser;
+    if (user == null) {
+      _errorMessage =
+          'Your existing account session has expired. Sign in again to finish account setup.';
+      return;
+    }
+    _nameController.text = user.displayName ?? '';
+    _emailController.text = user.email ?? '';
+    final profile = widget.existingProfile;
+    if (profile != null) {
+      _nameController.text = profile.displayName;
+      _organizationAccount = profile.role == 'organization';
+      _organizationNameController.text = profile.organizationName;
+      _cityController.text = profile.city;
+      _locale = profile.locale;
+    }
+  }
 
   @override
   void dispose() {
@@ -70,6 +104,14 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
   }
 
   Future<void> _handleSignUp() async {
+    final existingUser = FirebaseService.currentUser;
+    if (_resumeExistingAccount && existingUser == null) {
+      setState(() {
+        _errorMessage =
+            'Your existing account session has expired. Sign in again to finish account setup.';
+      });
+      return;
+    }
     if (!_formKey.currentState!.validate()) return;
     if (_isLoading) return;
     if (!_privacyNoticeAccepted) {
@@ -85,9 +127,9 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
     });
 
     try {
-      final existingUser = FirebaseService.currentUser;
       if (existingUser != null &&
-          existingUser.email == _emailController.text.trim()) {
+          existingUser.email?.toLowerCase() ==
+              _emailController.text.trim().toLowerCase()) {
         await FirebaseService.completeAccountOnboarding(
           user: existingUser,
           displayName: _nameController.text.trim(),
@@ -121,10 +163,22 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
 
       final user = FirebaseService.currentUser;
       if (user != null) {
-        final profile = await FirebaseService.getUserProfile(user.uid);
-        if (profile != null) {
-          ref.read(userProfileProvider.notifier).state = profile;
-        }
+        AppUser? profile;
+        try {
+          profile = await FirebaseService.getUserProfile(user.uid);
+        } catch (_) {}
+        profile ??= AppUser(
+          uid: user.uid,
+          displayName: _nameController.text.trim(),
+          email: user.email ?? _emailController.text.trim(),
+          role: _organizationAccount ? 'organization' : 'patient',
+          locale: _locale,
+          createdAt: DateTime.now(),
+          organizationName: _organizationNameController.text.trim(),
+          city: _cityController.text.trim(),
+        );
+        ref.read(userProfileProvider.notifier).state = profile;
+        await ScreenCacheService.cacheUserProfile(profile);
       }
 
       if (mounted) {
@@ -136,18 +190,50 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
           ),
           (route) => false,
         );
+        return;
       }
     } catch (e) {
-      if (mounted) {
-        final authAccountExists =
-            FirebaseService.currentUser?.email?.toLowerCase() ==
-            _emailController.text.trim().toLowerCase();
-        setState(() {
-          _accountSetupIncomplete = authAccountExists;
-          _errorMessage = FirebaseService.mapAccountSetupError(
-            e,
-            authAccountExists: authAccountExists,
+      final user = FirebaseService.currentUser;
+      if (user != null) {
+        // Account exists in Firebase Auth! Proceed to dashboard without blocking the user
+        final fallbackProfile = AppUser(
+          uid: user.uid,
+          displayName: _nameController.text.trim().isNotEmpty
+              ? _nameController.text.trim()
+              : (user.displayName ?? 'User'),
+          email: user.email ?? _emailController.text.trim(),
+          role: _organizationAccount ? 'organization' : 'patient',
+          locale: _locale,
+          createdAt: DateTime.now(),
+          organizationName: _organizationNameController.text.trim(),
+          city: _cityController.text.trim(),
+        );
+        ref.read(userProfileProvider.notifier).state = fallbackProfile;
+        await ScreenCacheService.cacheUserProfile(fallbackProfile);
+        await ScreenCacheService.cachePrivacyNoticeAccepted(user.uid);
+        if (_organizationAccount) {
+          await FirebaseService.ensureOrganizationDirectoryPublished(
+            user: user,
+            name: _organizationNameController.text.trim(),
+            city: _cityController.text.trim(),
           );
+        }
+        if (mounted) {
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(
+              builder: (_) => _organizationAccount
+                  ? const OrganizationDashboardScreen()
+                  : const HomeScreen(),
+            ),
+            (route) => false,
+          );
+          return;
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          _errorMessage = FirebaseService.mapAuthError(e);
         });
       }
     } finally {
@@ -402,9 +488,88 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
                         const SizedBox(height: 16),
                       ],
 
-                      Text(
-                        'Choose which workspace to open after signup. Organization name and city are publicly listed as unverified organization details.',
-                      ),
+                      if (_resumeExistingAccount)
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Card(
+                              color: AppTheme.mintSurface,
+                              child: Padding(
+                                padding: const EdgeInsets.all(14),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'Your Firebase account already exists. Complete this setup to save your profile and privacy acknowledgment; no new account will be created.',
+                                    ),
+                                    const SizedBox(height: 10),
+                                    TextButton.icon(
+                                      icon: const Icon(
+                                        Icons.switch_account_outlined,
+                                        size: 16,
+                                      ),
+                                      label: const Text(
+                                        'Use a different email / Sign in instead',
+                                      ),
+                                      style: TextButton.styleFrom(
+                                        foregroundColor:
+                                            AppTheme.primaryEmerald,
+                                        padding: EdgeInsets.zero,
+                                        tapTargetSize:
+                                            MaterialTapTargetSize.shrinkWrap,
+                                      ),
+                                      onPressed: () async {
+                                        // Capture navigator before any await to satisfy context-across-async-gaps lint.
+                                        final nav = Navigator.of(context);
+                                        await FirebaseService.signOut();
+                                        await ScreenCacheService.clearVcfCache();
+                                        if (!mounted) return;
+                                        nav.pushAndRemoveUntil(
+                                          MaterialPageRoute(
+                                            builder: (_) =>
+                                                const SignInScreen(),
+                                          ),
+                                          (route) => false,
+                                        );
+                                      },
+                                    ),
+                                    TextButton.icon(
+                                      icon: const Icon(
+                                        Icons.person_add_alt_1_outlined,
+                                        size: 16,
+                                      ),
+                                      label: const Text(
+                                        'Register with a new email instead',
+                                      ),
+                                      style: TextButton.styleFrom(
+                                        foregroundColor:
+                                            AppTheme.primaryEmerald,
+                                        padding: EdgeInsets.zero,
+                                        tapTargetSize:
+                                            MaterialTapTargetSize.shrinkWrap,
+                                      ),
+                                      onPressed: () async {
+                                        await FirebaseService.signOut();
+                                        if (!mounted) return;
+                                        setState(() {
+                                          _resumeExistingAccount = false;
+                                          _accountSetupIncomplete = false;
+                                          _emailController.clear();
+                                          _nameController.clear();
+                                          _errorMessage = null;
+                                        });
+                                      },
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        )
+                      else
+                        const Text(
+                          'Choose which workspace to open after signup. Organization name and city are listed for patients automatically; professional verification is not required for directory contact requests.',
+                        ),
                       const SizedBox(height: 12),
                       SegmentedButton<bool>(
                         segments: const [
@@ -427,7 +592,7 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
                       if (_organizationAccount) ...[
                         const SizedBox(height: 10),
                         const Text(
-                          'This opens the organization dashboard and lists the organization name and city in patient search as self-registered and unverified. It does not grant access to patient data.',
+                          'This lists the organization name and city in patient search as a self-registered listing. Patients can send a display-name-only contact request; the listing does not grant access to patient data.',
                         ),
                         const SizedBox(height: 12),
                         TextFormField(
@@ -523,6 +688,7 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
                       const SizedBox(height: 6),
                       TextFormField(
                         controller: _emailController,
+                        readOnly: _resumeExistingAccount,
                         keyboardType: TextInputType.emailAddress,
                         style: GoogleFonts.inter(
                           fontSize: 14,
@@ -558,158 +724,160 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
                           ),
                         ),
                       ],
-                      const SizedBox(height: 16),
+                      if (!_resumeExistingAccount) ...[
+                        const SizedBox(height: 16),
 
-                      // Password Field
-                      Text(
-                        'Password',
-                        style: GoogleFonts.inter(
-                          fontSize: 13.5,
-                          fontWeight: FontWeight.w600,
-                          color: AppTheme.deepInk,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      TextFormField(
-                        controller: _passwordController,
-                        obscureText: _obscurePassword,
-                        onChanged: (_) => setState(() {}),
-                        style: GoogleFonts.inter(
-                          fontSize: 14,
-                          color: AppTheme.deepInk,
-                        ),
-                        decoration: InputDecoration(
-                          hintText: '••••••••',
-                          prefixIcon: const Icon(
-                            Icons.lock_outline_rounded,
-                            size: 20,
-                            color: AppTheme.secondaryInk,
+                        // Password Field
+                        Text(
+                          'Password',
+                          style: GoogleFonts.inter(
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w600,
+                            color: AppTheme.deepInk,
                           ),
-                          suffixIcon: IconButton(
-                            icon: Icon(
-                              _obscurePassword
-                                  ? Icons.visibility_off_outlined
-                                  : Icons.visibility_outlined,
+                        ),
+                        const SizedBox(height: 6),
+                        TextFormField(
+                          controller: _passwordController,
+                          obscureText: _obscurePassword,
+                          onChanged: (_) => setState(() {}),
+                          style: GoogleFonts.inter(
+                            fontSize: 14,
+                            color: AppTheme.deepInk,
+                          ),
+                          decoration: InputDecoration(
+                            hintText: '••••••••',
+                            prefixIcon: const Icon(
+                              Icons.lock_outline_rounded,
                               size: 20,
                               color: AppTheme.secondaryInk,
                             ),
-                            onPressed: () {
-                              setState(() {
-                                _obscurePassword = !_obscurePassword;
-                              });
-                            },
-                          ),
-                        ),
-                        validator: (val) {
-                          if (val == null || val.isEmpty) {
-                            return 'Please enter a password.';
-                          }
-                          if (val.length < 8) {
-                            return 'Password must be at least 8 characters long.';
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 8),
-
-                      // 4-segment visual security meter
-                      Row(
-                        children: List.generate(4, (i) {
-                          return Expanded(
-                            child: Container(
-                              height: 4,
-                              margin: EdgeInsets.only(right: i < 3 ? 6 : 0),
-                              decoration: BoxDecoration(
-                                color: _getStrengthSegmentColor(
-                                  i,
-                                  strengthScore,
-                                ),
-                                borderRadius: BorderRadius.circular(2),
+                            suffixIcon: IconButton(
+                              icon: Icon(
+                                _obscurePassword
+                                    ? Icons.visibility_off_outlined
+                                    : Icons.visibility_outlined,
+                                size: 20,
+                                color: AppTheme.secondaryInk,
                               ),
-                            ),
-                          );
-                        }),
-                      ),
-                      const SizedBox(height: 4),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            'Min. 8 characters',
-                            style: GoogleFonts.inter(
-                              fontSize: 11,
-                              color: AppTheme.mutedGrey,
+                              onPressed: () {
+                                setState(() {
+                                  _obscurePassword = !_obscurePassword;
+                                });
+                              },
                             ),
                           ),
-                          if (passwordText.isNotEmpty)
+                          validator: (val) {
+                            if (val == null || val.isEmpty) {
+                              return 'Please enter a password.';
+                            }
+                            if (val.length < 8) {
+                              return 'Password must be at least 8 characters long.';
+                            }
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: 8),
+
+                        // 4-segment visual security meter
+                        Row(
+                          children: List.generate(4, (i) {
+                            return Expanded(
+                              child: Container(
+                                height: 4,
+                                margin: EdgeInsets.only(right: i < 3 ? 6 : 0),
+                                decoration: BoxDecoration(
+                                  color: _getStrengthSegmentColor(
+                                    i,
+                                    strengthScore,
+                                  ),
+                                  borderRadius: BorderRadius.circular(2),
+                                ),
+                              ),
+                            );
+                          }),
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
                             Text(
-                              strengthScore >= 3
-                                  ? 'Strong'
-                                  : 'Required: 8+ chars',
+                              'Min. 8 characters',
                               style: GoogleFonts.inter(
                                 fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                                color: _getStrengthSegmentColor(
-                                  strengthScore - 1,
-                                  strengthScore,
-                                ),
+                                color: AppTheme.mutedGrey,
                               ),
                             ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
+                            if (passwordText.isNotEmpty)
+                              Text(
+                                strengthScore >= 3
+                                    ? 'Strong'
+                                    : 'Required: 8+ chars',
+                                style: GoogleFonts.inter(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: _getStrengthSegmentColor(
+                                    strengthScore - 1,
+                                    strengthScore,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
 
-                      // Confirm Password Field
-                      Text(
-                        'Confirm Password',
-                        style: GoogleFonts.inter(
-                          fontSize: 13.5,
-                          fontWeight: FontWeight.w600,
-                          color: AppTheme.deepInk,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      TextFormField(
-                        controller: _confirmPasswordController,
-                        obscureText: _obscureConfirmPassword,
-                        style: GoogleFonts.inter(
-                          fontSize: 14,
-                          color: AppTheme.deepInk,
-                        ),
-                        decoration: InputDecoration(
-                          hintText: '••••••••',
-                          prefixIcon: const Icon(
-                            Icons.shield_outlined,
-                            size: 20,
-                            color: AppTheme.secondaryInk,
+                        // Confirm Password Field
+                        Text(
+                          'Confirm Password',
+                          style: GoogleFonts.inter(
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w600,
+                            color: AppTheme.deepInk,
                           ),
-                          suffixIcon: IconButton(
-                            icon: Icon(
-                              _obscureConfirmPassword
-                                  ? Icons.visibility_off_outlined
-                                  : Icons.visibility_outlined,
+                        ),
+                        const SizedBox(height: 6),
+                        TextFormField(
+                          controller: _confirmPasswordController,
+                          obscureText: _obscureConfirmPassword,
+                          style: GoogleFonts.inter(
+                            fontSize: 14,
+                            color: AppTheme.deepInk,
+                          ),
+                          decoration: InputDecoration(
+                            hintText: '••••••••',
+                            prefixIcon: const Icon(
+                              Icons.shield_outlined,
                               size: 20,
                               color: AppTheme.secondaryInk,
                             ),
-                            onPressed: () {
-                              setState(() {
-                                _obscureConfirmPassword =
-                                    !_obscureConfirmPassword;
-                              });
-                            },
+                            suffixIcon: IconButton(
+                              icon: Icon(
+                                _obscureConfirmPassword
+                                    ? Icons.visibility_off_outlined
+                                    : Icons.visibility_outlined,
+                                size: 20,
+                                color: AppTheme.secondaryInk,
+                              ),
+                              onPressed: () {
+                                setState(() {
+                                  _obscureConfirmPassword =
+                                      !_obscureConfirmPassword;
+                                });
+                              },
+                            ),
                           ),
+                          validator: (val) {
+                            if (val == null || val.isEmpty) {
+                              return 'Please confirm your password.';
+                            }
+                            if (val != _passwordController.text) {
+                              return 'Passwords do not match.';
+                            }
+                            return null;
+                          },
                         ),
-                        validator: (val) {
-                          if (val == null || val.isEmpty) {
-                            return 'Please confirm your password.';
-                          }
-                          if (val != _passwordController.text) {
-                            return 'Passwords do not match.';
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 24),
+                        const SizedBox(height: 24),
+                      ],
 
                       Container(
                         padding: const EdgeInsets.all(14),
@@ -719,7 +887,7 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
                           border: Border.all(color: AppTheme.cardBorder),
                         ),
                         child: const Text(
-                          'Privacy notice v1.1: your name, account type, and language are stored with your account. If you sign up as an organization, its name and city are listed in patient search as self-registered and unverified. This public listing does not grant access to patient data. Raw VCF files are parsed locally and are not uploaded. Analysis reports remain on this device unless a separately designed, explicit sharing feature is offered. Cloud AI stays off unless you opt in for a specific use. This signup does not collect professional registration details.',
+                          'Privacy notice v1.1: your name, account type, and language are stored with your account. If you sign up as an organization, its name and city are automatically listed in patient search; professional verification is not required for the listing or contact requests. A request shares only the patient display name and does not grant access to patient data. Raw VCF files are parsed locally and are not uploaded. Analysis reports remain on this device unless a separately designed, explicit sharing feature is offered. Cloud AI stays off unless you opt in for a specific use. This signup does not collect professional registration details.',
                         ),
                       ),
                       const SizedBox(height: 8),

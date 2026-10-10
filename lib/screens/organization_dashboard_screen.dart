@@ -1,31 +1,84 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 import '../models/organization_patient.dart';
+import '../models/prescription.dart';
+import '../providers/app_providers.dart';
 import '../services/firebase_service.dart';
+import '../services/prescription_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/ui_kit.dart';
+import 'new_patient_screen.dart';
 import 'organization_access_requests_screen.dart';
+import 'organization_audit_screen.dart';
+import 'organization_invitations_screen.dart';
 import 'organization_patient_screen.dart';
 import 'sign_in_screen.dart';
 
-class OrganizationDashboardScreen extends StatefulWidget {
-  const OrganizationDashboardScreen({super.key, this.organizationName});
+class OrganizationDashboardScreen extends ConsumerStatefulWidget {
+  const OrganizationDashboardScreen({
+    super.key,
+    this.organizationName,
+    this.hasVerifiedClaim,
+  });
 
   final Future<String>? organizationName;
+  final Future<bool>? hasVerifiedClaim;
 
   @override
-  State<OrganizationDashboardScreen> createState() =>
+  ConsumerState<OrganizationDashboardScreen> createState() =>
       _OrganizationDashboardScreenState();
 }
 
 class _OrganizationDashboardScreenState
-    extends State<OrganizationDashboardScreen> {
+    extends ConsumerState<OrganizationDashboardScreen> {
   final _searchController = TextEditingController();
   late final Future<String> _organizationName =
-      widget.organizationName ?? FirebaseService.getOrganizationName();
-  Future<List<OrganizationPatient>>? _search;
-  String? _searchError;
-  bool _isSearching = false;
+      widget.organizationName ?? _getSafeOrganizationName();
+
+  late final Future<bool> _hasVerifiedOrganizationClaim =
+      widget.hasVerifiedClaim ?? _checkVerifiedClaim();
+  List<OrganizationPatient> _searchResults = [];
+  String? _searchQuery;
+  bool _isSearchingPatients = false;
+  String? _patientSearchError;
+
+  Future<String> _getSafeOrganizationName() async {
+    try {
+      return await FirebaseService.getOrganizationName();
+    } catch (_) {
+      return 'Medical Genomics Institute';
+    }
+  }
+
+  Future<bool> _checkVerifiedClaim() async {
+    try {
+      return await FirebaseService.hasOrganizationWorkspace();
+    } catch (_) {
+      return false;
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _ensurePublished();
+  }
+
+  void _ensurePublished() {
+    try {
+      final user = FirebaseService.currentUser;
+      final profile = ref.read(userProfileProvider);
+      if (user != null && profile != null) {
+        FirebaseService.ensureOrganizationDirectoryPublished(
+          user: user,
+          name: profile.organizationName,
+          city: profile.city,
+        );
+      }
+    } catch (_) {}
+  }
 
   @override
   void dispose() {
@@ -35,162 +88,118 @@ class _OrganizationDashboardScreenState
 
   Future<void> _searchPatients() async {
     final query = _searchController.text.trim();
-    if (_isSearching) return;
-    if (query.length < 2) {
+    if (query.isEmpty) {
       setState(() {
-        _search = null;
-        _searchError = 'Enter at least two characters to search.';
+        _searchQuery = null;
+        _searchResults = [];
+        _patientSearchError = null;
       });
       return;
     }
+
     setState(() {
-      _isSearching = true;
-      _searchError = null;
-      _search = FirebaseService.searchOrganizationPatients(query);
+      _searchQuery = query;
+      _isSearchingPatients = true;
+      _patientSearchError = null;
     });
     try {
-      await _search;
+      final patients = await FirebaseService.searchOrganizationPatients(query);
+      if (!mounted) return;
+      setState(() => _searchResults = patients);
     } catch (error) {
-      if (mounted) setState(() => _searchError = _messageFor(error));
+      if (!mounted) return;
+      setState(() {
+        _searchResults = [];
+        _patientSearchError = FirebaseService.mapAuthError(error);
+      });
     } finally {
-      if (mounted) setState(() => _isSearching = false);
+      if (mounted) setState(() => _isSearchingPatients = false);
     }
   }
 
-  String _messageFor(Object error) {
-    final message = FirebaseService.mapAuthError(error);
-    if (message == error.toString()) {
-      return 'Patient search is unavailable. Check organization access and connection.';
-    }
-    return message;
+  Future<void> _signOut() async {
+    await FirebaseService.signOut();
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const SignInScreen()),
+      (_) => false,
+    );
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: const Text('Organization Dashboard'),
-      actions: [
-        IconButton(
-          tooltip: 'Sign out',
-          onPressed: () async {
-            await FirebaseService.signOut();
-            if (!context.mounted) return;
-            Navigator.of(context).pushAndRemoveUntil(
-              MaterialPageRoute(builder: (_) => const SignInScreen()),
-              (_) => false,
-            );
-          },
-          icon: const Icon(Icons.logout),
-        ),
-      ],
-    ),
-    body: _buildWorkspace(context),
-  );
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppTheme.bgLight,
+      appBar: AppBar(
+        title: const Text('Organization Dashboard'),
+        actions: [
+          IconButton(
+            tooltip: 'Sign out',
+            icon: const Icon(Icons.logout),
+            onPressed: _signOut,
+          ),
+        ],
+      ),
+      body: SafeArea(
+        child: FutureBuilder<bool>(
+          future: _hasVerifiedOrganizationClaim,
+          builder: (context, snapshot) {
+            final isVerified = snapshot.data == true;
 
-  Widget _buildWorkspace(BuildContext context) => SafeArea(
-    child: ListView(
+            if (!isVerified &&
+                snapshot.connectionState == ConnectionState.done) {
+              return _buildDirectoryOnlyWorkspace(context);
+            }
+
+            if (!isVerified &&
+                snapshot.connectionState != ConnectionState.done) {
+              return const Center(child: CircularProgressIndicator());
+            }
+
+            return _buildVerifiedWorkspace(context);
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDirectoryOnlyWorkspace(BuildContext context) {
+    return ListView(
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
       children: [
         _OrganizationHero(organizationName: _organizationName),
         const SizedBox(height: 24),
         const AppCard(
           child: Text(
-            'Organization signup automatically lists your name and city for patient search as self-registered and unverified. This public listing does not grant access to patient data; patient records remain protected by consent and server access controls.',
+            'Organization signup lists this name and city in patient search without a professional verification step. Patients can send a contact request to this account. A request shares only the patient’s display name; it does not share a patient profile, genetic information, or grant record access.',
           ),
         ),
         const SizedBox(height: 20),
-        OutlinedButton.icon(
-          onPressed: () => Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (_) => const OrganizationAccessRequestsScreen(),
-            ),
-          ),
-          icon: const Icon(Icons.inbox_outlined),
-          label: const Text('Review patient requests'),
-        ),
-        const SizedBox(height: 20),
-        const SectionHeader(
-          title: 'Patient records',
-          subtitle: 'Search for a patient already linked to your organization.',
-        ),
         AppCard(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              TextField(
-                controller: _searchController,
-                textInputAction: TextInputAction.search,
-                onSubmitted: (_) => _searchPatients(),
-                decoration: const InputDecoration(
-                  labelText: 'Patient name',
-                  hintText: 'Enter at least 2 characters',
-                  prefixIcon: Icon(Icons.search),
-                  border: OutlineInputBorder(),
-                ),
+              const Text(
+                'Patient record search remains limited to provisioned organizations, but reviewing contact requests for this listing does not require professional verification.',
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 14),
               FilledButton.icon(
-                onPressed: _isSearching ? null : _searchPatients,
-                icon: _isSearching
-                    ? const SizedBox.square(
-                        dimension: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.search),
-                label: Text(_isSearching ? 'Searching…' : 'Search records'),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Results are limited to records linked to your active organization.',
-                style: Theme.of(context).textTheme.bodySmall,
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppTheme.primaryEmerald,
+                ),
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const OrganizationAccessRequestsScreen(),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.inbox_outlined),
+                label: const Text('Review patient requests'),
               ),
             ],
           ),
         ),
-        if (_searchError != null) ...[
-          const SizedBox(height: 16),
-          _InlineError(message: _searchError!, onRetry: _searchPatients),
-        ],
-        if (_search == null && _searchError == null) ...[
-          const SizedBox(height: 12),
-          const _SearchPrompt(),
-        ],
-        if (_search != null) ...[
-          const SizedBox(height: 24),
-          const SectionHeader(
-            title: 'Search results',
-            subtitle: 'Select the matching patient to open their workspace.',
-          ),
-          FutureBuilder<List<OrganizationPatient>>(
-            future: _search,
-            builder: (context, snapshot) {
-              if (snapshot.connectionState != ConnectionState.done) {
-                return const Padding(
-                  padding: EdgeInsets.all(24),
-                  child: Center(child: CircularProgressIndicator()),
-                );
-              }
-              if (snapshot.hasError) return const SizedBox.shrink();
-              final patients = snapshot.data ?? const [];
-              if (patients.isEmpty) {
-                return _NoResults(
-                  onTryAnotherSearch: () {
-                    _searchController.clear();
-                    setState(() {
-                      _search = null;
-                      _searchError = null;
-                    });
-                  },
-                );
-              }
-              return Column(
-                children: patients
-                    .map((patient) => _PatientTile(patient: patient))
-                    .toList(growable: false),
-              );
-            },
-          ),
-        ],
         const SizedBox(height: 24),
         const SectionHeader(
           title: 'Clinical workflows',
@@ -212,8 +221,359 @@ class _OrganizationDashboardScreenState
         const SizedBox(height: 12),
         const _PrivacyBoundaryCard(),
       ],
-    ),
-  );
+    );
+  }
+
+
+
+  Widget _buildVerifiedWorkspace(BuildContext context) {
+    final profile = ref.watch(userProfileProvider);
+    final displayedName = profile?.organizationName.isNotEmpty == true
+        ? profile!.organizationName
+        : 'Medical Genomics Institute';
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 14, 20, 36),
+      children: [
+        // Hero Organization Banner
+        _buildOrgHero(displayedName),
+        const SizedBox(height: 18),
+
+        // Quick Actions: New Patient, Invitations, Audit Logs
+        const SectionHeader(
+          title: 'Clinical Operations',
+          subtitle: 'Institutional workflows and patient record management.',
+        ),
+        const SizedBox(height: 12),
+        _buildActionButtonsRow(context),
+        const SizedBox(height: 24),
+
+        // Search Existing Patients (Feature 2)
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const SectionHeader(
+              title: 'Patient Directory',
+              subtitle: 'Authorized patient genomic records.',
+            ),
+            TextButton.icon(
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const NewPatientScreen()),
+                );
+              },
+              icon: const Icon(Icons.person_add_alt, size: 16),
+              label: const Text('New Patient'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+
+        // Search Bar
+        TextField(
+          controller: _searchController,
+          textInputAction: TextInputAction.search,
+          onSubmitted: (_) => _searchPatients(),
+          onChanged: (val) {
+            if (val.isEmpty) {
+              setState(() {
+                _searchQuery = null;
+                _searchResults = [];
+                _patientSearchError = null;
+              });
+            }
+          },
+          decoration: InputDecoration(
+            hintText: 'Search by patient ID or name...',
+            prefixIcon: const Icon(Icons.search),
+            suffixIcon: IconButton(
+              icon: const Icon(Icons.arrow_forward),
+              onPressed: _searchPatients,
+            ),
+            filled: true,
+            fillColor: Colors.white,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: AppTheme.cardBorder),
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        // Patient List (Filtered or Full)
+        _buildPatientList(context),
+        const SizedBox(height: 24),
+
+        // Recent Prescriptions Activity
+        _buildRecentPrescriptionsStream(),
+      ],
+    );
+  }
+
+  Widget _buildOrgHero(String fallbackName) {
+    return Container(
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        gradient: AppTheme.heroGradient,
+        borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.apartment_rounded,
+                color: Colors.white,
+                size: 28,
+              ),
+              const SizedBox(width: 10),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(Icons.verified, size: 14, color: AppTheme.vibrantMint),
+                    SizedBox(width: 4),
+                    Text(
+                      'Verified Clinical Organization',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Text(
+            'Organization workspace',
+            style: GoogleFonts.inter(
+              color: Colors.white.withValues(alpha: 0.8),
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 2),
+          FutureBuilder<String>(
+            future: _organizationName,
+            builder: (context, snapshot) {
+              final name = snapshot.data ?? fallbackName;
+              return Text(
+                name,
+                style: GoogleFonts.inter(
+                  color: Colors.white,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.4,
+                ),
+              );
+            },
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'B2B2C Pharmacogenomics Decision Support Workspace',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.8),
+              fontSize: 13,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActionButtonsRow(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: OutlinedButton.icon(
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              backgroundColor: Colors.white,
+            ),
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const OrganizationInvitationsScreen(),
+                ),
+              );
+            },
+            icon: const Icon(Icons.inbox_outlined, size: 18),
+            label: const Text('Review Requests'),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: OutlinedButton.icon(
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              backgroundColor: Colors.white,
+            ),
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const OrganizationAuditScreen(),
+                ),
+              );
+            },
+            icon: const Icon(Icons.history_outlined, size: 18),
+            label: const Text('Audit Trail'),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPatientList(BuildContext context) {
+    if (_isSearchingPatients) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_patientSearchError != null) {
+      return AppCard(child: Text(_patientSearchError!));
+    }
+    if (_searchQuery == null) {
+      return const AppCard(
+        child: Text(
+          'Search by patient name or ID. Results are returned only for records this organization is authorized to access.',
+        ),
+      );
+    }
+    if (_searchResults.isEmpty) {
+      return const AppCard(child: Text('No authorized patient records found.'));
+    }
+
+    return Column(
+      children: _searchResults.map((patient) {
+        return Container(
+          margin: const EdgeInsets.only(bottom: 10),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: AppTheme.cardBorder),
+          ),
+          child: ListTile(
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 6,
+            ),
+            leading: CircleAvatar(
+              backgroundColor: AppTheme.primaryEmerald.withValues(alpha: 0.12),
+              child: const Icon(Icons.person, color: AppTheme.primaryEmerald),
+            ),
+            title: Text(
+              patient.name,
+              style: GoogleFonts.inter(fontWeight: FontWeight.w700),
+            ),
+            subtitle: Text(
+              'Patient ID: ${patient.patientId}${patient.vcfFileName != null ? " · VCF: ${patient.vcfFileName}" : ""}',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+
+            trailing: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                PillBadge(label: 'Authorized', color: AppTheme.safeGreen),
+                SizedBox(width: 6),
+                Icon(Icons.chevron_right, size: 20),
+              ],
+            ),
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => OrganizationPatientScreen(
+                    patientId: patient.patientId,
+                    initialPatient: patient,
+                  ),
+                ),
+              );
+            },
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _buildRecentPrescriptionsStream() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SectionHeader(
+          title: 'Prescription Activity',
+          subtitle:
+              'Recent doctor-issued prescriptions for authorized patients.',
+        ),
+        const SizedBox(height: 10),
+        StreamBuilder<List<Prescription>>(
+          stream: PrescriptionService.instance.streamOrganizationPrescriptions(
+            'any',
+          ),
+          builder: (context, snapshot) {
+            final list = snapshot.data ?? [];
+            if (list.isEmpty) {
+              return Container(
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: AppTheme.cardBorder),
+                ),
+                child: const Center(
+                  child: Text('No prescriptions recorded yet.'),
+                ),
+              );
+            }
+
+            return Column(
+              children: list.take(3).map((rx) {
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  child: ListTile(
+                    leading: Icon(
+                      rx.isIssued ? Icons.verified : Icons.edit_note,
+                      color: rx.isIssued
+                          ? AppTheme.safeGreen
+                          : AppTheme.warningAmber,
+                    ),
+                    title: Text(
+                      '${rx.patientName} — Prescription ${rx.prescriptionId}',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13.5,
+                      ),
+                    ),
+                    subtitle: Text(
+                      '${rx.items.length} medicines · Prescriber: ${rx.prescriberName}',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    trailing: Text(
+                      rx.status.toUpperCase(),
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        color: rx.isIssued
+                            ? AppTheme.safeGreen
+                            : AppTheme.warningAmber,
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
+            );
+          },
+        ),
+      ],
+    );
+  }
 }
 
 class _OrganizationHero extends StatelessWidget {
@@ -252,31 +612,6 @@ class _OrganizationHero extends StatelessWidget {
             ).textTheme.bodyLarge?.copyWith(color: Colors.white),
           ),
         ),
-        const SizedBox(height: 16),
-        const Text(
-          'Search patient names already linked to this organization and open their profile.',
-          style: TextStyle(color: Colors.white),
-        ),
-      ],
-    ),
-  );
-}
-
-class _SearchPrompt extends StatelessWidget {
-  const _SearchPrompt();
-
-  @override
-  Widget build(BuildContext context) => AppCard(
-    color: Theme.of(context).colorScheme.surfaceContainerHighest,
-    child: const Row(
-      children: [
-        Icon(Icons.manage_search_outlined),
-        SizedBox(width: 12),
-        Expanded(
-          child: Text(
-            'Search by patient name. Only profiles already linked to this organization can appear here.',
-          ),
-        ),
       ],
     ),
   );
@@ -296,14 +631,11 @@ class _UnavailableWorkflowCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Card(
     child: ListTile(
-      leading: Icon(
-        icon,
-        color: Theme.of(context).colorScheme.onSurfaceVariant,
-      ),
+      leading: Icon(icon),
       title: Text(title),
       subtitle: Text(detail),
       trailing: const PillBadge(
-        label: 'Not enabled',
+        label: 'Unavailable',
         color: AppTheme.unknownSlate,
       ),
       isThreeLine: true,
@@ -315,90 +647,27 @@ class _PrivacyBoundaryCard extends StatelessWidget {
   const _PrivacyBoundaryCard();
 
   @override
-  Widget build(BuildContext context) => AppCard(
-    child: const Row(
+  Widget build(BuildContext context) => const AppCard(
+    child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(Icons.privacy_tip_outlined),
-        SizedBox(width: 12),
-        Expanded(
-          child: Text(
-            'Genetic files stay on-device. This workspace does not retrieve or upload raw VCF files, run cloud genetic analysis, or publish reports. Only server-authorized patient records are searchable.',
-          ),
+        Row(
+          children: [
+            Icon(Icons.privacy_tip_outlined),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Patient privacy boundary',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+            ),
+          ],
+        ),
+        SizedBox(height: 8),
+        Text(
+          'This workspace does not retrieve or upload raw VCF files, run cloud analysis, or claim that a report or prescription has been created. Counts above reflect only records actually returned by the backend.',
         ),
       ],
-    ),
-  );
-}
-
-class _PatientTile extends StatelessWidget {
-  const _PatientTile({required this.patient});
-
-  final OrganizationPatient patient;
-
-  @override
-  Widget build(BuildContext context) => Card(
-    child: ListTile(
-      leading: const CircleAvatar(child: Icon(Icons.person_outline)),
-      title: Text(patient.name),
-      subtitle: Text(
-        '${patient.patientId} • Birth year: ${patient.birthYear ?? 'Not recorded'}',
-      ),
-      trailing: const Icon(Icons.chevron_right),
-      onTap: () => Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) =>
-              OrganizationPatientScreen(patientId: patient.patientId),
-        ),
-      ),
-    ),
-  );
-}
-
-class _NoResults extends StatelessWidget {
-  const _NoResults({required this.onTryAnotherSearch});
-
-  final VoidCallback onTryAnotherSearch;
-
-  @override
-  Widget build(BuildContext context) => Card(
-    child: Padding(
-      padding: const EdgeInsets.all(18),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'No matching patient profile is linked to this organization.',
-          ),
-          const SizedBox(height: 10),
-          OutlinedButton(
-            onPressed: onTryAnotherSearch,
-            child: const Text('Try Another Search'),
-          ),
-        ],
-      ),
-    ),
-  );
-}
-
-class _InlineError extends StatelessWidget {
-  const _InlineError({required this.message, required this.onRetry});
-
-  final String message;
-  final VoidCallback onRetry;
-
-  @override
-  Widget build(BuildContext context) => Card(
-    color: Theme.of(context).colorScheme.errorContainer,
-    child: Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(message),
-          TextButton(onPressed: onRetry, child: const Text('Retry')),
-        ],
-      ),
     ),
   );
 }

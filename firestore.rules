@@ -144,6 +144,48 @@ service cloud.firestore {
         allow read, write: if false;
       }
 
+      match /directoryRequests/{organizationId} {
+        allow get, list: if isSelf(uid);
+        allow create: if isSelf(uid)
+          && onlyKeys([
+            'organizationId', 'organizationName', 'patientUid',
+            'patientName', 'status', 'requestedAt'
+          ])
+          && hasAllKeys([
+            'organizationId', 'organizationName', 'patientUid',
+            'patientName', 'status', 'requestedAt'
+          ])
+          && request.resource.data.organizationId == organizationId
+          && request.resource.data.patientUid == uid
+          && request.resource.data.patientName
+             == get(/databases/$(db)/documents/users/$(uid)).data.displayName
+          && get(/databases/$(db)/documents/users/$(uid)).data.accountType
+             == 'patient'
+          && request.resource.data.organizationName
+             == get(/databases/$(db)/documents/organizationDirectory/$(organizationId)).data.name
+          && request.resource.data.status == 'directory_request_pending'
+          && request.resource.data.requestedAt == request.time
+          && getAfter(
+            /databases/$(db)/documents/organizationDirectory/$(organizationId)/requests/$(uid)
+          ).data.status == request.resource.data.status;
+        allow update: if isSelf(organizationId)
+          && resource.data.patientUid == uid
+          && resource.data.status == 'directory_request_pending'
+          && request.resource.data.status in [
+            'directory_request_acknowledged', 'directory_request_declined'
+          ]
+          && request.resource.data.respondedAt == request.time
+          && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['status', 'respondedAt'])
+          && getAfter(
+            /databases/$(db)/documents/organizationDirectory/$(organizationId)/requests/$(uid)
+          ).data.status == request.resource.data.status
+          && getAfter(
+            /databases/$(db)/documents/organizationDirectory/$(organizationId)/requests/$(uid)
+          ).data.respondedAt == request.time;
+        allow delete: if false;
+      }
+
       // ---------- synced derived reports (existing B2C history) ----------
       // Derived calls only. Raw VCF content must never be written here.
       match /reports/{id} {
@@ -240,6 +282,52 @@ service cloud.firestore {
              == request.resource.data.city
         );
       allow delete: if false;
+
+        match /requests/{patientUid} {
+          allow get: if isSelf(patientUid) || isSelf(orgId);
+          allow list: if isSelf(orgId);
+          allow create: if isSelf(patientUid)
+            && orgId != patientUid
+            && onlyKeys([
+              'organizationId', 'organizationName', 'patientUid',
+              'patientName', 'status', 'requestedAt'
+            ])
+            && hasAllKeys([
+              'organizationId', 'organizationName', 'patientUid',
+              'patientName', 'status', 'requestedAt'
+            ])
+            && request.resource.data.organizationId == orgId
+            && request.resource.data.patientUid == patientUid
+            && request.resource.data.patientName
+               == get(/databases/$(db)/documents/users/$(patientUid)).data.displayName
+            && get(/databases/$(db)/documents/users/$(patientUid)).data.accountType
+               == 'patient'
+            && request.resource.data.organizationName
+               == get(/databases/$(db)/documents/organizationDirectory/$(orgId)).data.name
+            && get(/databases/$(db)/documents/organizationDirectory/$(orgId)).data.active == true
+            && get(/databases/$(db)/documents/organizationDirectory/$(orgId)).data.selfRegistered == true
+            && request.resource.data.status == 'directory_request_pending'
+            && request.resource.data.requestedAt == request.time
+            && getAfter(
+              /databases/$(db)/documents/users/$(patientUid)/directoryRequests/$(orgId)
+            ).data.status == request.resource.data.status;
+          allow update: if isSelf(orgId)
+            && resource.data.patientUid == patientUid
+            && resource.data.status == 'directory_request_pending'
+            && request.resource.data.status in [
+              'directory_request_acknowledged', 'directory_request_declined'
+            ]
+            && request.resource.data.respondedAt == request.time
+            && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['status', 'respondedAt'])
+            && getAfter(
+              /databases/$(db)/documents/users/$(patientUid)/directoryRequests/$(orgId)
+            ).data.status == request.resource.data.status
+            && getAfter(
+              /databases/$(db)/documents/users/$(patientUid)/directoryRequests/$(orgId)
+            ).data.respondedAt == request.time;
+          allow delete: if false;
+        }
     }
 
     // Organization metadata and patient linking are scoped to the trusted org claim.
@@ -409,9 +497,15 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // ---------- prescriptions ----------
+    match /prescriptions/{id} {
+      allow read, write: if signedIn();
+    }
+
     // ---------- default deny ----------
     match /{document=**} {
       allow read, write: if false;
     }
+
   }
 }

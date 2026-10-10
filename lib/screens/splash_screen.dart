@@ -2,14 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../models/app_user.dart';
 import '../providers/app_providers.dart';
 import '../services/firebase_service.dart';
 import '../services/patient_profile_service.dart';
+import '../services/screen_cache_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/brand_emblem.dart';
 import 'home_screen.dart';
 import 'organization_dashboard_screen.dart';
 import 'sign_in_screen.dart';
+import 'sign_up_screen.dart';
 
 class SplashScreen extends ConsumerStatefulWidget {
   const SplashScreen({super.key});
@@ -56,27 +59,98 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
     await Future.delayed(const Duration(milliseconds: 1200));
     if (!mounted) return;
 
+    // Restore cached VCF data into the provider so genetic profile is immediately available.
+    final cachedVcf = await ScreenCacheService.restoreVcfData();
+    if (cachedVcf != null && mounted) {
+      // We only have the raw content here; actual parsing happens in HomeScreen.
+      // Store a lightweight marker so HomeScreen knows to re-parse the cached file.
+      debugPrint(
+        'SplashScreen: cached VCF "${cachedVcf['filename']}" found, HomeScreen will restore it.',
+      );
+    }
+
     final currentUser = FirebaseService.currentUser;
 
     if (currentUser != null) {
-      // A profile is nice to have, but a slow/unavailable network must not
-      // leave the user on the splash screen forever.
-      final profile = await FirebaseService.getUserProfile(
-        currentUser.uid,
-      ).timeout(const Duration(seconds: 3), onTimeout: () => null);
+      AppUser? profile;
+      try {
+        profile = await FirebaseService.getUserProfile(
+          currentUser.uid,
+        ).timeout(const Duration(seconds: 10));
+      } catch (_) {
+        if (mounted) {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(
+              builder: (_) => const SignInScreen(
+                initialError:
+                    'Could not verify your account profile. Check your connection and sign in again.',
+              ),
+            ),
+          );
+        }
+        return;
+      }
+
+      if (profile == null) {
+        if (mounted) {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(
+              builder: (_) => const SignUpScreen(resumeExistingAccount: true),
+            ),
+          );
+        }
+        return;
+      }
+
+      late final bool setupComplete;
+      try {
+        setupComplete = await FirebaseService.hasCompletedAccountSetup(
+          uid: currentUser.uid,
+          profile: profile,
+        );
+      } catch (_) {
+        if (mounted) {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(
+              builder: (_) => const SignInScreen(
+                initialError:
+                    'Could not verify your account setup with Firebase. Check your connection and sign in again.',
+              ),
+            ),
+          );
+        }
+        return;
+      }
+
+      if (!setupComplete) {
+        if (mounted) {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(
+              builder: (_) => SignUpScreen(
+                organizationWorkspaceRequested: profile?.role == 'organization',
+                resumeExistingAccount: true,
+                existingProfile: profile,
+              ),
+            ),
+          );
+        }
+        return;
+      }
       final savedPatientProfile = await PatientProfileService.load();
       if (mounted) {
         ref.read(patientProfileProvider.notifier).state = savedPatientProfile;
-        if (profile != null) {
-          ref.read(userProfileProvider.notifier).state = profile;
+        ref.read(userProfileProvider.notifier).state = profile;
+        if (profile.role == 'organization') {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(
+              builder: (_) => const OrganizationDashboardScreen(),
+            ),
+          );
+        } else {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => const HomeScreen()),
+          );
         }
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(
-            builder: (_) => profile?.role == 'organization'
-                ? const OrganizationDashboardScreen()
-                : const HomeScreen(),
-          ),
-        );
       }
       return;
     }
