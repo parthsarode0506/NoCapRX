@@ -41,7 +41,9 @@ void main() {
       findsOneWidget,
     );
     expect(
-      find.textContaining('This opens the organization dashboard.'),
+      find.textContaining(
+        'lists the organization name and city in patient search',
+      ),
       findsOneWidget,
     );
   });

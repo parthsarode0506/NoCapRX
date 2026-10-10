@@ -78,7 +78,6 @@ service cloud.firestore {
         && get(organizationConsentPath(pid)).data.expiresAt > request.time
         && scope in get(organizationConsentPath(pid)).data.scope;
     }
-
     // ---------- users ----------
     match /users/{uid} {
       allow read: if isSelf(uid) || isPlatformAdmin();
@@ -126,9 +125,23 @@ service cloud.firestore {
           && onlyKeys(['accepted', 'noticeVersion', 'createdAt'])
           && hasAllKeys(['accepted', 'noticeVersion', 'createdAt'])
           && request.resource.data.accepted == true
-          && request.resource.data.noticeVersion == '1.0'
+          && request.resource.data.noticeVersion == '1.1'
           && request.resource.data.createdAt == request.time;
-        allow update, delete: if false;
+        allow update: if isSelf(uid)
+          && consentId == 'privacy_notice'
+          && resource.data.accepted == true
+          && resource.data.noticeVersion == '1.0'
+          && request.resource.data.accepted == true
+          && request.resource.data.noticeVersion == '1.1'
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.updatedAt == request.time
+          && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['noticeVersion', 'updatedAt']);
+        allow delete: if false;
+      }
+
+      match /organizationInvitations/{orgId} {
+        allow read, write: if false;
       }
 
       // ---------- synced derived reports (existing B2C history) ----------
@@ -164,6 +177,90 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Public-safe directory entries: self-registered listings are owner-bound;
+    // provisioned organizations use the trusted organization claim.
+    match /organizationDirectory/{orgId} {
+      allow get, list: if signedIn()
+        && resource.data.active == true
+        && resource.data.keys().hasOnly([
+          'organizationId', 'name', 'city', 'normalizedName', 'active',
+          'selfRegistered', 'updatedAt'
+        ]);
+      allow create, update: if (
+          isSelf(orgId)
+          && onlyKeys([
+            'organizationId', 'name', 'city', 'normalizedName', 'active',
+            'selfRegistered', 'updatedAt'
+          ])
+          && hasAllKeys([
+            'organizationId', 'name', 'city', 'normalizedName', 'active',
+            'selfRegistered', 'updatedAt'
+          ])
+          && request.resource.data.organizationId == request.auth.uid
+          && request.resource.data.name is string
+          && request.resource.data.name.size() >= 2
+          && request.resource.data.name.size() <= 120
+          && request.resource.data.city is string
+          && request.resource.data.city.size() > 0
+          && request.resource.data.city.size() <= 100
+          && request.resource.data.normalizedName is string
+          && request.resource.data.normalizedName.size() >= 2
+          && request.resource.data.active == true
+          && request.resource.data.selfRegistered == true
+          && request.resource.data.updatedAt == request.time
+          && get(/databases/$(db)/documents/users/$(request.auth.uid)).data.accountType
+             == 'organization'
+          && get(/databases/$(db)/documents/users/$(request.auth.uid)).data.organizationName
+             == request.resource.data.name
+          && get(/databases/$(db)/documents/users/$(request.auth.uid)).data.city
+             == request.resource.data.city
+        ) || (
+          isClinician()
+          && myOrg() == orgId
+          && onlyKeys([
+            'organizationId', 'name', 'city', 'normalizedName', 'active',
+            'updatedAt'
+          ])
+          && hasAllKeys([
+            'organizationId', 'name', 'city', 'normalizedName', 'active',
+            'updatedAt'
+          ])
+          && request.resource.data.organizationId == orgId
+          && request.resource.data.name is string
+          && request.resource.data.name.size() >= 2
+          && request.resource.data.name.size() <= 120
+          && request.resource.data.city is string
+          && request.resource.data.city.size() <= 100
+          && request.resource.data.normalizedName is string
+          && request.resource.data.active == true
+          && request.resource.data.updatedAt == request.time
+          && get(/databases/$(db)/documents/organizations/$(orgId)).data.name
+             == request.resource.data.name
+          && get(/databases/$(db)/documents/organizations/$(orgId)).data.get('city', '')
+             == request.resource.data.city
+        );
+      allow delete: if false;
+    }
+
+    // Organization metadata and patient linking are scoped to the trusted org claim.
+    match /organizations/{orgId} {
+      allow get: if isClinician() && myOrg() == orgId;
+      allow list, create, update, delete: if false;
+
+      match /members/{uid} {
+        allow read: if isSelf(uid) || isOrgAdmin(orgId) || isPlatformAdmin();
+        allow write: if false;
+      }
+
+      match /patientInvitations/{patientUid} {
+        allow read, write: if false;
+      }
+
+      match /patientLinks/{patientId} {
+        allow read, write: if false;
+      }
+    }
+
     // ---------- orgs ----------
     match /orgs/{orgId} {
       allow read: if signedIn() && (myOrg() == orgId || isPlatformAdmin());
@@ -177,10 +274,7 @@ service cloud.firestore {
 
     // ---------- patients ----------
     match /patients/{pid} {
-      allow read: if (signedIn() && resource.data.ownerUid == request.auth.uid)
-        || (isClinician()
-            && (hasConsent(pid, 'read_profile')
-                || hasOrganizationConsent(pid, 'read_profile')));
+      allow read: if signedIn() && resource.data.ownerUid == request.auth.uid;
 
       allow create: if signedIn()
         && request.resource.data.ownerUid == request.auth.uid
@@ -210,19 +304,7 @@ service cloud.firestore {
           || (isClinician() && grantee == myOrg())
           || isSelf(grantee);
 
-        allow create, update: if ownsPatient(pid)
-          && onlyKeys(['grantee', 'scope', 'active', 'expiresAt', 'grantedAt'])
-          && hasAllKeys(['grantee', 'scope', 'active', 'expiresAt', 'grantedAt'])
-          && request.resource.data.grantee == grantee
-          && request.resource.data.scope.size() > 0
-          && request.resource.data.scope.hasOnly([
-            'read_profile', 'read_checks', 'write_checks',
-            'read_notes', 'write_notes', 'lab_order'
-          ])
-          && request.resource.data.expiresAt > request.time
-          && request.resource.data.expiresAt < request.time + duration.value(365, 'd');
-
-        allow delete: if false; // revoke = active:false (keeps history)
+        allow write: if false;
       }
 
       match /checks/{id} {

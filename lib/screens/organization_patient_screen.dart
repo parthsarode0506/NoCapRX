@@ -88,7 +88,7 @@ class _Workspace extends StatelessWidget {
         subtitle: 'Values returned by the authorized organization workspace.',
       ),
       _StatusCard(
-        title: 'Genetic file',
+        title: 'VCF file sharing',
         value: _label(patient.vcfStatus),
         icon: Icons.biotech_outlined,
       ),
@@ -99,12 +99,16 @@ class _Workspace extends StatelessWidget {
       ),
       _StatusCard(
         title: 'Reports',
-        value: '${patient.reportCount} available',
+        value: patient.reportCount == null
+            ? 'Not shared'
+            : '${patient.reportCount} available',
         icon: Icons.description_outlined,
       ),
       _StatusCard(
         title: 'Prescriptions',
-        value: '${patient.prescriptionCount} available',
+        value: patient.prescriptionCount == null
+            ? 'Not synchronized'
+            : '${patient.prescriptionCount} available',
         icon: Icons.medication_outlined,
       ),
       const SizedBox(height: 20),
@@ -153,6 +157,8 @@ class _Workspace extends StatelessWidget {
   );
 
   String _label(String status) => switch (status) {
+    'not_shared' => 'Not shared',
+    'not_available' => 'Not available',
     'not_uploaded' => 'Not available',
     'uploaded' => 'Uploaded',
     'processing' => 'Processing',

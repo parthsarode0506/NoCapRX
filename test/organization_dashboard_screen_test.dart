@@ -17,19 +17,22 @@ void main() {
 
     expect(find.text('Organization workspace'), findsOneWidget);
     expect(find.text('Sample Hospital'), findsWidgets);
+    expect(
+      find.textContaining('automatically lists your name and city'),
+      findsOneWidget,
+    );
     expect(find.text('Patient records'), findsOneWidget);
+    expect(find.text('Review patient requests'), findsOneWidget);
 
-    await tester.ensureVisible(find.text('Search records'));
-    await tester.pumpAndSettle();
-    await tester.pumpAndSettle();
-    expect(find.text('Search records'), findsOneWidget);
     await tester.scrollUntilVisible(
-      find.text('Add New Patient'),
+      find.text('Search records'),
       300,
       scrollable: find.byType(Scrollable).first,
     );
     await tester.pumpAndSettle();
-    expect(find.text('Add New Patient'), findsOneWidget);
+    await tester.pumpAndSettle();
+    expect(find.text('Search records'), findsOneWidget);
+    expect(find.text('Add New Patient'), findsNothing);
 
     await tester.scrollUntilVisible(
       find.text('Clinical workflows'),
@@ -62,7 +65,11 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.ensureVisible(find.text('Search records'));
+    await tester.scrollUntilVisible(
+      find.text('Search records'),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
     await tester.pumpAndSettle();
     await tester.tap(find.text('Search records'));
     await tester.pumpAndSettle();
@@ -87,17 +94,17 @@ void main() {
 
     expect(find.text('Organization Dashboard'), findsOneWidget);
     expect(find.text('Organization workspace'), findsOneWidget);
-    expect(
-      find.textContaining(
-        'Hospital access codes and patient-account invitations are unavailable',
-      ),
-      findsOneWidget,
-    );
+    expect(find.textContaining('lists your name and city'), findsOneWidget);
+    expect(find.text('Add New Patient'), findsNothing);
     expect(
       find.text('Organization access is awaiting administrator setup.'),
       findsNothing,
     );
-    await tester.ensureVisible(find.text('Search records'));
+    await tester.scrollUntilVisible(
+      find.text('Search records'),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
     await tester.pumpAndSettle();
     expect(
       tester.widget<TextField>(find.byType(TextField)).enabled,
@@ -110,22 +117,12 @@ void main() {
       findsOneWidget,
     );
 
-    await tester.ensureVisible(find.text('Add New Patient'));
-    await tester.tap(find.text('Add New Patient'));
-    await tester.pumpAndSettle();
-    expect(find.text('Add patient record'), findsOneWidget);
-    expect(
-      find.textContaining('will not appear in a patient login'),
-      findsOneWidget,
-    );
-    expect(find.text('Patient email'), findsNothing);
-    expect(find.text('Password'), findsNothing);
     expect(
       find.text('Organization access is awaiting administrator setup.'),
       findsNothing,
     );
-    await tester.tap(find.text('Cancel'));
-    await tester.pumpAndSettle();
+    expect(find.byType(TextField), findsOneWidget);
+    expect(find.text('Patient name'), findsOneWidget);
 
     await tester.scrollUntilVisible(
       find.text('Generate Drug-Safety Report'),

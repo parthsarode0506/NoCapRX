@@ -8,6 +8,7 @@ import 'dart:math';
 import '../firebase_options.dart';
 import '../models/app_user.dart';
 import '../models/chat_message.dart';
+import '../models/organization_access.dart';
 import '../models/organization_patient.dart';
 import '../models/pgx_report.dart';
 import 'local_report_service.dart';
@@ -280,6 +281,20 @@ class FirebaseService {
         cause: error,
       );
     }
+    if (accountType == 'organization') {
+      try {
+        await _publishSelfRegisteredOrganization(
+          user: user,
+          name: organizationName.trim(),
+          city: city.trim(),
+        );
+      } catch (error) {
+        throw AccountSetupFailure(
+          step: 'public organization directory listing',
+          cause: error,
+        );
+      }
+    }
   }
 
   /// Google popup sign-in is supported on Web when the provider is enabled.
@@ -401,14 +416,18 @@ class FirebaseService {
   static Future<List<OrganizationPatient>> searchOrganizationPatients(
     String query,
   ) async {
+    final normalized = _normalizeOrganizationSearch(query);
+    if (normalized.length < 2) {
+      throw ArgumentError('Enter at least two characters to search.');
+    }
     final result = await _organizationFunctions
         .httpsCallable('searchOrganizationPatients')
-        .call(<String, Object?>{'query': query});
+        .call(<String, Object?>{'query': normalized});
     final data = Map<String, dynamic>.from(result.data as Map);
     final patients = data['patients'];
     if (patients is! List) {
       throw const FormatException(
-        'Patient search returned an invalid response.',
+        'Organization patient search returned an invalid response.',
       );
     }
     return patients
@@ -423,19 +442,191 @@ class FirebaseService {
   static Future<String> getOrganizationName() async {
     final user = currentUser;
     if (user != null) {
+      final claims = (await user.getIdTokenResult()).claims ?? const {};
+      final orgId = claims['orgId'];
+      if (orgId is String && orgId.isNotEmpty) {
+        final organization = await FirebaseFirestore.instance
+            .collection('organizations')
+            .doc(orgId)
+            .get();
+        final name = organization.data()?['name'];
+        final city = organization.data()?['city'];
+        if (name is String && name.trim().isNotEmpty) {
+          return city is String && city.trim().isNotEmpty
+              ? '${name.trim()} · ${city.trim()}'
+              : name.trim();
+        }
+      }
       final profile = await getUserProfile(user.uid);
-      final organizationName = profile?.organizationName.trim() ?? '';
+      final fallbackName = profile?.organizationName.trim() ?? '';
       final city = profile?.city.trim() ?? '';
-      if (organizationName.isNotEmpty) {
-        return city.isEmpty ? organizationName : '$organizationName · $city';
+      if (fallbackName.isNotEmpty) {
+        return city.isEmpty ? fallbackName : '$fallbackName · $city';
       }
     }
-    final result = await _organizationFunctions
-        .httpsCallable('getOrganizationSummary')
-        .call();
-    final data = Map<String, dynamic>.from(result.data as Map);
-    return data['name'] as String? ?? 'Organization';
+    return 'Organization';
   }
+
+  static Future<void> _publishSelfRegisteredOrganization({
+    required User user,
+    required String name,
+    required String city,
+  }) async {
+    if (name.length < 2 || city.isEmpty) {
+      throw ArgumentError(
+        'Enter an organization name and city to appear in patient search.',
+      );
+    }
+    final normalizedName = _normalizeOrganizationSearch(name);
+    await FirebaseFirestore.instance
+        .collection('organizationDirectory')
+        .doc(user.uid)
+        .set({
+          'organizationId': user.uid,
+          'name': name,
+          'city': city,
+          'normalizedName': normalizedName,
+          'active': true,
+          'selfRegistered': true,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+  }
+
+  static Future<List<OrganizationDirectoryEntry>> findOrganizations(
+    String query,
+  ) async {
+    final normalized = _normalizeOrganizationSearch(query);
+    if (normalized.length < 2) {
+      throw ArgumentError('Enter at least two characters to search.');
+    }
+    final snapshot = await FirebaseFirestore.instance
+        .collection('organizationDirectory')
+        .where('active', isEqualTo: true)
+        .orderBy('normalizedName')
+        .startAt([normalized])
+        .endAt(['$normalized\uf8ff'])
+        .limit(20)
+        .get();
+    return snapshot.docs
+        .map(
+          (document) => OrganizationDirectoryEntry.fromJson({
+            ...document.data(),
+            'organizationId': document.id,
+          }),
+        )
+        .toList(growable: false);
+  }
+
+  static Future<void> sendOrganizationAccessRequest(
+    OrganizationDirectoryEntry organization,
+  ) async {
+    await _organizationFunctions
+        .httpsCallable('requestOrganizationAccessById')
+        .call(<String, Object?>{'organizationId': organization.organizationId});
+  }
+
+  static Future<List<OrganizationAccessRequest>>
+  listPatientOrganizationRequests() async {
+    final invitations = await listPatientOrganizationInvitations();
+    return invitations
+        .map(
+          (invitation) => OrganizationAccessRequest.fromJson({
+            'organizationId': invitation.organizationId,
+            'organizationName': invitation.organizationName,
+            'patientUid': invitation.patientUid,
+            'patientId': invitation.patientId,
+            'patientName': invitation.patientName,
+            'status': invitation.status,
+            'requestedAt': invitation.requestedAt?.toIso8601String(),
+          }),
+        )
+        .toList(growable: false);
+  }
+
+  static Future<List<OrganizationAccessRequest>>
+  listOrganizationPatientRequests() async {
+    final orgId = await _currentOrganizationId();
+    final invitations = await listOrganizationPatientInvitations();
+    return invitations
+        .map(
+          (invitation) => OrganizationAccessRequest.fromJson({
+            'organizationId': orgId,
+            'organizationName': invitation.organizationName,
+            'patientUid': invitation.patientUid,
+            'patientId': invitation.patientId,
+            'patientName': invitation.patientName,
+            'status': invitation.status,
+            'requestedAt': invitation.requestedAt?.toIso8601String(),
+          }),
+        )
+        .toList(growable: false);
+  }
+
+  static Future<void> respondToOrganizationAccessRequest({
+    required OrganizationAccessRequest invitation,
+    required bool accepted,
+  }) async {
+    final orgId = await _currentOrganizationId();
+    if (invitation.organizationId != orgId) {
+      throw StateError('This request belongs to another organization.');
+    }
+    await respondToOrganizationPatientInvitation(
+      patientUid: invitation.patientUid,
+      accepted: accepted,
+    );
+  }
+
+  static Future<void> respondToPatientOrganizationRequest({
+    required OrganizationAccessRequest invitation,
+    required bool accepted,
+  }) async {
+    final user = currentUser;
+    if (user == null) throw StateError('Sign in to continue.');
+    if (invitation.patientUid != user.uid ||
+        invitation.status != 'awaiting_patient_confirmation') {
+      throw StateError('This organization request is not awaiting your reply.');
+    }
+    await respondToPatientOrganizationInvitation(
+      organizationId: invitation.organizationId,
+      accepted: accepted,
+      shareProfile: accepted,
+    );
+  }
+
+  static Future<void> revokePatientOrganizationAccess(
+    OrganizationAccessRequest invitation,
+  ) async {
+    final user = currentUser;
+    if (user == null || invitation.patientUid != user.uid) {
+      throw StateError('Sign in with the patient account to revoke access.');
+    }
+    await revokePatientOrganizationConsent(
+      organizationId: invitation.organizationId,
+    );
+  }
+
+  static Future<String> _currentOrganizationId() async {
+    final user = currentUser;
+    if (user == null) throw StateError('Sign in to continue.');
+    final token = await user.getIdTokenResult();
+    final claims = token.claims ?? const {};
+    final orgId = claims['orgId'];
+    if (claims['verified'] != true ||
+        !{'doctor', 'pharmacist'}.contains(claims['role']) ||
+        orgId is! String ||
+        orgId.isEmpty) {
+      throw StateError(
+        'An active verified organization membership is required.',
+      );
+    }
+    return orgId;
+  }
+
+  static String _normalizeOrganizationSearch(String value) => value
+      .toLowerCase()
+      .replaceAll(RegExp(r'[^\p{L}\p{N}]+', unicode: true), ' ')
+      .trim()
+      .replaceAll(RegExp(r'\s+'), ' ');
 
   static Future<String> getOrganizationCode() async {
     final result = await _organizationFunctions
@@ -643,9 +834,14 @@ class FirebaseService {
     final result = await _organizationFunctions
         .httpsCallable('getOrganizationPatientWorkspace')
         .call(<String, Object?>{'patientId': patientId});
-    return OrganizationPatient.fromCallable(
-      Map<String, dynamic>.from(result.data as Map),
-    );
+    final data = Map<String, dynamic>.from(result.data as Map);
+    return OrganizationPatient.fromCallable({
+      'patientId': patientId,
+      'name': data['name'],
+      'birthYear': data['birthYear'],
+      'vcfStatus': data['vcfStatus'],
+      'analysisStatus': data['analysisStatus'],
+    });
   }
 
   static FirebaseFunctions get _organizationFunctions =>
@@ -661,12 +857,22 @@ class FirebaseService {
       final snapshot = await transaction.get(acknowledgment);
       if (snapshot.exists) {
         final data = snapshot.data()!;
-        if (data['accepted'] == true && data['noticeVersion'] == '1.0') return;
+        if (data['accepted'] != true) {
+          throw StateError('The existing privacy acknowledgment is invalid.');
+        }
+        if (data['noticeVersion'] == '1.1') return;
+        if (data['noticeVersion'] == '1.0') {
+          transaction.update(acknowledgment, {
+            'noticeVersion': '1.1',
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+          return;
+        }
         throw StateError('The existing privacy acknowledgment is invalid.');
       }
       transaction.set(acknowledgment, {
         'accepted': true,
-        'noticeVersion': '1.0',
+        'noticeVersion': '1.1',
         'createdAt': FieldValue.serverTimestamp(),
       });
     });

@@ -42,7 +42,9 @@ void main() {
       findsOneWidget,
     );
     expect(
-      find.textContaining('This opens the organization dashboard.'),
+      find.textContaining(
+        'lists the organization name and city in patient search',
+      ),
       findsOneWidget,
     );
     expect(find.text('Organization name'), findsOneWidget);
@@ -63,7 +65,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(
-      find.textContaining('This opens the organization dashboard.'),
+      find.textContaining(
+        'lists the organization name and city in patient search',
+      ),
       findsOneWidget,
     );
   });

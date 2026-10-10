@@ -14,6 +14,7 @@ import 'chatbot_screen.dart';
 import 'drug_input_screen.dart';
 import 'genomic_scan_screen.dart';
 import 'history_screen.dart';
+import 'patient_organization_access_screen.dart';
 import 'patient_profile_screen.dart';
 import 'prescription_scan_screen.dart';
 import 'results_screen.dart';
@@ -208,6 +209,13 @@ class HomeScreen extends ConsumerWidget {
                     MaterialPageRoute(builder: (_) => const HistoryScreen()),
                   );
                   break;
+                case 'organization_access':
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const PatientOrganizationAccessScreen(),
+                    ),
+                  );
+                  break;
                 case 'sign_out':
                   _signOut(context, ref);
                   break;
@@ -216,6 +224,10 @@ class HomeScreen extends ConsumerWidget {
             itemBuilder: (_) => [
               PopupMenuItem(value: 'profile', child: Text('My profile')),
               PopupMenuItem(value: 'reports', child: Text('Reports')),
+              PopupMenuItem(
+                value: 'organization_access',
+                child: Text('Organization access'),
+              ),
               PopupMenuItem(value: 'sign_out', child: Text('Sign out')),
             ],
           ),

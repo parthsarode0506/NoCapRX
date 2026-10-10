@@ -56,20 +56,30 @@ grants or consents.
 
 ### Organization / healthcare team
 
-The organization workspace is intended for authorized healthcare teams. The
-current organization dashboard supports:
+The organization workspace supports self-registration and public discovery,
+while patient-data actions remain server-authorized. The current dashboard
+supports:
 
-- Searching patients linked to the authenticated user's active organization.
+- Automatically listing the signup-provided organization name and city in
+  patient search as self-registered and unverified.
+- Reviewing patient-initiated access requests.
+- Searching for patients only after active patient consent.
 - Opening the matching organization patient workspace.
-- Registering a patient when no accessible match is found.
-- Creating a one-time, email-bound account invitation for a registered
-  patient.
-- Reviewing the record's stored workflow status and available counts.
 
 The current workspace does **not** upload or retrieve VCF data, perform cloud
 analysis, publish reports, or finalize prescriptions. Those functions must not
 be represented as available until a privacy-approved, clinically validated
 data flow is implemented.
+
+Organization approval alone does not grant access. The patient separately
+consents to sharing the basic profile, and can revoke that consent. Genomic
+profiles, VCF files, reports and prescriptions are not synchronized to the
+organization workspace.
+
+Self-registered, unverified directory listings are discoverable but cannot
+receive patient-data access requests until the organization is provisioned.
+The public listing is not evidence of professional or organizational
+verification.
 
 The app does not ask users to choose a suggested professional role. Selecting
 an Organization workspace or entering an organization name does not grant

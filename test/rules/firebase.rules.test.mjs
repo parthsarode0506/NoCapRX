@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import {
   assertFails,
@@ -8,9 +9,15 @@ import {
 import {
   doc,
   getDoc,
+  getDocs,
+  collection,
+  orderBy,
+  query,
+  runTransaction,
   serverTimestamp,
   setDoc,
   updateDoc,
+  where,
 } from 'firebase/firestore';
 import { getBytes, ref, uploadBytes } from 'firebase/storage';
 
@@ -62,14 +69,45 @@ test('organization signup profile and privacy acknowledgment can both be stored'
     locale: 'en',
     createdAt: serverTimestamp(),
   }));
-  await assertSucceeds(setDoc(
-    doc(userDb, 'users/organization-signup/consents/privacy_notice'),
-    {
+  const privacyNotice = doc(
+    userDb,
+    'users/organization-signup/consents/privacy_notice',
+  );
+  await assertSucceeds(runTransaction(userDb, async (transaction) => {
+    const existingNotice = await transaction.get(privacyNotice);
+    assert.equal(existingNotice.exists(), false);
+    transaction.set(privacyNotice, {
       accepted: true,
-      noticeVersion: '1.0',
+      noticeVersion: '1.1',
       createdAt: serverTimestamp(),
+    });
+  }));
+  await assertSucceeds(setDoc(
+    doc(userDb, 'organizationDirectory/organization-signup'),
+    {
+      organizationId: 'organization-signup',
+      name: 'Sample Hospital',
+      city: 'Pune',
+      normalizedName: 'sample hospital',
+      active: true,
+      selfRegistered: true,
+      updatedAt: serverTimestamp(),
     },
   ));
+
+  const patientDb = testEnvironment.authenticatedContext('directory-patient').firestore();
+  const listing = await getDoc(
+    doc(patientDb, 'organizationDirectory/organization-signup'),
+  );
+  assert.equal(listing.data()?.name, 'Sample Hospital');
+  assert.equal(listing.data()?.selfRegistered, true);
+  const searchResults = await getDocs(query(
+    collection(patientDb, 'organizationDirectory'),
+    where('active', '==', true),
+    orderBy('normalizedName'),
+  ));
+  assert.equal(searchResults.docs.length, 1);
+  assert.equal(searchResults.docs[0].data().selfRegistered, true);
 });
 
 test('a user cannot assign a privileged or unsupported account type', async () => {
@@ -91,12 +129,52 @@ test('a user can record required privacy-notice acknowledgment', async () => {
   const userDb = testEnvironment.authenticatedContext('consent-user').firestore();
   await assertSucceeds(setDoc(doc(userDb, 'users/consent-user/consents/privacy_notice'), {
     accepted: true,
-    noticeVersion: '1.0',
+    noticeVersion: '1.1',
     createdAt: serverTimestamp(),
   }));
   await assertFails(updateDoc(
     doc(userDb, 'users/consent-user/consents/privacy_notice'),
     { accepted: false },
+  ));
+});
+
+test('an existing privacy acknowledgment can be upgraded to the public-directory notice', async () => {
+  const noticeUpgradeRef = doc(
+    testEnvironment.authenticatedContext('notice-upgrade').firestore(),
+    'users/notice-upgrade/consents/privacy_notice',
+  );
+  await testEnvironment.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(
+      context.firestore(),
+      'users/notice-upgrade/consents/privacy_notice',
+    ), {
+      accepted: true,
+      noticeVersion: '1.0',
+      createdAt: new Date(),
+    });
+  });
+  await assertSucceeds(updateDoc(noticeUpgradeRef, {
+    noticeVersion: '1.1',
+    updatedAt: serverTimestamp(),
+  }));
+  await assertFails(updateDoc(noticeUpgradeRef, {
+    accepted: false,
+  }));
+});
+
+test('a patient cannot publish an organization directory entry', async () => {
+  const patientDb = testEnvironment.authenticatedContext('directory-forger').firestore();
+  await assertFails(setDoc(
+    doc(patientDb, 'organizationDirectory/directory-forger'),
+    {
+      organizationId: 'directory-forger',
+      name: 'Fake Hospital',
+      city: 'Pune',
+      normalizedName: 'fake hospital',
+      active: true,
+      selfRegistered: true,
+      updatedAt: serverTimestamp(),
+    },
   ));
 });
 
@@ -220,7 +298,57 @@ test('organization patient data and audit logs are callable-only', async () => {
   }));
 });
 
-test('organization access to patient data follows revocable organization consent', async () => {
+test('organization links, invitations, and consent cannot be changed by clients', async () => {
+  await testEnvironment.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), 'patients/patient-owner'), {
+      ownerUid: 'patient-owner',
+      name: 'Sample Patient',
+    });
+  });
+
+  const patientDb = testEnvironment
+    .authenticatedContext('patient-owner')
+    .firestore();
+  const invitation = {
+    organizationId: 'org-1',
+    organizationName: 'Sample Hospital',
+    patientUid: 'patient-owner',
+    patientId: 'patient-owner',
+    patientName: 'Sample Patient',
+    status: 'pending_org_review',
+    requestedAt: serverTimestamp(),
+  };
+
+  await assertFails(setDoc(
+    doc(patientDb, 'users/patient-owner/organizationInvitations/org-1'),
+    invitation,
+  ));
+  await assertFails(setDoc(
+    doc(patientDb, 'organizations/org-1/patientInvitations/patient-owner'),
+    invitation,
+  ));
+  await assertFails(setDoc(
+    doc(patientDb, 'organizations/org-1/patientLinks/patient-owner'),
+    {
+      patientId: 'patient-owner',
+      name: 'Sample Patient',
+      normalizedName: 'sample patient',
+      linkedAt: serverTimestamp(),
+    },
+  ));
+  await assertFails(setDoc(
+    doc(patientDb, 'patients/patient-owner/consents/org-1'),
+    {
+      grantee: 'org-1',
+      scope: ['read_profile'],
+      active: true,
+      expiresAt: new Date(Date.now() + 60_000),
+      grantedAt: serverTimestamp(),
+    },
+  ));
+});
+
+test('organization patient-profile reads are callable-only even with active consent', async () => {
   await testEnvironment.withSecurityRulesDisabled(async (context) => {
     const adminDb = context.firestore();
     await setDoc(doc(adminDb, 'patients/patient-consent'), {
@@ -246,7 +374,7 @@ test('organization access to patient data follows revocable organization consent
     orgId: 'org-1',
   }).firestore();
   const patientRef = doc(organizationDb, 'patients/patient-consent');
-  await assertSucceeds(getDoc(patientRef));
+  await assertFails(getDoc(patientRef));
 
   await testEnvironment.withSecurityRulesDisabled(async (context) => {
     await updateDoc(

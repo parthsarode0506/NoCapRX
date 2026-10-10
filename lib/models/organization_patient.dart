@@ -3,11 +3,11 @@ class OrganizationPatient {
     required this.patientId,
     required this.name,
     this.birthYear,
-    this.vcfStatus = 'not_uploaded',
-    this.analysisStatus = 'not_started',
+    this.vcfStatus = 'not_shared',
+    this.analysisStatus = 'not_available',
     this.latestReportAt,
-    this.reportCount = 0,
-    this.prescriptionCount = 0,
+    this.reportCount,
+    this.prescriptionCount,
   });
 
   final String patientId;
@@ -16,8 +16,8 @@ class OrganizationPatient {
   final String vcfStatus;
   final String analysisStatus;
   final DateTime? latestReportAt;
-  final int reportCount;
-  final int prescriptionCount;
+  final int? reportCount;
+  final int? prescriptionCount;
 
   factory OrganizationPatient.fromCallable(Map<String, dynamic> json) {
     final reportDate = json['latestReportAt'];
@@ -25,13 +25,13 @@ class OrganizationPatient {
       patientId: json['patientId'] as String? ?? '',
       name: json['name'] as String? ?? 'Patient',
       birthYear: (json['birthYear'] as num?)?.toInt(),
-      vcfStatus: json['vcfStatus'] as String? ?? 'not_uploaded',
-      analysisStatus: json['analysisStatus'] as String? ?? 'not_started',
+      vcfStatus: json['vcfStatus'] as String? ?? 'not_shared',
+      analysisStatus: json['analysisStatus'] as String? ?? 'not_available',
       latestReportAt: reportDate is String
           ? DateTime.tryParse(reportDate)
           : null,
-      reportCount: (json['reportCount'] as num?)?.toInt() ?? 0,
-      prescriptionCount: (json['prescriptionCount'] as num?)?.toInt() ?? 0,
+      reportCount: (json['reportCount'] as num?)?.toInt(),
+      prescriptionCount: (json['prescriptionCount'] as num?)?.toInt(),
     );
   }
 }
@@ -65,7 +65,6 @@ class PatientOrganizationInvitation {
     required this.patientUid,
     required this.patientId,
     required this.patientName,
-    required this.patientEmail,
     required this.status,
     this.consentActive = false,
     this.requestedAt,
@@ -76,7 +75,6 @@ class PatientOrganizationInvitation {
   final String patientUid;
   final String patientId;
   final String patientName;
-  final String patientEmail;
   final String status;
   final bool consentActive;
   final DateTime? requestedAt;
@@ -91,7 +89,6 @@ class PatientOrganizationInvitation {
       patientUid: json['patientUid'] as String? ?? '',
       patientId: json['patientId'] as String? ?? '',
       patientName: json['patientName'] as String? ?? 'Patient',
-      patientEmail: json['patientEmail'] as String? ?? '',
       status: json['status'] as String? ?? 'pending_org_review',
       consentActive: json['consentActive'] as bool? ?? false,
       requestedAt: requestedAt is String

@@ -1,7 +1,20 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ondevicerx/models/organization_access.dart';
 import 'package:ondevicerx/models/organization_patient.dart';
 
 void main() {
+  test('self-registered organizations are discoverable but not verified', () {
+    final organization = OrganizationDirectoryEntry.fromJson({
+      'organizationId': 'org-uid',
+      'name': 'Sample Hospital',
+      'city': 'Pune',
+      'selfRegistered': true,
+    });
+
+    expect(organization.selfRegistered, isTrue);
+    expect(organization.canRequestAccess, isFalse);
+  });
+
   test(
     'parses an authorized patient summary without inventing report data',
     () {
@@ -9,8 +22,8 @@ void main() {
         'patientId': 'patient-123',
         'name': 'Asha Rao',
         'birthYear': 1988,
-        'vcfStatus': 'not_uploaded',
-        'analysisStatus': 'not_started',
+        'vcfStatus': 'not_shared',
+        'analysisStatus': 'not_available',
         'reportCount': 0,
         'prescriptionCount': 0,
       });
@@ -18,8 +31,8 @@ void main() {
       expect(patient.patientId, 'patient-123');
       expect(patient.name, 'Asha Rao');
       expect(patient.birthYear, 1988);
-      expect(patient.vcfStatus, 'not_uploaded');
-      expect(patient.analysisStatus, 'not_started');
+      expect(patient.vcfStatus, 'not_shared');
+      expect(patient.analysisStatus, 'not_available');
       expect(patient.reportCount, 0);
       expect(patient.prescriptionCount, 0);
     },
@@ -31,9 +44,11 @@ void main() {
       'name': 'Mira Shah',
     });
 
-    expect(patient.vcfStatus, 'not_uploaded');
-    expect(patient.analysisStatus, 'not_started');
+    expect(patient.vcfStatus, 'not_shared');
+    expect(patient.analysisStatus, 'not_available');
     expect(patient.latestReportAt, isNull);
+    expect(patient.reportCount, isNull);
+    expect(patient.prescriptionCount, isNull);
   });
 
   test('parses an invitation preview for explicit patient review', () {
@@ -57,7 +72,6 @@ void main() {
       'patientUid': 'patient-uid',
       'patientId': 'patient-record',
       'patientName': 'Asha Rao',
-      'patientEmail': 'asha@example.invalid',
       'status': 'awaiting_patient_confirmation',
       'consentActive': true,
       'requestedAt': '2026-02-03T04:05:06.000Z',
@@ -67,7 +81,6 @@ void main() {
     expect(invitation.patientUid, 'patient-uid');
     expect(invitation.patientId, 'patient-record');
     expect(invitation.patientName, 'Asha Rao');
-    expect(invitation.patientEmail, 'asha@example.invalid');
     expect(invitation.status, 'awaiting_patient_confirmation');
     expect(invitation.consentActive, isTrue);
     expect(invitation.requestedAt, DateTime.utc(2026, 2, 3, 4, 5, 6));

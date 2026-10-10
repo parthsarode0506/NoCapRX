@@ -55,6 +55,10 @@ const patientOrganizationResponseSchema = z.object({
   shareProfile: z.boolean(),
 }).strict();
 
+const organizationAccessByIdSchema = z.object({
+  organizationId: z.string().trim().min(1).max(128),
+}).strict();
+
 const revokeOrganizationConsentSchema = z.object({
   organizationId: z.string().trim().min(1).max(128),
 }).strict();
@@ -82,10 +86,15 @@ function invitationReference(code: string) {
 
 function requireVerifiedPatient(request: CallableRequest<unknown>) {
   const auth = authRequired(request);
-  if (auth.token.email_verified !== true || typeof auth.token.email !== "string") {
+  const role = auth.token.role;
+  if (
+    auth.token.email_verified !== true ||
+    typeof auth.token.email !== "string" ||
+    (role !== undefined && role !== "" && role !== "patient")
+  ) {
     throw new HttpsError(
       "failed-precondition",
-      "Verify the invited email address before accepting this patient invitation.",
+      "A verified patient account is required for this operation.",
     );
   }
   return auth;
@@ -300,10 +309,13 @@ export const searchOrganizationPatients = onCall(
               .doc(orgId),
           );
           const expiresAt = consent.data()?.expiresAt?.toDate?.();
+          const scopes = consent.data()?.scope;
           if (
             consent.data()?.active !== true ||
             !(expiresAt instanceof Date) ||
-            expiresAt.getTime() <= Date.now()
+            expiresAt.getTime() <= Date.now() ||
+            !Array.isArray(scopes) ||
+            !scopes.includes("read_profile")
           ) {
             continue;
           }
@@ -312,9 +324,6 @@ export const searchOrganizationPatients = onCall(
           patientId,
           name: patient.name,
           birthYear: patient.birthYear ?? null,
-          vcfStatus: patient.vcfStatus ?? "not_uploaded",
-          analysisStatus: patient.analysisStatus ?? "not_started",
-          latestReportAt: patient.latestReportAt?.toDate?.().toISOString() ?? null,
         });
       }
       transaction.create(auditRef, {
@@ -346,6 +355,153 @@ export const getOrganizationSummary = onCall(
       organizationCode: organization.code,
       name: organization.name,
     };
+  },
+);
+
+export const requestOrganizationAccessById = onCall(
+  { enforceAppCheck: true, region },
+  async (request) => {
+    const auth = requireVerifiedPatient(request);
+    const parsed = organizationAccessByIdSchema.safeParse(request.data);
+    if (!parsed.success) {
+      throw new HttpsError("invalid-argument", "Organization reference is invalid.");
+    }
+
+    const organizationId = parsed.data.organizationId;
+    const userRef = database.collection("users").doc(auth.uid);
+    const organizationRef = database.collection("organizations").doc(organizationId);
+    const directoryRef = database.collection("organizationDirectory").doc(organizationId);
+    const organizationInvitationRef = organizationRef
+      .collection("patientInvitations")
+      .doc(auth.uid);
+    const userInvitationRef = userRef
+      .collection("organizationInvitations")
+      .doc(organizationId);
+    const auditRef = database.collection("auditLogs").doc();
+
+    return database.runTransaction(async (transaction) => {
+      const [user, organization, directory, organizationInvitation, userInvitation] =
+        await Promise.all([
+          transaction.get(userRef),
+          transaction.get(organizationRef),
+          transaction.get(directoryRef),
+          transaction.get(organizationInvitationRef),
+          transaction.get(userInvitationRef),
+        ]);
+      if (
+        !user.exists ||
+        !organization.exists ||
+        !directory.exists ||
+        directory.data()?.active !== true
+      ) {
+        throw new HttpsError("not-found", "This registered organization was not found.");
+      }
+
+      const patientId = typeof user.data()?.linkedPatientId === "string"
+        ? user.data()!.linkedPatientId as string
+        : auth.uid;
+      const patientRef = database.collection("patients").doc(patientId);
+      const patient = await transaction.get(patientRef);
+      const patientData = patient.data();
+      if (
+        patient.exists &&
+        typeof patientData?.ownerUid === "string" &&
+        patientData.ownerUid !== auth.uid
+      ) {
+        throw new HttpsError(
+          "permission-denied",
+          "This patient record is linked to another account.",
+        );
+      }
+
+      const previousStatus = organizationInvitation.data()?.status;
+      const previousUserStatus = userInvitation.data()?.status;
+      if (
+        organizationInvitation.exists !== userInvitation.exists ||
+        (organizationInvitation.exists && previousStatus !== previousUserStatus)
+      ) {
+        throw new HttpsError(
+          "failed-precondition",
+          "The organization request records are out of sync. Contact support.",
+        );
+      }
+      if (["pending_org_review", "awaiting_patient_confirmation"].includes(
+        String(previousStatus),
+      )) {
+        if (
+          organizationInvitation.data()?.patientId !== patientId ||
+          userInvitation.data()?.patientId !== patientId
+        ) {
+          throw new HttpsError(
+            "failed-precondition",
+            "The organization request records are out of sync. Contact support.",
+          );
+        }
+        return { status: previousStatus };
+      }
+      if (previousStatus === "accepted") {
+        const consent = await transaction.get(
+          patientRef.collection("consents").doc(organizationId),
+        );
+        const expiry = consent.data()?.expiresAt?.toDate?.();
+        if (
+          consent.data()?.active === true &&
+          expiry instanceof Date &&
+          expiry.getTime() > Date.now()
+        ) {
+          return { status: "accepted" };
+        }
+      }
+
+      const userData = user.data()!;
+      const patientName =
+        (typeof patientData?.name === "string" && patientData.name.trim()) ||
+        (typeof userData.displayName === "string" && userData.displayName.trim()) ||
+        "";
+      if (patientName.length < 2 || patientName.length > 120) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Complete your patient profile before requesting organization access.",
+        );
+      }
+
+      if (!patient.exists) {
+        transaction.create(patientRef, {
+          ownerUid: auth.uid,
+          name: patientName,
+          normalizedName: normalizePatientName(patientName),
+          birthYear: null,
+          createdBy: auth.uid,
+          createdAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+          version: 1,
+        });
+      }
+
+      const invitation = {
+        organizationId,
+        organizationName: String(
+          directory.data()?.name ?? organization.data()?.name ?? "Organization",
+        ),
+        patientUid: auth.uid,
+        patientId,
+        patientName,
+        status: "pending_org_review",
+        requestedAt: FieldValue.serverTimestamp(),
+      };
+      transaction.set(organizationInvitationRef, invitation);
+      transaction.set(userInvitationRef, invitation);
+      transaction.create(auditRef, {
+        actorUid: auth.uid,
+        actorRole: "patient",
+        orgId: organizationId,
+        action: "patient_organization_access_requested",
+        targetPath: patientRef.path,
+        at: FieldValue.serverTimestamp(),
+        meta: {},
+      });
+      return { status: "pending_org_review" };
+    });
   },
 );
 
@@ -546,7 +702,9 @@ export const listPatientOrganizationInvitations = onCall(
         const consentActive =
           consent?.active === true &&
           expiresAt instanceof Date &&
-          expiresAt.getTime() > Date.now();
+          expiresAt.getTime() > Date.now() &&
+          Array.isArray(consent.scope) &&
+          consent.scope.includes("read_profile");
         const organizationName =
           invitation?.organizationName ??
           (await database.collection("organizations").doc(organizationId).get())
@@ -560,7 +718,6 @@ export const listPatientOrganizationInvitations = onCall(
           patientName: invitation?.patientName ??
             userSnapshot.data()?.displayName ??
             "Patient",
-          patientEmail: String(auth.token.email ?? ""),
           status: consentActive ? "accepted" : invitation?.status ?? "revoked_by_patient",
           consentActive,
           requestedAt: invitation?.requestedAt?.toDate?.().toISOString() ?? null,
@@ -607,7 +764,6 @@ export const listOrganizationPatientInvitations = onCall(
           patientUid: data.patientUid,
           patientId: data.patientId,
           patientName: data.patientName,
-          patientEmail: data.patientEmail,
           status: data.status,
           requestedAt: data.requestedAt?.toDate?.().toISOString() ?? null,
         }));
@@ -1282,7 +1438,9 @@ export const getOrganizationPatientWorkspace = onCall(
         if (
           consent.data()?.active !== true ||
           !(expiresAt instanceof Date) ||
-          expiresAt.getTime() <= Date.now()
+          expiresAt.getTime() <= Date.now() ||
+          !Array.isArray(consent.data()?.scope) ||
+          !consent.data()?.scope.includes("read_profile")
         ) {
           throw new HttpsError(
             "permission-denied",
@@ -1305,11 +1463,8 @@ export const getOrganizationPatientWorkspace = onCall(
       patientId: parsed.data.patientId,
       name: patient.name,
       birthYear: patient.birthYear ?? null,
-      vcfStatus: patient.vcfStatus ?? "not_uploaded",
-      analysisStatus: patient.analysisStatus ?? "not_started",
-      latestReportAt: patient.latestReportAt?.toDate?.().toISOString() ?? null,
-      reportCount: patient.reportCount ?? 0,
-      prescriptionCount: patient.prescriptionCount ?? 0,
+      vcfStatus: "not_shared",
+      analysisStatus: "not_available",
       limitations:
         "Raw VCF data stays on the patient's device. Cloud analysis is unavailable until a clinically validated, privacy-approved processing pipeline is configured.",
     };

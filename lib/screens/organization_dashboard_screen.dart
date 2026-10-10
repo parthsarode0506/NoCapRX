@@ -4,6 +4,7 @@ import '../models/organization_patient.dart';
 import '../services/firebase_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/ui_kit.dart';
+import 'organization_access_requests_screen.dart';
 import 'organization_patient_screen.dart';
 import 'sign_in_screen.dart';
 
@@ -25,8 +26,6 @@ class _OrganizationDashboardScreenState
   Future<List<OrganizationPatient>>? _search;
   String? _searchError;
   bool _isSearching = false;
-  String? _pendingRegistrationFingerprint;
-  String? _pendingRegistrationKey;
 
   @override
   void dispose() {
@@ -66,40 +65,6 @@ class _OrganizationDashboardScreenState
     return message;
   }
 
-  Future<void> _addPatient() async {
-    final result = await showDialog<_NewPatientInput>(
-      context: context,
-      builder: (_) => const _NewPatientDialog(),
-    );
-    if (result == null || !mounted) return;
-    final fingerprint =
-        '${result.name.toLowerCase().trim()}|${result.birthYear ?? ''}';
-    if (_pendingRegistrationFingerprint != fingerprint) {
-      _pendingRegistrationFingerprint = fingerprint;
-      _pendingRegistrationKey = FirebaseService.newIdempotencyKey();
-    }
-    try {
-      final patientId = await FirebaseService.registerOrganizationPatient(
-        name: result.name,
-        birthYear: result.birthYear,
-        idempotencyKey: _pendingRegistrationKey!,
-      );
-      _pendingRegistrationFingerprint = null;
-      _pendingRegistrationKey = null;
-      if (!mounted) return;
-      await Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => OrganizationPatientScreen(patientId: patientId),
-        ),
-      );
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(_messageFor(error))));
-    }
-  }
-
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
@@ -130,13 +95,23 @@ class _OrganizationDashboardScreenState
         const SizedBox(height: 24),
         const AppCard(
           child: Text(
-            'Hospital access codes and patient-account invitations are unavailable in free Firebase mode. Patient records created here are organization-only and will not appear in a patient login.',
+            'Organization signup automatically lists your name and city for patient search as self-registered and unverified. This public listing does not grant access to patient data; patient records remain protected by consent and server access controls.',
           ),
+        ),
+        const SizedBox(height: 20),
+        OutlinedButton.icon(
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => const OrganizationAccessRequestsScreen(),
+            ),
+          ),
+          icon: const Icon(Icons.inbox_outlined),
+          label: const Text('Review patient requests'),
         ),
         const SizedBox(height: 20),
         const SectionHeader(
           title: 'Patient records',
-          subtitle: 'Find an existing patient or create a new record.',
+          subtitle: 'Search for a patient already linked to your organization.',
         ),
         AppCard(
           child: Column(
@@ -147,7 +122,7 @@ class _OrganizationDashboardScreenState
                 textInputAction: TextInputAction.search,
                 onSubmitted: (_) => _searchPatients(),
                 decoration: const InputDecoration(
-                  labelText: 'Patient name or patient ID',
+                  labelText: 'Patient name',
                   hintText: 'Enter at least 2 characters',
                   prefixIcon: Icon(Icons.search),
                   border: OutlineInputBorder(),
@@ -169,18 +144,8 @@ class _OrganizationDashboardScreenState
                 'Results are limited to records linked to your active organization.',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
-              const SizedBox(height: 12),
-              const Text(
-                'This creates a patient record only. The patient creates their own account and password from Patient Sign Up; organization staff should not collect or set the patient password.',
-              ),
             ],
           ),
-        ),
-        const SizedBox(height: 12),
-        OutlinedButton.icon(
-          onPressed: _addPatient,
-          icon: const Icon(Icons.person_add_alt_1),
-          label: const Text('Add New Patient'),
         ),
         if (_searchError != null) ...[
           const SizedBox(height: 16),
@@ -289,7 +254,7 @@ class _OrganizationHero extends StatelessWidget {
         ),
         const SizedBox(height: 16),
         const Text(
-          'Search authorized patient records, review available status, and register a patient when no matching record exists.',
+          'Search patient names already linked to this organization and open their profile.',
           style: TextStyle(color: Colors.white),
         ),
       ],
@@ -309,7 +274,7 @@ class _SearchPrompt extends StatelessWidget {
         SizedBox(width: 12),
         Expanded(
           child: Text(
-            'Start with a patient search. Existing matches appear here; add a new record only when the patient is not already registered.',
+            'Search by patient name. Only profiles already linked to this organization can appear here.',
           ),
         ),
       ],
@@ -402,19 +367,13 @@ class _NoResults extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('No matching patient record found.'),
+          const Text(
+            'No matching patient profile is linked to this organization.',
+          ),
           const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            children: [
-              OutlinedButton(
-                onPressed: onTryAnotherSearch,
-                child: const Text('Try Another Search'),
-              ),
-              const Text(
-                'Use Add New Patient only if this person is not already registered.',
-              ),
-            ],
+          OutlinedButton(
+            onPressed: onTryAnotherSearch,
+            child: const Text('Try Another Search'),
           ),
         ],
       ),
@@ -441,97 +400,5 @@ class _InlineError extends StatelessWidget {
         ],
       ),
     ),
-  );
-}
-
-class _NewPatientInput {
-  const _NewPatientInput({required this.name, this.birthYear});
-
-  final String name;
-  final int? birthYear;
-}
-
-class _NewPatientDialog extends StatefulWidget {
-  const _NewPatientDialog();
-
-  @override
-  State<_NewPatientDialog> createState() => _NewPatientDialogState();
-}
-
-class _NewPatientDialogState extends State<_NewPatientDialog> {
-  final _formKey = GlobalKey<FormState>();
-  final _name = TextEditingController();
-  final _birthYear = TextEditingController();
-
-  @override
-  void dispose() {
-    _name.dispose();
-    _birthYear.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => AlertDialog(
-    title: const Text('Add patient record'),
-    scrollable: true,
-    content: Form(
-      key: _formKey,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          TextFormField(
-            controller: _name,
-            autofocus: true,
-            maxLength: 120,
-            decoration: const InputDecoration(labelText: 'Full name'),
-            validator: (value) {
-              if ((value?.trim().length ?? 0) < 2) {
-                return 'Enter at least two characters.';
-              }
-              return null;
-            },
-          ),
-          TextFormField(
-            controller: _birthYear,
-            keyboardType: TextInputType.number,
-            maxLength: 4,
-            decoration: const InputDecoration(
-              labelText: 'Birth year (optional)',
-            ),
-            validator: (value) {
-              if (value == null || value.trim().isEmpty) return null;
-              final year = int.tryParse(value);
-              if (year == null || year < 1900 || year > DateTime.now().year) {
-                return 'Enter a valid year.';
-              }
-              return null;
-            },
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            'This creates an organization-only record. Hospital access codes and patient account linking are disabled in free Firebase mode, so this record will not appear in a patient login.',
-          ),
-        ],
-      ),
-    ),
-    actions: [
-      TextButton(
-        onPressed: () => Navigator.pop(context),
-        child: const Text('Cancel'),
-      ),
-      FilledButton(
-        onPressed: () {
-          if (!_formKey.currentState!.validate()) return;
-          Navigator.pop(
-            context,
-            _NewPatientInput(
-              name: _name.text.trim(),
-              birthYear: int.tryParse(_birthYear.text.trim()),
-            ),
-          );
-        },
-        child: const Text('Create record'),
-      ),
-    ],
   );
 }

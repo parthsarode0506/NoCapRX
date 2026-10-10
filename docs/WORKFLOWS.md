@@ -38,11 +38,15 @@
 3. The user selects Organization at login. That selection is navigation only;
    the backend still checks the trusted role, organization ID, and active
    membership on every patient operation.
-4. The organization dashboard searches only records linked to that
-   organization and supports explicit registration when no matching patient
-   exists.
-5. Prescription authoring, clinician acknowledgment, clinical notes and
-   patient-authorized report sharing are not implemented yet.
+4. A patient can search the registered-organization directory and send an
+   access request. An authorized organization member may review or decline it.
+5. Organization approval only advances the request. The patient must separately
+   consent to sharing the basic profile (`read_profile`) before organization
+   search or profile access is enabled.
+6. The patient can revoke organization consent; subsequent callable reads are
+   denied. Raw VCF and derived genomic profiles remain on-device.
+7. Prescription authoring, clinician acknowledgment, clinical notes and
+   patient-authorized report synchronization are not implemented.
 
 ### Current organization workspace implementation boundary
 
@@ -54,37 +58,41 @@
   intent through signup, stores `accountType: organization` as a workspace
   preference, and opens the organization dashboard shell. Existing organization
   preferences also open that dashboard by default after sign-in or app restart.
-  The preference never grants access: patient search and registration are
-  available in the UI, but callable Functions continue to enforce trusted
-  organization claims and active membership before returning or creating data.
+  The preference never grants access: patient search is available in the UI,
+  but callable Functions enforce trusted organization claims, active
+  membership, and patient consent before returning profile data.
 - Public signup never assigns organization roles. There is no
   professional-verification workflow in the app.
 - Organization signup stores organization name and city only as self-entered
   profile details; they do not create an organization or grant member claims.
-- In free Firebase Spark mode, Add Patient creates an organization-only record:
-  it does not collect an email, create a Firebase Auth account, or issue a
-  setup code. The record does not appear in a patient's login.
-- Hospital access codes and patient-account invitations are disabled in the
-  UI. Derived-profile sharing and patient-side organization access are also
-  unavailable through this workflow; raw VCF files are never uploaded.
+- The patient-facing organization directory exposes only active organization
+  names and locations. Organization signup automatically publishes the
+  self-entered name and city as a self-registered, unverified listing.
+- Patients can discover these self-registered listings, but cannot request
+  patient-data access through a listing that has no provisioned organization.
+- Privacy notice v1.1 explains that organization name and city become publicly
+  discoverable to signed-in patients. Acknowledgment is recorded at signup.
+- Patient access requests and mirrored request status for provisioned
+  organizations are written by callable Functions and audited server-side.
+- Organization members can review patient requests. Their approval does not
+  grant access; the patient must separately approve basic-profile sharing.
+- Patient links and organization search are callable-only. Search and profile
+  reads check active membership and unexpired patient consent; report and
+  prescription workflows are not implemented. Raw VCF files are never uploaded.
 - Patient accounts open the patient dashboard. The organization dashboard is
   not hidden behind a client-side membership check; each patient-data callable
   still denies unauthorized access server-side and returns no patient data.
-- Patient search is paged/capped and callable-only; it returns records from that
-  organization's patient links. Search results do not silently select one of
-  multiple matching patients.
-- New patient registration is explicit, server-authorized, idempotent, and
-  audited. An exact normalized name plus birth-year match is rejected so the
-  user can search and select the existing record.
-- The organization landing screen presents patient search/registration and
-  visibly labels report generation and prescription authoring as unavailable.
-- The Patient Details workspace reports actual stored statuses and returned
-  report/prescription counts. It presents the same unavailable clinical actions
-  instead of suggesting that they work. The client does not upload or retrieve
-  raw VCFs because genome data remains on-device. Cloud analysis, report
-  publication, prescription approval, and cross-dashboard report sync remain
-  unavailable until an approved processing and consent architecture is
-  implemented.
+- Patient search is paged/capped and callable-only; it returns records from
+  that organization's patient links only when organization consent is active.
+  Search results do not silently select one of multiple matching patients.
+- The organization landing screen provides patient search and a patient-request
+  review pathway. It labels report generation and prescription authoring as
+  unavailable.
+- The Patient Details workspace returns the shared basic profile only. VCF,
+  genomic findings, reports and prescriptions are explicitly shown as not
+  shared or not synchronized; missing records are not represented as zero
+  counts. Cloud analysis, report publication and prescription approval remain
+  unavailable until the approved processing and clinical-rule workflows exist.
 
 ---
 
@@ -135,16 +143,16 @@
 - Organization membership and custom claims are provisioned by trusted
   organization administration. The app does not collect credentials or provide
   professional-review screens.
-- Free Firebase Spark mode does not deploy Cloud Functions. Hospital access
-  codes and patient-account invitations are therefore disabled in the UI.
-- Add Patient creates an organization-only record and does not collect an
-  email, create a Firebase Auth account, or issue a setup code. These records
-  do not appear in a patient's login.
-- Organization search, registration, and workspace actions still use callable
-  Functions when available. They may fail until Functions are deployed on a
-  supported Firebase plan; the UI keeps these pathways visible by design.
+- Access requests, organization search and workspace reads use callable
+  Functions with App Check, active membership and audit logging. Deploy them on
+  a supported Firebase plan before using these workflows.
+- Patients can search the organization directory. Self-registered entries are
+  labeled unverified and are directory-only. Provisioned organizations can
+  receive access requests; organization review and patient consent are separate
+  steps before `read_profile` access is granted. Requests, links, consent and
+  revocation are managed by trusted Functions, not direct client writes.
 - **Consent doc** per grantee: `scope[]`, `active`, `expiresAt` (max 365 days).
-  Consent-based organization sharing remains separate from disabled
-  account-invitation flows.
+  The current organization share grants only `read_profile`; it does not share
+  genetic data or clinical reports.
 - Revoke by setting `active=false` through the patient-facing callable; the
   grantee's next consent-checked read fails immediately.

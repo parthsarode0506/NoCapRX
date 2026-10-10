@@ -5,8 +5,11 @@ Region: create the Firestore database in **asia-south1 (Mumbai)** or
 
 ```
 users/{uid}                        self profile (displayName, phone, locale, accountType, organizationName, city, linkedPatientId, linkedPatientBirthYear, linked organization display fields, createdAt). UID is the document ID; email comes from Firebase Auth. `accountType`, organizationName and city are display preferences only, never authorization claims.
-organizations/{orgId}/patientLinks/{patientId} organization-scoped patient search index; patient-originated invitation links are disabled in free Firebase mode.
-users/{uid}/consents/privacy_notice immutable acknowledgment (accepted, noticeVersion, createdAt); optional processing consents must use separately versioned, revocable records.
+organizations/{orgId}/patientLinks/{patientId} organization-scoped patient search index; Functions write only after patient consent.
+organizations/{orgId}/patientInvitations/{patientUid} server-managed patient access request and review state.
+users/{uid}/organizationInvitations/{orgId} mirrored server-managed patient access request state.
+organizationDirectory/{uid} public-safe organization name and city; signup creates a selfRegistered listing that is explicitly unverified.
+users/{uid}/consents/privacy_notice privacy-notice acknowledgment (accepted, noticeVersion, createdAt); v1.1 includes public self-registered directory listings.
 users/{uid}/reports/{id}           legacy cloud report history; new reports remain local until an explicit derived-data sync consent flow is implemented.
 orgs/{orgId}                       displayName, type(pharmacy|lab|hospital|clinic), plan, status, logoUrl, contactEmail, kybStatus
 orgs/{orgId}/members/{uid}         role, status, invitedBy, joinedAt                 (Functions write)
@@ -19,7 +22,7 @@ patients/{pid}/prescriptions/{id}     drugs[{generic, brand, strength, frequency
 patients/{pid}/screenings/{id}        prescriptionId, drug, gene[], phenotype[], severity, recommendationRef, cpicGuidelineRef, evidenceLevel, ruleSetVersion, inputHash, appVersion, createdBy, createdAt  (append-only)
 patients/{pid}/screenings/{id}/acknowledgments/{ackId}   actorUid, actorRole, action(accepted|alternative_chosen|overridden|deferred), reasonCode, reasonText, createdAt  (immutable)
 patients/{pid}/grants/{granteeUid}    scopes[], expiresAt, revokedAt, createdAt, grantedBy, granteeOrgId, label, breakGlass(bool, Functions only)
-patients/{pid}/consents/{id}          purpose, granted, textVersion, createdAt, revokedAt; organization sharing consent is keyed by organization ID and revocable via a callable.
+patients/{pid}/consents/{orgId}       scopes, active, expiresAt, grantedAt, revokedAt; organization access is limited to explicit scopes and changed through callables.
 patients/{pid}/accessLog/{id}         actorUid, actorRole, orgId, action, at   (append-only; patient can read)
 patients/{pid}/accountInvitations/{sha256(code)} legacy email-bound one-time account link; not available in free Firebase mode.
 orders/{orderId}                      patientId, labOrgId, panel, status, createdAt
@@ -39,19 +42,23 @@ users/{uid}/notifications/{id}        type, title, body(no PHI), read, createdAt
   onto subcollection docs if the limit is hit.
 - List queries must include the same filter the rule checks, else Firestore rejects the query.
 - Signup lets users choose Patient or Organization as a dashboard preference.
-  Organization name/city are self-entered profile details and do not create an
-  organization or grant access. Trusted organization claims are provisioned
-  separately; professional credential verification is not implemented.
-- In free Firebase mode, the UI disables numeric hospital access codes and
-  patient account invitations. Add Patient creates an organization-only record
-  without collecting an email, creating an Auth account, or issuing a setup
-  code; it does not link to patient sign-in. Raw VCF files remain on-device.
-- Organization patient search and registration are callable-only operations.
+  Organization sign-up automatically publishes the self-entered name and city
+  to the patient-search directory with `selfRegistered: true`. This is a public
+  unverified listing, not a verified organization identity or access claim.
+  Only the owner can create/update their own matching listing; patient profiles
+  remain protected by server authorization and explicit consent.
+- Organization membership, access requests, patient links, consent and audit
+  records are managed by callable Functions. They require a supported Firebase
+  plan, deployed Functions and App Check configuration.
+- Patients may search the public-safe organization directory. Self-registered
+  unverified listings are discoverable only; access requests are available
+  only for provisioned organizations. Organization review alone never grants
+  access; the patient must separately consent to `read_profile`.
+- Organization patient search is callable-only and returns only linked records
+  after active-membership and organization-consent checks.
   `organizations/{orgId}/patientLinks/{patientId}` is the scoped search index;
-  it points to the single canonical `patients/{patientId}` record. The
-  `idempotency` subcollection stores request-key results to make registration
-  retry-safe. Clients must not read the full patient collection.
-- The current organization workspace returns only identity and workflow
-  status. It does not upload raw VCFs, run a server analysis, or publish a
-  report. Those fields must not be represented as complete without a trusted,
-  privacy-approved, clinically validated pipeline.
+  it points to the canonical `patients/{patientId}` record. Clients cannot
+  read or write patient-link and invitation documents directly.
+- The organization workspace returns only identity data shared under
+  `read_profile`. Raw VCFs and derived genomic profiles are not synchronized;
+  cloud analysis, reports and prescriptions are not implemented.

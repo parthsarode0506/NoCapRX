@@ -403,7 +403,7 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
                       ],
 
                       Text(
-                        'Choose which workspace to open after signup. Organization name and city are profile details, not access credentials.',
+                        'Choose which workspace to open after signup. Organization name and city are publicly listed as unverified organization details.',
                       ),
                       const SizedBox(height: 12),
                       SegmentedButton<bool>(
@@ -427,7 +427,7 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
                       if (_organizationAccount) ...[
                         const SizedBox(height: 10),
                         const Text(
-                          'This opens the organization dashboard. Organization name and city are saved to your profile; they do not assign trusted patient-data permissions.',
+                          'This opens the organization dashboard and lists the organization name and city in patient search as self-registered and unverified. It does not grant access to patient data.',
                         ),
                         const SizedBox(height: 12),
                         TextFormField(
@@ -719,7 +719,7 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
                           border: Border.all(color: AppTheme.cardBorder),
                         ),
                         child: const Text(
-                          'Privacy notice v1.0: your name, account type, and language are stored with your account. Raw VCF files are parsed locally and are not uploaded. Analysis reports remain on this device unless a separately designed, explicit sharing feature is offered. Cloud AI stays off unless you opt in for a specific use. This signup does not collect professional registration details; organization access is provisioned by an administrator.',
+                          'Privacy notice v1.1: your name, account type, and language are stored with your account. If you sign up as an organization, its name and city are listed in patient search as self-registered and unverified. This public listing does not grant access to patient data. Raw VCF files are parsed locally and are not uploaded. Analysis reports remain on this device unless a separately designed, explicit sharing feature is offered. Cloud AI stays off unless you opt in for a specific use. This signup does not collect professional registration details.',
                         ),
                       ),
                       const SizedBox(height: 8),
