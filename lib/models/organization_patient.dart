@@ -10,6 +10,8 @@ class OrganizationPatient {
     this.latestReportAt,
     this.reportCount,
     this.prescriptionCount,
+    this.sharedGenomicProfiles = const [],
+    this.prescriptionSharingAllowed = false,
   });
 
   final String patientId;
@@ -22,6 +24,8 @@ class OrganizationPatient {
   final DateTime? latestReportAt;
   final int? reportCount;
   final int? prescriptionCount;
+  final List<SharedGenomicProfile> sharedGenomicProfiles;
+  final bool prescriptionSharingAllowed;
 
   Map<String, dynamic> toJson() => {
         'patientId': patientId,
@@ -34,6 +38,9 @@ class OrganizationPatient {
         'latestReportAt': latestReportAt?.toIso8601String(),
         'reportCount': reportCount,
         'prescriptionCount': prescriptionCount,
+        'sharedGenomicProfiles':
+            sharedGenomicProfiles.map((profile) => profile.toJson()).toList(),
+        'prescriptionSharingAllowed': prescriptionSharingAllowed,
       };
 
   factory OrganizationPatient.fromJson(Map<String, dynamic> json) {
@@ -53,11 +60,51 @@ class OrganizationPatient {
           : null,
       reportCount: (json['reportCount'] as num?)?.toInt(),
       prescriptionCount: (json['prescriptionCount'] as num?)?.toInt(),
+      sharedGenomicProfiles: (json['sharedGenomicProfiles'] as List?)
+              ?.whereType<Map>()
+              .map(
+                (profile) => SharedGenomicProfile.fromJson(
+                  Map<String, dynamic>.from(profile),
+                ),
+              )
+              .toList(growable: false) ??
+          const [],
+      prescriptionSharingAllowed:
+          json['prescriptionSharingAllowed'] as bool? ?? false,
     );
   }
 
   factory OrganizationPatient.fromCallable(Map<String, dynamic> json) =>
       OrganizationPatient.fromJson(json);
+}
+
+class SharedGenomicProfile {
+  const SharedGenomicProfile({
+    required this.gene,
+    required this.diplotype,
+    required this.phenotype,
+    required this.isInferred,
+  });
+
+  final String gene;
+  final String diplotype;
+  final String phenotype;
+  final bool isInferred;
+
+  Map<String, dynamic> toJson() => {
+        'gene': gene,
+        'diplotype': diplotype,
+        'phenotype': phenotype,
+        'isInferred': isInferred,
+      };
+
+  factory SharedGenomicProfile.fromJson(Map<String, dynamic> json) =>
+      SharedGenomicProfile(
+        gene: json['gene'] as String? ?? 'Unknown',
+        diplotype: json['diplotype'] as String? ?? 'Unknown',
+        phenotype: json['phenotype'] as String? ?? 'Unknown',
+        isInferred: json['isInferred'] as bool? ?? true,
+      );
 }
 
 class PatientInvitationPreview {
@@ -91,6 +138,8 @@ class PatientOrganizationInvitation {
     required this.patientName,
     required this.status,
     this.consentActive = false,
+    this.shareGenomicProfile = false,
+    this.allowPrescriptions = false,
     this.requestedAt,
   });
 
@@ -101,6 +150,8 @@ class PatientOrganizationInvitation {
   final String patientName;
   final String status;
   final bool consentActive;
+  final bool shareGenomicProfile;
+  final bool allowPrescriptions;
   final DateTime? requestedAt;
 
   factory PatientOrganizationInvitation.fromCallable(
@@ -115,6 +166,8 @@ class PatientOrganizationInvitation {
       patientName: json['patientName'] as String? ?? 'Patient',
       status: json['status'] as String? ?? 'pending_org_review',
       consentActive: json['consentActive'] as bool? ?? false,
+      shareGenomicProfile: json['shareGenomicProfile'] as bool? ?? false,
+      allowPrescriptions: json['allowPrescriptions'] as bool? ?? false,
       requestedAt: requestedAt is String
           ? DateTime.tryParse(requestedAt)
           : null,

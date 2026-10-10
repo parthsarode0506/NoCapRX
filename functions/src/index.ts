@@ -1,6 +1,7 @@
 import { initializeApp } from "firebase-admin/app";
 import { createHash, randomBytes, randomInt } from "node:crypto";
 import {
+  DocumentData,
   FieldValue,
   getFirestore,
 } from "firebase-admin/firestore";
@@ -53,10 +54,69 @@ const patientOrganizationResponseSchema = z.object({
   organizationId: z.string().trim().min(1).max(128),
   accepted: z.boolean(),
   shareProfile: z.boolean(),
+  shareGenomicProfile: z.boolean().default(false),
+  allowPrescriptions: z.boolean().default(false),
 }).strict();
 
 const organizationAccessByIdSchema = z.object({
   organizationId: z.string().trim().min(1).max(128),
+}).strict();
+
+const organizationPatientListSchema = z.object({
+  cursor: z.string().trim().min(1).max(128).optional(),
+}).strict();
+
+const sharedGenomicProfileSchema = z.object({
+  gene: z.enum([
+    "CYP2D6",
+    "CYP2C19",
+    "CYP2C9",
+    "SLCO1B1",
+    "TPMT",
+    "DPYD",
+    "CYP3A5",
+    "HLA-B",
+    "UGT1A1",
+  ]),
+  diplotype: z.string().trim().min(1).max(80),
+  phenotype: z.string().trim().min(1).max(80),
+  isInferred: z.boolean(),
+}).strict();
+
+const publishDerivedProfileSchema = z.object({
+  patientId: z.string().trim().min(1).max(128),
+  organizationId: z.string().trim().min(1).max(128),
+  profiles: z.array(sharedGenomicProfileSchema).min(1).max(9),
+}).strict().refine(
+  (data) => new Set(data.profiles.map((profile) => profile.gene)).size ===
+    data.profiles.length,
+  { message: "Each gene may appear only once." },
+);
+
+const organizationSharingSettingsSchema = z.object({
+  organizationId: z.string().trim().min(1).max(128),
+  shareGenomicProfile: z.boolean(),
+  allowPrescriptions: z.boolean(),
+}).strict();
+
+const prescriptionItemSchema = z.object({
+  medicineName: z.string().trim().min(1).max(120),
+  dosage: z.string().trim().min(1).max(80),
+  frequency: z.string().trim().min(1).max(120),
+  duration: z.string().trim().min(1).max(120),
+  instructions: z.string().trim().max(1000).default(""),
+}).strict();
+
+const savePrescriptionSchema = z.object({
+  patientId: z.string().trim().min(1).max(128),
+  prescriptionId: z.string().uuid(),
+  items: z.array(prescriptionItemSchema).min(1).max(50),
+  notes: z.string().trim().max(4000).default(""),
+}).strict();
+
+const publishPrescriptionSchema = z.object({
+  patientId: z.string().trim().min(1).max(128),
+  prescriptionId: z.string().uuid(),
 }).strict();
 
 const revokeOrganizationConsentSchema = z.object({
@@ -322,8 +382,8 @@ export const searchOrganizationPatients = onCall(
         }
         found.push({
           patientId,
-          name: patient.name,
-          birthYear: patient.birthYear ?? null,
+          name: patient["name"] ?? "Patient",
+          birthYear: patient["birthYear"] ?? null,
         });
       }
       transaction.create(auditRef, {
@@ -337,6 +397,103 @@ export const searchOrganizationPatients = onCall(
       return found;
     });
     return { patients, limit: 20 };
+  },
+);
+
+export const listOrganizationPatients = onCall(
+  { enforceAppCheck: true, region },
+  async (request) => {
+    const auth = authRequired(request);
+    const parsed = organizationPatientListSchema.safeParse(request.data);
+    if (!parsed.success) {
+      throw new HttpsError("invalid-argument", "Patient list cursor is invalid.");
+    }
+    const { orgId, role } = await requireOrganizationAccess(
+      auth.uid,
+      auth.token,
+    );
+    const links = database
+      .collection("organizations")
+      .doc(orgId)
+      .collection("patientLinks");
+    const memberRef = database
+      .collection("organizations")
+      .doc(orgId)
+      .collection("members")
+      .doc(auth.uid);
+    const cursorRef = parsed.data.cursor
+      ? links.doc(parsed.data.cursor)
+      : null;
+    const auditRef = database.collection("auditLogs").doc();
+
+    const result = await database.runTransaction(async (transaction) => {
+      const member = await transaction.get(memberRef);
+      if (
+        !member.exists ||
+        member.data()?.status !== "active" ||
+        member.data()?.role !== role
+      ) {
+        throw new HttpsError(
+          "permission-denied",
+          "Organization membership is no longer active.",
+        );
+      }
+
+      let cursorSnapshot;
+      if (cursorRef) {
+        cursorSnapshot = await transaction.get(cursorRef);
+        if (!cursorSnapshot.exists) {
+          throw new HttpsError("invalid-argument", "Patient list cursor is invalid.");
+        }
+      }
+      let pageQuery = links.orderBy("normalizedName").limit(50);
+      if (cursorSnapshot) pageQuery = pageQuery.startAfter(cursorSnapshot);
+      const page = await transaction.get(pageQuery);
+      const patients = [];
+      for (const link of page.docs) {
+        const patientId = link.id;
+        const patientRef = database.collection("patients").doc(patientId);
+        const patient = await transaction.get(patientRef);
+        if (!patient.exists) continue;
+        const patientData = patient.data()!;
+        if (typeof patientData.ownerUid === "string") {
+          const consent = await transaction.get(
+            patientRef.collection("consents").doc(orgId),
+          );
+          const expiresAt = consent.data()?.expiresAt?.toDate?.();
+          const scopes = consent.data()?.scope;
+          if (
+            consent.data()?.active !== true ||
+            !(expiresAt instanceof Date) ||
+            expiresAt.getTime() <= Date.now() ||
+            !Array.isArray(scopes) ||
+            !scopes.includes("read_profile")
+          ) {
+            continue;
+          }
+        }
+        patients.push({
+          patientId,
+          name: patientData.name ?? "Patient",
+          birthYear: patientData.birthYear ?? null,
+        });
+      }
+      transaction.create(auditRef, {
+        actorUid: auth.uid,
+        actorRole: role,
+        orgId,
+        action: "organization_patient_list_viewed",
+        at: FieldValue.serverTimestamp(),
+        meta: { resultCount: patients.length },
+      });
+      return {
+        patients,
+        nextCursor: page.docs.length === 50
+          ? page.docs[page.docs.length - 1].id
+          : null,
+      };
+    });
+    return result;
   },
 );
 
@@ -720,6 +877,10 @@ export const listPatientOrganizationInvitations = onCall(
             "Patient",
           status: consentActive ? "accepted" : invitation?.status ?? "revoked_by_patient",
           consentActive,
+          shareGenomicProfile:
+            consentActive && consent.scope.includes("read_genomic_profiles"),
+          allowPrescriptions:
+            consentActive && consent.scope.includes("manage_prescriptions"),
           requestedAt: invitation?.requestedAt?.toDate?.().toISOString() ?? null,
         };
       }),
@@ -946,7 +1107,11 @@ export const respondToPatientOrganizationInvitation = onCall(
       transaction.set(consentRef, {
         grantee: parsed.data.organizationId,
         grantedBy: auth.uid,
-        scope: ["read_profile"],
+        scope: [
+          "read_profile",
+          ...(parsed.data.shareGenomicProfile ? ["read_genomic_profiles"] : []),
+          ...(parsed.data.allowPrescriptions ? ["manage_prescriptions"] : []),
+        ],
         active: true,
         expiresAt: new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000),
         grantedAt: FieldValue.serverTimestamp(),
@@ -972,7 +1137,11 @@ export const respondToPatientOrganizationInvitation = onCall(
         action: "patient_organization_access_confirmed",
         targetPath: patientRef.path,
         at: FieldValue.serverTimestamp(),
-        meta: { sharingConsent: "read_profile" },
+        meta: {
+          sharingConsent: "read_profile",
+          genomicProfileSharing: parsed.data.shareGenomicProfile,
+          prescriptionSharing: parsed.data.allowPrescriptions,
+        },
       });
       return { status: "accepted", patientId: patientRef.id };
     });
@@ -1161,7 +1330,7 @@ export const respondToPatientAccountInvitation = onCall(
           transaction.set(patientRef.collection("consents").doc(data.orgId), {
             grantee: data.orgId,
             grantedBy: auth.uid,
-            scope: ["read_profile"],
+            scope: ["read_profile", "read_genomic_profiles"],
             active: true,
             expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
             grantedAt: FieldValue.serverTimestamp(),
@@ -1257,6 +1426,362 @@ export const revokePatientOrganizationConsent = onCall(
       return { revoked: true };
     });
     return result;
+  },
+);
+
+export const setPatientOrganizationSharing = onCall(
+  { enforceAppCheck: true, region },
+  async (request) => {
+    const auth = requireVerifiedPatient(request);
+    const parsed = organizationSharingSettingsSchema.safeParse(request.data);
+    if (!parsed.success) {
+      throw new HttpsError("invalid-argument", "Sharing preferences are invalid.");
+    }
+    const userRef = database.collection("users").doc(auth.uid);
+    const auditRef = database.collection("auditLogs").doc();
+    return database.runTransaction(async (transaction) => {
+      const user = await transaction.get(userRef);
+      const patientId = user.data()?.linkedPatientId;
+      if (!user.exists || typeof patientId !== "string" || patientId.length === 0) {
+        throw new HttpsError("failed-precondition", "No linked patient record is available.");
+      }
+      const patientRef = database.collection("patients").doc(patientId);
+      const consentRef = patientRef.collection("consents")
+        .doc(parsed.data.organizationId);
+      const organizationRef = database.collection("organizations")
+        .doc(parsed.data.organizationId);
+      const [patient, consent, organization] = await Promise.all([
+        transaction.get(patientRef),
+        transaction.get(consentRef),
+        transaction.get(organizationRef),
+      ]);
+      const expiresAt = consent.data()?.expiresAt?.toDate?.();
+      if (
+        !patient.exists ||
+        patient.data()?.ownerUid !== auth.uid ||
+        !organization.exists ||
+        consent.data()?.active !== true ||
+        !(expiresAt instanceof Date) ||
+        expiresAt.getTime() <= Date.now() ||
+        !Array.isArray(consent.data()?.scope) ||
+        !consent.data()?.scope.includes("read_profile")
+      ) {
+        throw new HttpsError(
+          "permission-denied",
+          "An active profile-sharing relationship is required.",
+        );
+      }
+      const scope = [
+        "read_profile",
+        ...(parsed.data.shareGenomicProfile ? ["read_genomic_profiles"] : []),
+        ...(parsed.data.allowPrescriptions ? ["manage_prescriptions"] : []),
+      ];
+      transaction.update(consentRef, {
+        scope,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      transaction.create(auditRef, {
+        actorUid: auth.uid,
+        actorRole: "patient",
+        orgId: parsed.data.organizationId,
+        action: "patient_organization_sharing_updated",
+        targetPath: consentRef.path,
+        at: FieldValue.serverTimestamp(),
+        meta: {
+          genomicProfileSharing: parsed.data.shareGenomicProfile,
+          prescriptionSharing: parsed.data.allowPrescriptions,
+        },
+      });
+      return { updated: true };
+    });
+  },
+);
+
+export const publishDerivedGenomicProfile = onCall(
+  { enforceAppCheck: true, region },
+  async (request) => {
+    const auth = requireVerifiedPatient(request);
+    const parsed = publishDerivedProfileSchema.safeParse(request.data);
+    if (!parsed.success) {
+      throw new HttpsError("invalid-argument", "Derived genomic profile is invalid.");
+    }
+    const userRef = database.collection("users").doc(auth.uid);
+    const profiles = parsed.data.profiles.map((profile) => ({
+      gene: profile.gene,
+      diplotype: profile.diplotype,
+      phenotype: profile.phenotype,
+      isInferred: profile.isInferred,
+    }));
+    const profileHash = createHash("sha256")
+      .update(JSON.stringify(profiles))
+      .digest("hex");
+    const profileId = profileHash;
+    const auditRef = database.collection("auditLogs").doc();
+
+    return database.runTransaction(async (transaction) => {
+      const user = await transaction.get(userRef);
+      const patientRef = database.collection("patients").doc(parsed.data.patientId);
+      const consentRef = patientRef.collection("consents")
+        .doc(parsed.data.organizationId);
+      const [patient, consent] = await Promise.all([
+        transaction.get(patientRef),
+        transaction.get(consentRef),
+      ]);
+      const expiresAt = consent.data()?.expiresAt?.toDate?.();
+      if (
+        !user.exists ||
+        user.data()?.linkedPatientId !== parsed.data.patientId ||
+        !patient.exists ||
+        patient.data()?.ownerUid !== auth.uid ||
+        consent.data()?.active !== true ||
+        !(expiresAt instanceof Date) ||
+        expiresAt.getTime() <= Date.now() ||
+        !Array.isArray(consent.data()?.scope) ||
+        !consent.data()?.scope.includes("read_genomic_profiles")
+      ) {
+        throw new HttpsError(
+          "permission-denied",
+          "Active consent to share derived genomic findings is required.",
+        );
+      }
+      const profileRef = patientRef.collection("genomicProfiles").doc(profileId);
+      const existing = await transaction.get(profileRef);
+      if (existing.exists) return { profileId, alreadyShared: true };
+      transaction.create(profileRef, {
+        profileId,
+        profiles,
+        source: "on_device_vcf_parse",
+        clinicalStatus: "not_clinically_validated",
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      transaction.create(auditRef, {
+        actorUid: auth.uid,
+        actorRole: "patient",
+        orgId: parsed.data.organizationId,
+        action: "patient_derived_genomic_profile_shared",
+        targetPath: profileRef.path,
+        at: FieldValue.serverTimestamp(),
+        meta: { profileHash, geneCount: profiles.length },
+      });
+      return { profileId, alreadyShared: false };
+    });
+  },
+);
+
+export const saveOrganizationPrescription = onCall(
+  { enforceAppCheck: true, region },
+  async (request) => {
+    const auth = authRequired(request);
+    const parsed = savePrescriptionSchema.safeParse(request.data);
+    if (!parsed.success) {
+      throw new HttpsError("invalid-argument", "Prescription draft is invalid.");
+    }
+    const { orgId, role } = await requireOrganizationAccess(auth.uid, auth.token);
+    const patientRef = database.collection("patients").doc(parsed.data.patientId);
+    const organizationRef = database.collection("organizations").doc(orgId);
+    const memberRef = organizationRef.collection("members").doc(auth.uid);
+    const linkRef = organizationRef.collection("patientLinks")
+      .doc(parsed.data.patientId);
+    const consentRef = patientRef.collection("consents").doc(orgId);
+    const userRef = database.collection("users").doc(auth.uid);
+    const prescriptionRef = patientRef.collection("prescriptionDrafts")
+      .doc(parsed.data.prescriptionId);
+    const auditRef = database.collection("auditLogs").doc();
+
+    await database.runTransaction(async (transaction) => {
+      const [member, link, patient, organization, consent, user, existing] =
+        await Promise.all([
+          transaction.get(memberRef),
+          transaction.get(linkRef),
+          transaction.get(patientRef),
+          transaction.get(organizationRef),
+          transaction.get(consentRef),
+          transaction.get(userRef),
+          transaction.get(prescriptionRef),
+        ]);
+      const expiresAt = consent.data()?.expiresAt?.toDate?.();
+      if (
+        !member.exists ||
+        member.data()?.status !== "active" ||
+        member.data()?.role !== role ||
+        !link.exists
+      ) {
+        throw new HttpsError("permission-denied", "Patient access is unavailable.");
+      }
+      if (
+        !patient.exists ||
+        patient.data()?.ownerUid == null ||
+        consent.data()?.active !== true ||
+        !(expiresAt instanceof Date) ||
+        expiresAt.getTime() <= Date.now() ||
+        !Array.isArray(consent.data()?.scope) ||
+        !consent.data()?.scope.includes("manage_prescriptions")
+      ) {
+        throw new HttpsError(
+          "permission-denied",
+          "The patient has not enabled prescription sharing.",
+        );
+      }
+      const contentHash = createHash("sha256")
+        .update(JSON.stringify({
+          patientId: parsed.data.patientId,
+          items: parsed.data.items,
+          notes: parsed.data.notes,
+        }))
+        .digest("hex");
+      if (existing.exists) {
+        if (
+          existing.data()?.organizationId === orgId &&
+          existing.data()?.prescriberUid === auth.uid &&
+          existing.data()?.contentHash === contentHash
+        ) {
+          return;
+        }
+        throw new HttpsError(
+          "already-exists",
+          "This prescription identifier is already in use.",
+        );
+      }
+      const prescription = {
+        prescriptionId: parsed.data.prescriptionId,
+        patientId: patientRef.id,
+        patientUid: patient.data()?.ownerUid,
+        patientName: patient.data()?.name ?? "Patient",
+        organizationId: orgId,
+        organizationName: organization.data()?.name ?? "Organization",
+        prescriberId: auth.uid,
+        prescriberUid: auth.uid,
+        prescriberName: user.data()?.displayName ?? "Clinician",
+        contentHash,
+        items: parsed.data.items.map((item) => ({
+          ...item,
+          pgxRiskLabel: "Indeterminate",
+          severity: "unknown",
+          recommendation:
+            "No approved, consent-authorized pharmacogenomic assessment is available for this prescription.",
+          alternativeDrugs: [],
+        })),
+        status: "draft",
+        notes: parsed.data.notes,
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      };
+      transaction.create(prescriptionRef, prescription);
+      transaction.create(auditRef, {
+        actorUid: auth.uid,
+        actorRole: role,
+        orgId,
+        action: "organization_prescription_draft_saved",
+        targetPath: prescriptionRef.path,
+        at: FieldValue.serverTimestamp(),
+        meta: { itemCount: parsed.data.items.length },
+      });
+    });
+    return {
+      prescriptionId: parsed.data.prescriptionId,
+      status: "draft",
+    };
+  },
+);
+
+export const publishOrganizationPrescription = onCall(
+  { enforceAppCheck: true, region },
+  async (request) => {
+    const auth = authRequired(request);
+    const parsed = publishPrescriptionSchema.safeParse(request.data);
+    if (!parsed.success) {
+      throw new HttpsError("invalid-argument", "Prescription reference is invalid.");
+    }
+    const { orgId, role } = await requireOrganizationAccess(auth.uid, auth.token);
+    const patientRef = database.collection("patients").doc(parsed.data.patientId);
+    const organizationRef = database.collection("organizations").doc(orgId);
+    const memberRef = organizationRef.collection("members").doc(auth.uid);
+    const linkRef = organizationRef.collection("patientLinks")
+      .doc(parsed.data.patientId);
+    const consentRef = patientRef.collection("consents").doc(orgId);
+    const draftRef = patientRef.collection("prescriptionDrafts")
+      .doc(parsed.data.prescriptionId);
+    const prescriptionRef = patientRef.collection("prescriptions")
+      .doc(parsed.data.prescriptionId);
+    const auditRef = database.collection("auditLogs").doc();
+
+    await database.runTransaction(async (transaction) => {
+      const [member, link, patient, consent, draft, prescription] = await Promise.all([
+        transaction.get(memberRef),
+        transaction.get(linkRef),
+        transaction.get(patientRef),
+        transaction.get(consentRef),
+        transaction.get(draftRef),
+        transaction.get(prescriptionRef),
+      ]);
+      const expiresAt = consent.data()?.expiresAt?.toDate?.();
+      if (
+        !member.exists ||
+        member.data()?.status !== "active" ||
+        member.data()?.role !== role ||
+        !link.exists
+      ) {
+        throw new HttpsError("permission-denied", "Patient access is unavailable.");
+      }
+      if (
+        !patient.exists ||
+        patient.data()?.ownerUid == null ||
+        consent.data()?.active !== true ||
+        !(expiresAt instanceof Date) ||
+        expiresAt.getTime() <= Date.now() ||
+        !Array.isArray(consent.data()?.scope) ||
+        !consent.data()?.scope.includes("manage_prescriptions")
+      ) {
+        throw new HttpsError(
+          "permission-denied",
+          "The patient has not enabled prescription sharing.",
+        );
+      }
+      if (
+        !draft.exists ||
+        draft.data()?.organizationId !== orgId ||
+        draft.data()?.prescriberUid !== auth.uid ||
+        draft.data()?.status !== "draft"
+      ) {
+        throw new HttpsError(
+          "failed-precondition",
+          "A publishable prescription draft was not found.",
+        );
+      }
+      if (prescription.exists) {
+        if (
+          prescription.data()?.organizationId === orgId &&
+          prescription.data()?.prescriberUid === auth.uid &&
+          prescription.data()?.status === "issued"
+        ) {
+          return;
+        }
+        throw new HttpsError(
+          "already-exists",
+          "This prescription identifier is already in use.",
+        );
+      }
+      const draftData = draft.data()!;
+      transaction.create(prescriptionRef, {
+        ...draftData,
+        status: "issued",
+        issuedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      transaction.create(auditRef, {
+        actorUid: auth.uid,
+        actorRole: role,
+        orgId,
+        action: "organization_prescription_published",
+        targetPath: prescriptionRef.path,
+        at: FieldValue.serverTimestamp(),
+        meta: { itemCount: draftData.items?.length ?? 0 },
+      });
+    });
+    return {
+      prescriptionId: parsed.data.prescriptionId,
+      status: "issued",
+    };
   },
 );
 
@@ -1427,6 +1952,8 @@ export const getOrganizationPatientWorkspace = onCall(
         throw new HttpsError("not-found", "Patient record is unavailable.");
       }
       const patientData = patientSnapshot.data()!;
+      let sharedGenomicProfiles: DocumentData[] = [];
+      let prescriptionSharingAllowed = false;
       if (typeof patientData.ownerUid === "string") {
         const consent = await transaction.get(
           database.collection("patients")
@@ -1435,18 +1962,32 @@ export const getOrganizationPatientWorkspace = onCall(
             .doc(orgId),
         );
         const expiresAt = consent.data()?.expiresAt?.toDate?.();
+        const scopes = consent.data()?.scope;
         if (
           consent.data()?.active !== true ||
           !(expiresAt instanceof Date) ||
           expiresAt.getTime() <= Date.now() ||
-          !Array.isArray(consent.data()?.scope) ||
-          !consent.data()?.scope.includes("read_profile")
+          !Array.isArray(scopes) ||
+          !scopes.includes("read_profile")
         ) {
           throw new HttpsError(
             "permission-denied",
             "Patient profile sharing consent is not active.",
           );
         }
+        if (scopes.includes("read_genomic_profiles")) {
+          const profileQuery = database.collection("patients")
+            .doc(parsed.data.patientId)
+            .collection("genomicProfiles")
+            .orderBy("createdAt", "desc")
+            .limit(1);
+          const profileSnapshot = await transaction.get(profileQuery);
+          sharedGenomicProfiles = profileSnapshot.docs.map((doc) => ({
+            ...doc.data(),
+            profileId: doc.id,
+          }));
+        }
+        prescriptionSharingAllowed = scopes.includes("manage_prescriptions");
       }
       transaction.create(auditRef, {
         actorUid: auth.uid,
@@ -1457,16 +1998,27 @@ export const getOrganizationPatientWorkspace = onCall(
         at: FieldValue.serverTimestamp(),
         meta: {},
       });
-      return patientSnapshot.data()!;
+      return {
+        name: patientData.name,
+        birthYear: patientData.birthYear,
+        sharedGenomicProfiles,
+        prescriptionSharingAllowed,
+      };
     });
     return {
       patientId: parsed.data.patientId,
-      name: patient.name,
-      birthYear: patient.birthYear ?? null,
-      vcfStatus: "not_shared",
-      analysisStatus: "not_available",
+      name: patient["name"] ?? "Patient",
+      birthYear: patient["birthYear"] ?? null,
+      vcfStatus: patient.sharedGenomicProfiles.length > 0
+        ? "derived_profile_shared"
+        : "raw_vcf_not_shared",
+      analysisStatus: patient.sharedGenomicProfiles.length > 0
+        ? "unvalidated"
+        : "not_available",
+      sharedGenomicProfiles: patient.sharedGenomicProfiles,
+      prescriptionSharingAllowed: patient.prescriptionSharingAllowed,
       limitations:
-        "Raw VCF data stays on the patient's device. Cloud analysis is unavailable until a clinically validated, privacy-approved processing pipeline is configured.",
+        "The raw VCF remains on the patient's device. Shared derived findings are not clinically validated and cannot establish that a medicine is safe.",
     };
   },
 );

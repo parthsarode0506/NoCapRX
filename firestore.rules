@@ -395,6 +395,28 @@ service cloud.firestore {
         allow write: if false;
       }
 
+      match /genomicProfiles/{profileId} {
+        allow read: if ownsPatient(pid)
+          || (isClinician()
+              && hasOrganizationConsent(pid, 'read_genomic_profiles'));
+        allow create, update, delete: if false;
+      }
+
+      match /prescriptionDrafts/{draftId} {
+        allow read: if isClinician()
+          && resource.data.organizationId == myOrg()
+          && hasOrganizationConsent(pid, 'manage_prescriptions');
+        allow create, update, delete: if false;
+      }
+
+      match /prescriptions/{prescriptionId} {
+        allow read: if (ownsPatient(pid) && resource.data.status == 'issued')
+          || (isClinician()
+              && resource.data.organizationId == myOrg()
+              && hasOrganizationConsent(pid, 'manage_prescriptions'));
+        allow create, update, delete: if false;
+      }
+
       match /checks/{id} {
         allow read: if ownsPatient(pid) || (isClinician()
           && (hasConsent(pid, 'read_checks')
@@ -495,11 +517,6 @@ service cloud.firestore {
         || isOrgAdmin(resource.data.get('orgId', ''));
 
       allow update, delete: if false;
-    }
-
-    // ---------- prescriptions ----------
-    match /prescriptions/{id} {
-      allow read, write: if signedIn();
     }
 
     // ---------- default deny ----------

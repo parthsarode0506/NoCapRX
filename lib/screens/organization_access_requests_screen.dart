@@ -1,11 +1,8 @@
-import 'dart:math';
 import 'package:flutter/material.dart';
 
 import '../models/organization_access.dart';
-import '../models/organization_patient.dart';
 import '../services/firebase_service.dart';
 import '../theme/app_theme.dart';
-import 'organization_patient_screen.dart';
 
 
 class OrganizationAccessRequestsScreen extends StatefulWidget {
@@ -213,29 +210,8 @@ class _AccessRequestCard extends StatelessWidget {
                 ),
                 if (request.status == 'directory_request_acknowledged') ...[
                   const Spacer(),
-                  FilledButton.tonalIcon(
-                    onPressed: () {
-                      final pId = request.patientId.isNotEmpty
-                          ? request.patientId
-                          : 'PAT-${request.patientUid.substring(0, min(6, request.patientUid.length)).toUpperCase()}';
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => OrganizationPatientScreen(
-                            patientId: pId,
-                            initialPatient: OrganizationPatient(
-                              patientId: pId,
-                              name: request.patientName,
-                              patientUid: request.patientUid,
-                              vcfStatus: 'uploaded',
-                              analysisStatus: 'complete',
-                              vcfFileName: 'patient_genomics.vcf',
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                    icon: const Icon(Icons.folder_open, size: 16),
-                    label: const Text('View Patient & VCF'),
+                  const Flexible(
+                    child: Text('Acknowledgment does not grant patient-record or genomic access.'),
                   ),
                 ],
               ],

@@ -4,8 +4,8 @@ class PrescriptionItem {
   final String frequency;
   final String duration;
   final String instructions;
-  final String pgxRiskLabel; // Safe, Adjust Dosage, Toxic, Ineffective, Unknown
-  final String severity; // none, low, moderate, high, critical
+  final String pgxRiskLabel;
+  final String severity;
   final String? gene;
   final String? phenotype;
   final String? recommendation;
@@ -17,8 +17,8 @@ class PrescriptionItem {
     required this.frequency,
     required this.duration,
     this.instructions = '',
-    this.pgxRiskLabel = 'Safe',
-    this.severity = 'none',
+    this.pgxRiskLabel = 'Indeterminate',
+    this.severity = 'unknown',
     this.gene,
     this.phenotype,
     this.recommendation,
@@ -33,6 +33,9 @@ class PrescriptionItem {
 
   bool get isCaution =>
       pgxRiskLabel == 'Adjust Dosage' || severity == 'moderate';
+
+  bool get isSafe =>
+      severity == 'none' || pgxRiskLabel.toLowerCase().contains('safe');
 
   Map<String, dynamic> toJson() => {
         'medicineName': medicineName,
@@ -55,8 +58,8 @@ class PrescriptionItem {
         frequency: json['frequency'] as String? ?? '',
         duration: json['duration'] as String? ?? '',
         instructions: json['instructions'] as String? ?? '',
-        pgxRiskLabel: json['pgxRiskLabel'] as String? ?? 'Safe',
-        severity: json['severity'] as String? ?? 'none',
+        pgxRiskLabel: json['pgxRiskLabel'] as String? ?? 'Indeterminate',
+        severity: json['severity'] as String? ?? 'unknown',
         gene: json['gene'] as String?,
         phenotype: json['phenotype'] as String?,
         recommendation: json['recommendation'] as String?,

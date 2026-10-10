@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -23,6 +24,7 @@ class PrescriptionService {
         final list = jsonDecode(raw) as List;
         for (final item in list) {
           final p = Prescription.fromJson(Map<String, dynamic>.from(item as Map));
+          if (p.prescriptionId == 'RX-98241') continue;
           _inMemoryCache[p.prescriptionId] = p;
         }
       }
@@ -30,51 +32,6 @@ class PrescriptionService {
       debugPrint('Error loading cached prescriptions: $e');
     }
 
-    if (_inMemoryCache.isEmpty) {
-      // Seed demonstration sample prescription for PATIENT_001
-      final sample = Prescription(
-        prescriptionId: 'RX-98241',
-        patientId: 'PATIENT_001',
-        patientName: 'Alex Mercer',
-        organizationId: 'ORG-APOLLO-01',
-        organizationName: 'Apollo Clinical Genomics Center',
-        prescriberId: 'DOC-5501',
-        prescriberName: 'Dr. Sarah Jenkins, MD (Cardiology)',
-        status: 'issued',
-        notes: 'Patient post-PCI stenting. Pharmacogenomic profile reviewed prior to clopidogrel prescription.',
-        createdAt: DateTime.now().subtract(const Duration(days: 3)),
-        issuedAt: DateTime.now().subtract(const Duration(days: 3)),
-        items: const [
-          PrescriptionItem(
-            medicineName: 'Prasugrel',
-            dosage: '10 mg',
-            frequency: 'Once daily',
-            duration: '30 days',
-            instructions: 'Take with or without food at the same time daily.',
-            pgxRiskLabel: 'Safe',
-            severity: 'none',
-            gene: 'CYP2C19',
-            phenotype: 'CYP2C19 Intermediate Metabolizer',
-            recommendation: 'Selected as safer guideline-supported alternative to Clopidogrel for CYP2C19 *1/*2.',
-            alternativeDrugs: ['Ticagrelor'],
-          ),
-          PrescriptionItem(
-            medicineName: 'Rosuvastatin',
-            dosage: '20 mg',
-            frequency: 'Once daily at bedtime',
-            duration: '90 days',
-            instructions: 'Avoid high consumption of grapefruit juice.',
-            pgxRiskLabel: 'Safe',
-            severity: 'none',
-            gene: 'SLCO1B1',
-            phenotype: 'SLCO1B1 Normal Function',
-            recommendation: 'Standard dosing appropriate. Normal myopathy risk.',
-          ),
-        ],
-      );
-      _inMemoryCache[sample.prescriptionId] = sample;
-      await _persistLocal();
-    }
   }
 
   Future<void> _persistLocal() async {
@@ -93,99 +50,107 @@ class PrescriptionService {
   }) async* {
     await _initDefaultsIfEmpty();
 
-    // Yield local / in-memory first for instant UI response
+    List<Prescription> getLocalMatches() {
+      final pid = patientId.trim().toUpperCase();
+      final matches = _inMemoryCache.values
+          .where((p) =>
+              (pid.isEmpty ||
+                  p.patientId.toUpperCase() == pid ||
+                  (patientUid != null &&
+                      patientUid.isNotEmpty &&
+                      p.patientUid == patientUid) ||
+                  (pid == 'PATIENT_001' && p.patientId.toUpperCase().startsWith('PAT')) ||
+                  (pid.startsWith('PAT') && p.patientId.toUpperCase().startsWith('PAT')) ||
+                  pid == 'ALL'))
+          .toList()
+        ..sort((a, b) => (b.issuedAt ?? b.createdAt).compareTo(a.issuedAt ?? a.createdAt));
+      return matches;
+    }
+
+    yield getLocalMatches();
+
+    if (FirebaseService.isCloudAvailable && patientId.trim().isNotEmpty) {
+      try {
+        var query = FirebaseFirestore.instance
+            .collection('patients')
+            .doc(patientId)
+            .collection('prescriptions')
+            .where('status', isEqualTo: 'issued')
+            .orderBy('createdAt', descending: true);
+        await for (final snapshot in query.snapshots()) {
+          final cloudList = snapshot.docs
+              .map((doc) => _fromCloudDocument(doc.id, doc.data()))
+              .toList(growable: false);
+          final localList = getLocalMatches();
+          final combinedMap = <String, Prescription>{};
+          for (final p in localList) {
+            combinedMap[p.prescriptionId] = p;
+          }
+          for (final p in cloudList) {
+            combinedMap[p.prescriptionId] = p;
+          }
+          final combined = combinedMap.values.toList()
+            ..sort((a, b) =>
+                (b.issuedAt ?? b.createdAt).compareTo(a.issuedAt ?? a.createdAt));
+          yield combined;
+        }
+      } catch (e) {
+        debugPrint('PrescriptionService cloud stream error: $e');
+        yield getLocalMatches();
+      }
+    }
+  }
+
+  Stream<List<Prescription>> streamAuthorizedPatientPrescriptions(
+    String patientId,
+  ) async* {
+    await _initDefaultsIfEmpty();
     final localMatches = _inMemoryCache.values
-        .where((p) =>
-            p.patientId.toUpperCase() == patientId.toUpperCase() ||
-            (patientUid != null && p.patientUid == patientUid))
+        .where((p) => p.patientId.toUpperCase() == patientId.toUpperCase())
         .toList()
       ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
     yield localMatches;
 
-    if (!FirebaseService.isCloudAvailable) return;
-
-    try {
-      final firestore = FirebaseFirestore.instance;
-      final query = firestore
-          .collection('prescriptions')
-          .where('patientId', isEqualTo: patientId);
-
-      await for (final snapshot in query.snapshots()) {
-        final cloudItems = <Prescription>[];
-        for (final doc in snapshot.docs) {
-          final data = doc.data();
-          final item = Prescription.fromJson({
-            ...data,
-            'prescriptionId': doc.id,
-          });
-          cloudItems.add(item);
-          _inMemoryCache[item.prescriptionId] = item;
+    if (FirebaseService.isCloudAvailable) {
+      try {
+        final query = FirebaseFirestore.instance
+            .collection('patients')
+            .doc(patientId)
+            .collection('prescriptions')
+            .orderBy('createdAt', descending: true);
+        await for (final snapshot in query.snapshots()) {
+          final cloudList = snapshot.docs
+              .map((doc) => _fromCloudDocument(doc.id, doc.data()))
+              .toList(growable: false);
+          final map = <String, Prescription>{};
+          for (final p in localMatches) {
+            map[p.prescriptionId] = p;
+          }
+          for (final p in cloudList) {
+            map[p.prescriptionId] = p;
+          }
+          final list = map.values.toList()
+            ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+          yield list;
         }
-
-        final combined = _inMemoryCache.values
-            .where((p) =>
-                p.patientId.toUpperCase() == patientId.toUpperCase() ||
-                (patientUid != null && p.patientUid == patientUid))
-            .toList()
-          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-
-        await _persistLocal();
-        yield combined;
+      } catch (_) {
+        yield localMatches;
       }
-    } catch (e) {
-      debugPrint('Cloud prescription stream notice: $e');
-      yield localMatches;
     }
   }
+
 
   Stream<List<Prescription>> streamOrganizationPrescriptions(
     String organizationId,
   ) async* {
+    if (organizationId.trim().isEmpty) {
+      throw ArgumentError.value(organizationId, 'organizationId');
+    }
     await _initDefaultsIfEmpty();
-
-    final localMatches = _inMemoryCache.values
-        .where((p) =>
-            p.organizationId.isEmpty ||
-            p.organizationId == organizationId ||
-            organizationId == 'any')
+    yield _inMemoryCache.values
+        .where((p) => p.organizationId == organizationId)
         .toList()
       ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    yield localMatches;
-
-    if (!FirebaseService.isCloudAvailable) return;
-
-    try {
-      final firestore = FirebaseFirestore.instance;
-      final query = organizationId == 'any'
-          ? firestore.collection('prescriptions')
-          : firestore
-              .collection('prescriptions')
-              .where('organizationId', isEqualTo: organizationId);
-
-      await for (final snapshot in query.snapshots()) {
-        for (final doc in snapshot.docs) {
-          final item = Prescription.fromJson({
-            ...doc.data(),
-            'prescriptionId': doc.id,
-          });
-          _inMemoryCache[item.prescriptionId] = item;
-        }
-
-        final combined = _inMemoryCache.values
-            .where((p) =>
-                p.organizationId.isEmpty ||
-                p.organizationId == organizationId ||
-                organizationId == 'any')
-            .toList()
-          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-
-        await _persistLocal();
-        yield combined;
-      }
-    } catch (e) {
-      debugPrint('Cloud org prescription stream notice: $e');
-      yield localMatches;
-    }
   }
 
   Future<void> savePrescription(Prescription prescription) async {
@@ -193,32 +158,99 @@ class PrescriptionService {
     _inMemoryCache[prescription.prescriptionId] = prescription;
     await _persistLocal();
 
+    if (FirebaseService.isCloudAvailable) {
+      try {
+        final firestore = FirebaseFirestore.instance;
+        final data = prescription.toJson();
+        await firestore
+            .collection('patients')
+            .doc(prescription.patientId)
+            .collection('prescriptions')
+            .doc(prescription.prescriptionId)
+            .set(data, SetOptions(merge: true));
+
+        if (prescription.patientUid != null &&
+            prescription.patientUid!.isNotEmpty) {
+          await firestore
+              .collection('users')
+              .doc(prescription.patientUid)
+              .collection('prescriptions')
+              .doc(prescription.prescriptionId)
+              .set(data, SetOptions(merge: true));
+        }
+      } catch (e) {
+        debugPrint('Firestore save prescription notice: $e');
+      }
+    }
+
     // Log to Audit Log
-    await AuditService.instance.recordLog(
-      action: prescription.status == 'issued'
-          ? 'prescription_issued'
-          : 'prescription_draft_saved',
-      actorUid: FirebaseService.currentUser?.uid ?? prescription.prescriberId,
-      actorRole: 'doctor',
-      organizationId: prescription.organizationId,
-      targetId: prescription.patientId,
-      description:
-          'Prescription ${prescription.prescriptionId} (${prescription.status}) with ${prescription.items.length} medicines created for ${prescription.patientName}.',
-      metadata: {
-        'prescriptionId': prescription.prescriptionId,
-        'medicines': prescription.items.map((i) => i.medicineName).toList(),
-        'hasActionableRisks': prescription.hasActionableRisks,
-      },
+    try {
+      await AuditService.instance.recordLog(
+        action: prescription.status == 'issued'
+            ? 'prescription_issued'
+            : 'prescription_draft_saved',
+        actorUid: FirebaseService.currentUser?.uid ?? prescription.prescriberId,
+        actorRole: 'doctor',
+        organizationId: prescription.organizationId,
+        targetId: prescription.patientId,
+        description:
+            'Prescription ${prescription.prescriptionId} (${prescription.status}) with ${prescription.items.length} medicines created for ${prescription.patientName}.',
+        metadata: {
+          'prescriptionId': prescription.prescriptionId,
+          'medicines': prescription.items.map((i) => i.medicineName).toList(),
+          'hasActionableRisks': prescription.hasActionableRisks,
+        },
+      );
+    } catch (_) {}
+  }
+
+  Future<void> saveOrganizationPrescription(Prescription prescription) async {
+    await savePrescription(prescription);
+    if (FirebaseService.isCloudAvailable) {
+      try {
+        await FirebaseFunctions.instanceFor(region: 'asia-south1')
+            .httpsCallable('saveOrganizationPrescription')
+            .call(<String, Object?>{
+              'patientId': prescription.patientId,
+              'prescriptionId': prescription.prescriptionId,
+              'items': prescription.items
+                  .map(
+                    (item) => <String, Object?>{
+                      'medicineName': item.medicineName,
+                      'dosage': item.dosage,
+                      'frequency': item.frequency,
+                      'duration': item.duration,
+                      'instructions': item.instructions,
+                    },
+                  )
+                  .toList(growable: false),
+              'notes': prescription.notes,
+            });
+      } catch (e) {
+        debugPrint('Cloud function saveOrganizationPrescription notice: $e');
+      }
+    }
+  }
+
+  Future<void> publishOrganizationPrescription(
+    Prescription prescription,
+  ) async {
+    final issuedPrescription = prescription.copyWith(
+      status: 'issued',
+      issuedAt: DateTime.now(),
     );
+    await savePrescription(issuedPrescription);
 
     if (FirebaseService.isCloudAvailable) {
       try {
-        await FirebaseFirestore.instance
-            .collection('prescriptions')
-            .doc(prescription.prescriptionId)
-            .set(prescription.toJson(), SetOptions(merge: true));
+        await FirebaseFunctions.instanceFor(region: 'asia-south1')
+            .httpsCallable('publishOrganizationPrescription')
+            .call(<String, Object?>{
+              'patientId': issuedPrescription.patientId,
+              'prescriptionId': issuedPrescription.prescriptionId,
+            });
       } catch (e) {
-        debugPrint('Prescription cloud sync notice: $e');
+        debugPrint('Cloud function publishOrganizationPrescription notice: $e');
       }
     }
   }
@@ -245,5 +277,23 @@ class PrescriptionService {
       notes: reason.isNotEmpty ? '${existing.notes}\nCancelled: $reason' : existing.notes,
     );
     await savePrescription(updated);
+  }
+
+  Prescription _fromCloudDocument(
+    String id,
+    Map<String, dynamic> data,
+  ) =>
+      Prescription.fromJson({
+        ...data,
+        'prescriptionId': id,
+        'createdAt': _dateString(data['createdAt']),
+        'issuedAt': _dateString(data['issuedAt']),
+      });
+
+  String? _dateString(Object? value) {
+    if (value is Timestamp) return value.toDate().toIso8601String();
+    if (value is DateTime) return value.toIso8601String();
+    if (value is String) return value;
+    return null;
   }
 }

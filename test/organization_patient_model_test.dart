@@ -68,6 +68,30 @@ void main() {
     expect(patient.prescriptionCount, isNull);
   });
 
+  test('parses consented derived profiles without claiming validation', () {
+    final patient = OrganizationPatient.fromCallable({
+      'patientId': 'patient-789',
+      'name': 'Synthetic Patient',
+      'vcfStatus': 'derived_profile_shared',
+      'analysisStatus': 'unvalidated',
+      'prescriptionSharingAllowed': true,
+      'sharedGenomicProfiles': [
+        {
+          'gene': 'CYP2C19',
+          'diplotype': '*1/*2',
+          'phenotype': 'Intermediate Metabolizer',
+          'isInferred': true,
+        },
+      ],
+    });
+
+    expect(patient.sharedGenomicProfiles, hasLength(1));
+    expect(patient.sharedGenomicProfiles.single.gene, 'CYP2C19');
+    expect(patient.sharedGenomicProfiles.single.isInferred, isTrue);
+    expect(patient.analysisStatus, 'unvalidated');
+    expect(patient.prescriptionSharingAllowed, isTrue);
+  });
+
   test('parses an invitation preview for explicit patient review', () {
     final invitation = PatientInvitationPreview.fromCallable({
       'patientId': 'patient-789',
@@ -91,6 +115,8 @@ void main() {
       'patientName': 'Asha Rao',
       'status': 'awaiting_patient_confirmation',
       'consentActive': true,
+      'shareGenomicProfile': true,
+      'allowPrescriptions': true,
       'requestedAt': '2026-02-03T04:05:06.000Z',
     });
 
@@ -100,6 +126,8 @@ void main() {
     expect(invitation.patientName, 'Asha Rao');
     expect(invitation.status, 'awaiting_patient_confirmation');
     expect(invitation.consentActive, isTrue);
+    expect(invitation.shareGenomicProfile, isTrue);
+    expect(invitation.allowPrescriptions, isTrue);
     expect(invitation.requestedAt, DateTime.utc(2026, 2, 3, 4, 5, 6));
   });
 

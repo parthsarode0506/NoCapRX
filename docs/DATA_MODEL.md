@@ -19,8 +19,9 @@ orgs/{orgId}/invites/{inviteId}    email, role, expiresAt, status               
 orgs/{orgId}/inventory/{drugId}    drugId(generic), name, inStock, updatedAt, updatedBy
 orgs/{orgId}/usage/{yyyymm}        counters only, no PHI                              (Functions write)
 patients/{pid}                     ownerUid, managedByOrgId, alias, yearOfBirth, sex, relation, isMinor, guardianConsent, createdAt, updatedAt
-patients/{pid}/genomicProfiles/{id}   gene, diplotype, phenotype, activityScore, source(vcf|lab_report|manual), confidence, ruleSetVersion, createdBy, createdAt   (append-only)
-patients/{pid}/prescriptions/{id}     drugs[{generic, brand, strength, frequency}], source(ocr|manual|voice), authorId, status, createdAt, updatedAt
+patients/{pid}/genomicProfiles/{id}   profiles[{gene, diplotype, phenotype, isInferred}], source(on_device_vcf_parse), clinicalStatus(not_clinically_validated), createdAt   (append-only; patient callable write, consent-scoped clinician read)
+patients/{pid}/prescriptionDrafts/{id} prescriptionId, patientId, organizationId, prescriberUid, prescriberName, items[{medicineName, dosage, frequency, duration, instructions, pgxRiskLabel, severity, recommendation}], notes, status(draft), createdAt   (append-only; callable-only write, clinician-only read)
+patients/{pid}/prescriptions/{id}     same prescription content, status(issued), createdAt, issuedAt   (append-only published copy; patient reads issued records)
 patients/{pid}/screenings/{id}        prescriptionId, drug, gene[], phenotype[], severity, recommendationRef, cpicGuidelineRef, evidenceLevel, ruleSetVersion, inputHash, appVersion, createdBy, createdAt  (append-only)
 patients/{pid}/screenings/{id}/acknowledgments/{ackId}   actorUid, actorRole, action(accepted|alternative_chosen|overridden|deferred), reasonCode, reasonText, createdAt  (immutable)
 patients/{pid}/grants/{granteeUid}    scopes[], expiresAt, revokedAt, createdAt, grantedBy, granteeOrgId, label, breakGlass(bool, Functions only)
@@ -65,5 +66,11 @@ users/{uid}/notifications/{id}        type, title, body(no PHI), read, createdAt
   it points to the canonical `patients/{patientId}` record. Clients cannot
   read or write patient-link and invitation documents directly.
 - The organization workspace returns only identity data shared under
-  `read_profile`. Raw VCFs and derived genomic profiles are not synchronized;
-  cloud analysis, reports and prescriptions are not implemented.
+  `read_profile`. `read_genomic_profiles` is a separate patient-controlled
+  scope for derived gene/diplotype/phenotype data; it never grants raw VCF
+  access. The app marks these parser-derived fields as not clinically
+  validated. `manage_prescriptions` separately permits a clinician to save
+  drafts and publish clinician-authored prescriptions. All writes are
+  callable-only, membership- and consent-checked, and audited server-side.
+  Drafts and published copies are append-only; publication creates a distinct
+  issued record.

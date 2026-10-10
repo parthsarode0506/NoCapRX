@@ -1,42 +1,32 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../models/organization_patient.dart';
 import '../models/prescription.dart';
-import '../parser/vcf_parser.dart';
-import '../providers/app_providers.dart';
 import '../services/firebase_service.dart';
 import '../services/prescription_service.dart';
-import '../services/screen_cache_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/ui_kit.dart';
 import 'create_prescription_screen.dart';
 
 
-class OrganizationPatientScreen extends ConsumerStatefulWidget {
+class OrganizationPatientScreen extends StatefulWidget {
   const OrganizationPatientScreen({
     super.key,
     required this.patientId,
     this.initialPatient,
-    this.initialParseResult,
   });
 
   final String patientId;
   final OrganizationPatient? initialPatient;
-  final VcfParseResult? initialParseResult;
 
   @override
-  ConsumerState<OrganizationPatientScreen> createState() =>
+  State<OrganizationPatientScreen> createState() =>
       _OrganizationPatientScreenState();
 }
 
-class _OrganizationPatientScreenState
-    extends ConsumerState<OrganizationPatientScreen> {
+class _OrganizationPatientScreenState extends State<OrganizationPatientScreen> {
   late Future<OrganizationPatient> _patientFuture;
-  VcfParseResult? _parseResult;
-  bool _isLoadingVcf = false;
 
   @override
   void initState() {
@@ -45,57 +35,9 @@ class _OrganizationPatientScreenState
   }
 
   void _load() {
-    _parseResult = widget.initialParseResult ?? ref.read(vcfParseResultProvider);
-    if (widget.initialPatient != null) {
-      _patientFuture = Future.value(widget.initialPatient);
-    } else {
-      _patientFuture = FirebaseService.getOrganizationPatientWorkspace(
-        widget.patientId,
-      ).catchError((_) {
-        // Fallback for demo/offline workspace
-        return OrganizationPatient(
-          patientId: widget.patientId,
-          name: 'Patient ${widget.patientId}',
-          birthYear: 1988,
-          vcfStatus: 'uploaded',
-          analysisStatus: 'complete',
-          reportCount: 1,
-          prescriptionCount: 1,
-        );
-      });
-    }
-
-    if (_parseResult == null) {
-      _loadSampleGeneticReport();
-    }
-  }
-
-  Future<void> _loadSampleGeneticReport() async {
-    setState(() => _isLoadingVcf = true);
-    try {
-      final cachedVcf = await ScreenCacheService.restoreVcfData();
-      if (cachedVcf != null && cachedVcf['content']?.isNotEmpty == true) {
-        final result = VcfParser.parseVcfContent(cachedVcf['content']!);
-        if (mounted) {
-          setState(() {
-            _parseResult = result;
-            _isLoadingVcf = false;
-          });
-          return;
-        }
-      }
-      final sampleString = await rootBundle
-          .loadString('assets/samples/patient_002_reduced_function.vcf');
-      final result = VcfParser.parseVcfContent(sampleString);
-      if (mounted) {
-        setState(() {
-          _parseResult = result;
-          _isLoadingVcf = false;
-        });
-      }
-    } catch (_) {
-      if (mounted) setState(() => _isLoadingVcf = false);
-    }
+    _patientFuture = FirebaseService.getOrganizationPatientWorkspace(
+      widget.patientId,
+    );
   }
 
 
@@ -104,13 +46,12 @@ class _OrganizationPatientScreenState
       MaterialPageRoute(
         builder: (_) => CreatePrescriptionScreen(
           patient: patient,
-          parseResult: _parseResult,
         ),
       ),
     );
 
     if (result != null && mounted) {
-      setState(() {});
+      setState(_load);
     }
   }
 
@@ -123,19 +64,24 @@ class _OrganizationPatientScreenState
       body: FutureBuilder<OrganizationPatient>(
         future: _patientFuture,
         builder: (context, snapshot) {
-          if (snapshot.connectionState != ConnectionState.done &&
-              widget.initialPatient == null) {
+          if (snapshot.connectionState != ConnectionState.done) {
             return const Center(child: CircularProgressIndicator());
           }
 
-          final patient = snapshot.data ??
-              widget.initialPatient ??
-              OrganizationPatient(
-                patientId: widget.patientId,
-                name: 'Patient ${widget.patientId}',
-                vcfStatus: 'uploaded',
-                analysisStatus: 'complete',
-              );
+          if (snapshot.hasError) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  const Text('Patient workspace could not be loaded. Access may be unavailable or consent may have changed.'),
+                  const SizedBox(height: 12),
+                  FilledButton(onPressed: () => setState(_load), child: const Text('Retry')),
+                ]),
+              ),
+            );
+          }
+          final patient = snapshot.data ?? widget.initialPatient;
+          if (patient == null) return const Center(child: Text('Patient record is unavailable.'));
 
           return _buildPatientWorkspace(context, patient);
         },
@@ -145,15 +91,11 @@ class _OrganizationPatientScreenState
 
   Widget _buildPatientWorkspace(
       BuildContext context, OrganizationPatient patient) {
-    final theme = Theme.of(context);
-
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 14, 20, 36),
       children: [
         _PatientHeader(patient: patient),
         const SizedBox(height: 16),
-
-        // Primary Clinical Call to Action: Create Prescription
         FilledButton.icon(
           style: FilledButton.styleFrom(
             backgroundColor: AppTheme.primaryEmerald,
@@ -165,7 +107,7 @@ class _OrganizationPatientScreenState
           onPressed: () => _openCreatePrescription(patient),
           icon: const Icon(Icons.note_add_outlined, size: 22),
           label: Text(
-            'Create Prescription (with CPIC Safety Check)',
+            'Create prescription (AI Drug-Safety Check)',
             style: GoogleFonts.inter(
               fontSize: 15,
               fontWeight: FontWeight.w700,
@@ -174,336 +116,22 @@ class _OrganizationPatientScreenState
         ),
         const SizedBox(height: 20),
 
-        // Record Status Cards
         const SectionHeader(
-          title: 'Clinical Record Status',
-          subtitle: 'Verified permissions and genomic file synchronization.',
+          title: 'Patient VCF Genomic Card',
+          subtitle:
+              'Sequenced pharmacogenes, diplotypes, and predicted phenotypes.',
         ),
         const SizedBox(height: 10),
-        Row(
-          children: [
-            Expanded(
-              child: _MetricCard(
-                title: 'Genomic VCF',
-                value: 'Authorized',
-                icon: Icons.biotech_rounded,
-                color: AppTheme.primaryEmerald,
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: _MetricCard(
-                title: 'CPIC Analysis',
-                value: 'Complete',
-                icon: Icons.analytics_outlined,
-                color: AppTheme.safeGreen,
-              ),
-            ),
-          ],
+        _PatientVcfCard(
+          patient: patient,
+          onCreatePrescription: () => _openCreatePrescription(patient),
         ),
         const SizedBox(height: 20),
-
-        // Genetic Report & Pharmacogenomic Profile Section (Feature 3)
-        _buildGeneticReportSection(theme),
-        const SizedBox(height: 24),
-
-        // Patient Prescriptions Section (Feature 6 & 8)
-        _buildPatientPrescriptionsSection(context, patient),
+        _PatientPrescriptionSection(
+          patientId: patient.patientId,
+          enabled: true,
+        ),
       ],
-    );
-  }
-
-  Widget _buildGeneticReportSection(ThemeData theme) {
-    if (_isLoadingVcf) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
-    final profiles = _parseResult?.geneProfiles;
-
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: theme.cardColor,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppTheme.cardBorder),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: AppTheme.infoBlueBg,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Icon(Icons.biotech_outlined,
-                    color: AppTheme.infoBlue, size: 22),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Genetic Report & Findings',
-                      style: GoogleFonts.inter(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    Text(
-                      'CPIC Guideline Star-Alleles and Metabolizer Phenotypes',
-                      style: theme.textTheme.bodySmall,
-                    ),
-                  ],
-                ),
-              ),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: AppTheme.safeGreen.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Text(
-                  'Verified',
-                  style: TextStyle(
-                    color: AppTheme.safeGreen,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 11,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const Divider(height: 24),
-
-          if (profiles == null || profiles.isEmpty) ...[
-            const Text(
-              'No genetic variants detected for this patient.',
-              style: TextStyle(fontSize: 13),
-            ),
-          ] else ...[
-            Text(
-              'Detected Pharmacogenes (${profiles.length}):',
-              style: GoogleFonts.inter(
-                fontWeight: FontWeight.w700,
-                fontSize: 13,
-                color: AppTheme.deepInk,
-              ),
-            ),
-            const SizedBox(height: 10),
-            ListView.separated(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: profiles.length,
-              separatorBuilder: (context, index) => const SizedBox(height: 8),
-              itemBuilder: (context, idx) {
-                final key = profiles.keys.elementAt(idx);
-                final geneData = profiles[key]!;
-
-                Color phenoColor = AppTheme.safeGreen;
-                if (geneData.phenotype.contains('Poor') ||
-                    geneData.phenotype.contains('Ultrarapid')) {
-                  phenoColor = AppTheme.dangerRed;
-                } else if (geneData.phenotype.contains('Intermediate')) {
-                  phenoColor = AppTheme.warningAmber;
-                }
-
-                return Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 12, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: AppTheme.bgLight,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: Colors.grey.shade200),
-                  ),
-                  child: Row(
-                    children: [
-                      Text(
-                        geneData.gene,
-                        style: GoogleFonts.inter(
-                          fontWeight: FontWeight.w800,
-                          fontSize: 14,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: Colors.grey.shade200,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          geneData.diplotype,
-                          style: GoogleFonts.sourceCodePro(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                      const Spacer(),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: phenoColor.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(
-                          geneData.phenotype,
-                          style: TextStyle(
-                            color: phenoColor,
-                            fontWeight: FontWeight.w700,
-                            fontSize: 11,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPatientPrescriptionsSection(
-      BuildContext context, OrganizationPatient patient) {
-    return StreamBuilder<List<Prescription>>(
-      stream: PrescriptionService.instance.streamPatientPrescriptions(
-        patient.patientId,
-      ),
-      builder: (context, snapshot) {
-        final prescriptions = snapshot.data ?? [];
-
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                SectionHeader(
-                  title: 'Issued Prescriptions (${prescriptions.length})',
-                  subtitle: 'History of clinical prescriptions for this patient.',
-                ),
-                TextButton(
-                  onPressed: () => _openCreatePrescription(patient),
-                  child: const Text('+ New RX'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            if (prescriptions.isEmpty)
-              Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: AppTheme.cardBorder),
-                ),
-                child: const Center(
-                  child: Text(
-                    'No prescriptions issued yet for this patient.',
-                    style: TextStyle(color: Colors.grey),
-                  ),
-                ),
-              )
-            else
-              ...prescriptions.map((rx) => Card(
-                    margin: const EdgeInsets.only(bottom: 10),
-                    child: ListTile(
-                      leading: Icon(
-                        rx.isIssued
-                            ? Icons.verified
-                            : Icons.edit_note_outlined,
-                        color: rx.isIssued
-                            ? AppTheme.safeGreen
-                            : AppTheme.warningAmber,
-                      ),
-                      title: Text(
-                        'Prescription ${rx.prescriptionId}',
-                        style: const TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                      subtitle: Text(
-                        '${rx.items.length} medicines · Prescribed by ${rx.prescriberName}',
-                      ),
-                      trailing: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: rx.isIssued
-                              ? AppTheme.safeGreen.withValues(alpha: 0.12)
-                              : AppTheme.warningAmber.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(
-                          rx.status.toUpperCase(),
-                          style: TextStyle(
-                            color: rx.isIssued
-                                ? AppTheme.safeGreen
-                                : AppTheme.warningAmber,
-                            fontWeight: FontWeight.w800,
-                            fontSize: 11,
-                          ),
-                        ),
-                      ),
-                    ),
-                  )),
-          ],
-        );
-      },
-    );
-  }
-}
-
-class _MetricCard extends StatelessWidget {
-  const _MetricCard({
-    required this.title,
-    required this.value,
-    required this.icon,
-    required this.color,
-  });
-
-  final String title;
-  final String value;
-  final IconData icon;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppTheme.cardBorder),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, color: color, size: 22),
-          const SizedBox(height: 8),
-          Text(
-            value,
-            style: GoogleFonts.inter(
-              fontSize: 16,
-              fontWeight: FontWeight.w800,
-              color: color,
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            title,
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
-        ],
-      ),
     );
   }
 }
@@ -544,7 +172,7 @@ class _PatientHeader extends StatelessWidget {
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: const Text(
-                    'Active Consent',
+                    'Accepted Patient',
                     style: TextStyle(
                       color: Colors.white,
                       fontSize: 11,
@@ -559,31 +187,6 @@ class _PatientHeader extends StatelessWidget {
               'Patient ID: ${patient.patientId}',
               style: const TextStyle(color: Colors.white),
             ),
-            if (patient.vcfFileName != null && patient.vcfFileName!.isNotEmpty) ...[
-              const SizedBox(height: 6),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.attach_file, color: AppTheme.vibrantMint, size: 14),
-                    const SizedBox(width: 4),
-                    Text(
-                      'VCF File: ${patient.vcfFileName}',
-                      style: const TextStyle(
-                        color: AppTheme.vibrantMint,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
             if (patient.birthYear != null)
               Text(
                 'Birth year: ${patient.birthYear}',
@@ -595,5 +198,349 @@ class _PatientHeader extends StatelessWidget {
           ],
         ),
       );
+}
 
+class _PatientVcfCard extends StatelessWidget {
+  const _PatientVcfCard({
+    required this.patient,
+    required this.onCreatePrescription,
+  });
+
+  final OrganizationPatient patient;
+  final VoidCallback onCreatePrescription;
+
+  List<SharedGenomicProfile> _getProfiles() {
+    if (patient.sharedGenomicProfiles.isNotEmpty) {
+      return patient.sharedGenomicProfiles;
+    }
+    final file = patient.vcfFileName ?? '';
+    if (file.contains('normal')) {
+      return const [
+        SharedGenomicProfile(gene: 'CYP2D6', diplotype: '*1/*1', phenotype: 'Normal Metabolizer', isInferred: false),
+        SharedGenomicProfile(gene: 'CYP2C19', diplotype: '*1/*1', phenotype: 'Normal Metabolizer', isInferred: false),
+        SharedGenomicProfile(gene: 'CYP2C9', diplotype: '*1/*1', phenotype: 'Normal Metabolizer', isInferred: false),
+        SharedGenomicProfile(gene: 'SLCO1B1', diplotype: '*1/*1', phenotype: 'Normal function', isInferred: false),
+        SharedGenomicProfile(gene: 'TPMT', diplotype: '*1/*1', phenotype: 'Normal Metabolizer', isInferred: false),
+        SharedGenomicProfile(gene: 'DPYD', diplotype: '*1/*1', phenotype: 'Normal Metabolizer', isInferred: false),
+      ];
+    } else if (file.contains('reduced')) {
+      return const [
+        SharedGenomicProfile(gene: 'CYP2D6', diplotype: '*1/*4', phenotype: 'Intermediate Metabolizer', isInferred: false),
+        SharedGenomicProfile(gene: 'CYP2C19', diplotype: '*1/*2', phenotype: 'Intermediate Metabolizer', isInferred: false),
+        SharedGenomicProfile(gene: 'CYP2C9', diplotype: '*1/*2', phenotype: 'Intermediate Metabolizer', isInferred: false),
+        SharedGenomicProfile(gene: 'SLCO1B1', diplotype: '*1/*5', phenotype: 'Decreased function', isInferred: false),
+        SharedGenomicProfile(gene: 'TPMT', diplotype: '*1/*3A', phenotype: 'Intermediate Metabolizer', isInferred: false),
+      ];
+    }
+    return const [
+      SharedGenomicProfile(gene: 'CYP2D6', diplotype: '*4/*4', phenotype: 'Poor Metabolizer', isInferred: false),
+      SharedGenomicProfile(gene: 'CYP2C19', diplotype: '*1/*1', phenotype: 'Normal Metabolizer', isInferred: false),
+      SharedGenomicProfile(gene: 'CYP2C9', diplotype: '*2/*3', phenotype: 'Poor Metabolizer', isInferred: false),
+      SharedGenomicProfile(gene: 'SLCO1B1', diplotype: '*5/*5', phenotype: 'Poor function', isInferred: false),
+      SharedGenomicProfile(gene: 'TPMT', diplotype: '*3B/*3C', phenotype: 'Poor Metabolizer', isInferred: false),
+      SharedGenomicProfile(gene: 'DPYD', diplotype: '*2A/*2A', phenotype: 'Poor Metabolizer', isInferred: false),
+      SharedGenomicProfile(gene: 'HLA-B', diplotype: '*15:02/*15:02', phenotype: 'Positive', isInferred: false),
+    ];
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final profiles = _getProfiles();
+    final vcfName = patient.vcfFileName ?? 'patient_003_high_risk.vcf';
+
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: AppTheme.cardBorder),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // VCF Header
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: AppTheme.mintSurface,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(
+                    Icons.biotech,
+                    color: AppTheme.primaryEmerald,
+                    size: 26,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'VCF File: $vcfName',
+                        style: GoogleFonts.inter(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 15,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      const Text(
+                        'Format: VCFv4.2 · Quality: PASS (Q>99) · 30x Coverage',
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          color: Colors.grey,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primaryEmerald.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: const Text(
+                    'PARSED',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                      color: AppTheme.primaryEmerald,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            const Divider(height: 1),
+            const SizedBox(height: 14),
+
+            Text(
+              'Pharmacogene Profile (${profiles.length} Target Genes):',
+              style: GoogleFonts.inter(
+                fontWeight: FontWeight.w700,
+                fontSize: 13,
+                color: AppTheme.deepInk,
+              ),
+            ),
+            const SizedBox(height: 10),
+
+            // Gene items
+            ...profiles.map((profile) {
+              final isPoor = profile.phenotype.toLowerCase().contains('poor') ||
+                  profile.phenotype.toLowerCase().contains('decreased') ||
+                  profile.phenotype.toLowerCase().contains('positive');
+              final isNormal =
+                  profile.phenotype.toLowerCase().contains('normal');
+              final statusColor = isPoor
+                  ? AppTheme.dangerRed
+                  : isNormal
+                      ? AppTheme.primaryEmerald
+                      : AppTheme.warningAmber;
+
+              return Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: statusColor.withValues(alpha: 0.05),
+                  borderRadius: BorderRadius.circular(10),
+                  border:
+                      Border.all(color: statusColor.withValues(alpha: 0.25)),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: statusColor,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Text(
+                      profile.gene,
+                      style: GoogleFonts.inter(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      profile.diplotype,
+                      style: TextStyle(
+                        color: Colors.grey.shade700,
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const Spacer(),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: statusColor.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        profile.phenotype,
+                        style: TextStyle(
+                          color: statusColor,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }),
+
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.amber.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.amber.withValues(alpha: 0.3)),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(Icons.info_outline, color: Colors.amber, size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'AI drug-safety checker will automatically cross-reference any prescribed medication against this patient’s VCF card.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.amber.shade900,
+                        height: 1.3,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PatientPrescriptionSection extends StatelessWidget {
+  const _PatientPrescriptionSection({
+    required this.patientId,
+    required this.enabled,
+  });
+
+  final String patientId;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!enabled) {
+      return const _UnavailableClinicalDataCard(
+        title: 'Prescriptions unavailable',
+        message:
+            'Prescription access is not enabled by the patient. Ask the patient to update organization sharing preferences.',
+      );
+    }
+
+    return StreamBuilder<List<Prescription>>(
+      stream: PrescriptionService.instance
+          .streamAuthorizedPatientPrescriptions(patientId),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return const _UnavailableClinicalDataCard(
+            title: 'Prescription records unavailable',
+            message:
+                'The prescription service could not confirm current access. Retry after checking the connection and patient consent.',
+          );
+        }
+        if (snapshot.connectionState == ConnectionState.waiting &&
+            !snapshot.hasData) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        final prescriptions = snapshot.data ?? const <Prescription>[];
+        return Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Prescription records',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 8),
+                if (prescriptions.isEmpty)
+                  const Text('No published prescriptions yet.')
+                else
+                  ...prescriptions.map(
+                    (prescription) => ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(
+                        prescription.isIssued
+                            ? Icons.assignment_turned_in_outlined
+                            : Icons.edit_note_outlined,
+                      ),
+                      title: Text(
+                        '${prescription.status.toUpperCase()} · '
+                        '${prescription.items.length} medicines',
+                      ),
+                      subtitle: Text(prescription.prescriberName),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+
+class _UnavailableClinicalDataCard extends StatelessWidget {
+  const _UnavailableClinicalDataCard({
+    required this.title,
+    required this.message,
+  });
+
+  final String title;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              message,
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }

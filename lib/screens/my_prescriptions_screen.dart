@@ -24,9 +24,7 @@ class _MyPrescriptionsScreenState extends ConsumerState<MyPrescriptionsScreen> {
   @override
   Widget build(BuildContext context) {
     final patientProfile = ref.watch(patientProfileProvider);
-    final patientId = patientProfile.patientId.isNotEmpty
-        ? patientProfile.patientId
-        : 'PATIENT_001';
+    final patientId = patientProfile.patientId.trim();
     final user = FirebaseService.currentUser;
 
     return Scaffold(
@@ -35,7 +33,17 @@ class _MyPrescriptionsScreenState extends ConsumerState<MyPrescriptionsScreen> {
         title: const Text('My Prescriptions'),
       ),
       body: SafeArea(
-        child: StreamBuilder<List<Prescription>>(
+        child: patientId.isEmpty
+            ? const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(24),
+                  child: Text(
+                    'Your patient record is not configured. Complete your patient profile to load published prescriptions.',
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              )
+            : StreamBuilder<List<Prescription>>(
           stream: PrescriptionService.instance.streamPatientPrescriptions(
             patientId,
             patientUid: user?.uid,
@@ -44,6 +52,27 @@ class _MyPrescriptionsScreenState extends ConsumerState<MyPrescriptionsScreen> {
             if (snapshot.connectionState == ConnectionState.waiting &&
                 !snapshot.hasData) {
               return const Center(child: CircularProgressIndicator());
+            }
+            if (snapshot.hasError) {
+              return Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text(
+                        'Published prescriptions could not be loaded. Current access could not be confirmed.',
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 12),
+                      FilledButton(
+                        onPressed: () => setState(() {}),
+                        child: const Text('Retry'),
+                      ),
+                    ],
+                  ),
+                ),
+              );
             }
 
             final allPrescriptions = snapshot.data ?? [];
@@ -83,7 +112,7 @@ class _MyPrescriptionsScreenState extends ConsumerState<MyPrescriptionsScreen> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Verified prescriptions issued by your authorized healthcare providers with pharmacogenomic safety monitoring.',
+                        'Prescriptions published by your healthcare providers. Any PGx status shown is advisory and may be indeterminate.',
                         style: TextStyle(
                           color: Colors.white.withValues(alpha: 0.88),
                           fontSize: 13,
@@ -172,7 +201,7 @@ class _MyPrescriptionsScreenState extends ConsumerState<MyPrescriptionsScreen> {
             ),
             const SizedBox(height: 6),
             Text(
-              'When an authorized clinic or hospital issues a prescription for your profile, it will be synchronized here with genetic safety analysis.',
+              'Prescriptions published by an authorized clinic or hospital will appear here.',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 13,
@@ -295,7 +324,7 @@ class _MyPrescriptionsScreenState extends ConsumerState<MyPrescriptionsScreen> {
             separatorBuilder: (context, index) => const SizedBox(height: 10),
             itemBuilder: (context, idx) {
               final med = prescription.items[idx];
-              Color riskColor = AppTheme.safeGreen;
+              Color riskColor = AppTheme.unknownSlate;
               if (med.isActionableRisk) {
                 riskColor = AppTheme.dangerRed;
               } else if (med.isCaution) {

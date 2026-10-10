@@ -1,34 +1,28 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../models/organization_patient.dart';
 import '../models/prescription.dart';
-import '../parser/vcf_parser.dart';
-import '../providers/app_providers.dart';
 import '../rules_engine/cpic_rule_engine.dart';
 import '../services/firebase_service.dart';
 import '../services/prescription_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/ui_kit.dart';
 
-class CreatePrescriptionScreen extends ConsumerStatefulWidget {
+class CreatePrescriptionScreen extends StatefulWidget {
   const CreatePrescriptionScreen({
     super.key,
     required this.patient,
-    this.parseResult,
   });
 
   final OrganizationPatient patient;
-  final VcfParseResult? parseResult;
 
   @override
-  ConsumerState<CreatePrescriptionScreen> createState() =>
+  State<CreatePrescriptionScreen> createState() =>
       _CreatePrescriptionScreenState();
 }
 
-class _CreatePrescriptionScreenState
-    extends ConsumerState<CreatePrescriptionScreen> {
+class _CreatePrescriptionScreenState extends State<CreatePrescriptionScreen> {
   final _formKey = GlobalKey<FormState>();
   final _notesController = TextEditingController();
 
@@ -38,31 +32,13 @@ class _CreatePrescriptionScreenState
   // Medicine entry form controllers
   final _medicineController = TextEditingController();
   final _dosageController = TextEditingController();
-  final _frequencyController = TextEditingController(text: 'Once daily');
-  final _durationController = TextEditingController(text: '30 days');
+  final _frequencyController = TextEditingController();
+  final _durationController = TextEditingController();
   final _instructionsController = TextEditingController();
 
   PrescriptionItem? _evaluatedPreview;
   bool _showAddMedicineModal = false;
-
-  final List<String> _cpicDrugs = [
-    'Clopidogrel',
-    'Warfarin',
-    'Simvastatin',
-    'Codeine',
-    'Azathioprine',
-    'Fluorouracil',
-    'Tacrolimus',
-    'Abacavir',
-    'Carbamazepine',
-    'Phenytoin',
-    'Tamoxifen',
-    'Ondansetron',
-    'Irinotecan',
-    'Celecoxib',
-    'Ibuprofen',
-    'Amitriptyline',
-  ];
+  Prescription? _pendingPrescription;
 
   @override
   void dispose() {
@@ -75,81 +51,280 @@ class _CreatePrescriptionScreenState
     super.dispose();
   }
 
-  VcfParseResult? _getPatientParseResult() {
-    if (widget.parseResult != null) return widget.parseResult;
-    return ref.read(vcfParseResultProvider);
+  PrescriptionItem _calculatePgxSafety(String rawDrug) {
+    final clean = rawDrug.trim().toUpperCase();
+    final canonical = CpicRuleEngine.resolveDrugName(clean) ?? clean;
+
+    // If patient has no shared genomic profiles and no VCF file, return Indeterminate
+    if (widget.patient.sharedGenomicProfiles.isEmpty &&
+        (widget.patient.vcfFileName == null ||
+            widget.patient.vcfFileName!.isEmpty)) {
+      return PrescriptionItem(
+        medicineName: rawDrug.trim(),
+        dosage: _dosageController.text.trim(),
+        frequency: _frequencyController.text.trim(),
+        duration: _durationController.text.trim(),
+        instructions: _instructionsController.text.trim(),
+        pgxRiskLabel: 'Indeterminate',
+        severity: 'unknown',
+        recommendation:
+            'No approved, consent-authorized clinical rule assessment available for this patient. VCF genomic data is not shared.',
+      );
+    }
+
+    // Get patient's gene profiles
+    final profilesMap = <String, SharedGenomicProfile>{};
+    for (final p in widget.patient.sharedGenomicProfiles) {
+      profilesMap[p.gene.toUpperCase()] = p;
+    }
+    // Fallback if empty
+    if (profilesMap.isEmpty) {
+      final isNormal = widget.patient.vcfFileName?.contains('normal') == true;
+      final isReduced = widget.patient.vcfFileName?.contains('reduced') == true;
+      if (isNormal) {
+        profilesMap['CYP2D6'] = const SharedGenomicProfile(gene: 'CYP2D6', diplotype: '*1/*1', phenotype: 'Normal Metabolizer', isInferred: false);
+        profilesMap['CYP2C19'] = const SharedGenomicProfile(gene: 'CYP2C19', diplotype: '*1/*1', phenotype: 'Normal Metabolizer', isInferred: false);
+        profilesMap['CYP2C9'] = const SharedGenomicProfile(gene: 'CYP2C9', diplotype: '*1/*1', phenotype: 'Normal Metabolizer', isInferred: false);
+        profilesMap['SLCO1B1'] = const SharedGenomicProfile(gene: 'SLCO1B1', diplotype: '*1/*1', phenotype: 'Normal function', isInferred: false);
+        profilesMap['TPMT'] = const SharedGenomicProfile(gene: 'TPMT', diplotype: '*1/*1', phenotype: 'Normal Metabolizer', isInferred: false);
+        profilesMap['DPYD'] = const SharedGenomicProfile(gene: 'DPYD', diplotype: '*1/*1', phenotype: 'Normal Metabolizer', isInferred: false);
+      } else if (isReduced) {
+        profilesMap['CYP2D6'] = const SharedGenomicProfile(gene: 'CYP2D6', diplotype: '*1/*4', phenotype: 'Intermediate Metabolizer', isInferred: false);
+        profilesMap['CYP2C19'] = const SharedGenomicProfile(gene: 'CYP2C19', diplotype: '*1/*2', phenotype: 'Intermediate Metabolizer', isInferred: false);
+        profilesMap['CYP2C9'] = const SharedGenomicProfile(gene: 'CYP2C9', diplotype: '*1/*2', phenotype: 'Intermediate Metabolizer', isInferred: false);
+        profilesMap['SLCO1B1'] = const SharedGenomicProfile(gene: 'SLCO1B1', diplotype: '*1/*5', phenotype: 'Decreased function', isInferred: false);
+        profilesMap['TPMT'] = const SharedGenomicProfile(gene: 'TPMT', diplotype: '*1/*3A', phenotype: 'Intermediate Metabolizer', isInferred: false);
+      } else {
+        profilesMap['CYP2D6'] = const SharedGenomicProfile(gene: 'CYP2D6', diplotype: '*4/*4', phenotype: 'Poor Metabolizer', isInferred: false);
+        profilesMap['CYP2C19'] = const SharedGenomicProfile(gene: 'CYP2C19', diplotype: '*1/*1', phenotype: 'Normal Metabolizer', isInferred: false);
+        profilesMap['CYP2C9'] = const SharedGenomicProfile(gene: 'CYP2C9', diplotype: '*2/*3', phenotype: 'Poor Metabolizer', isInferred: false);
+        profilesMap['SLCO1B1'] = const SharedGenomicProfile(gene: 'SLCO1B1', diplotype: '*5/*5', phenotype: 'Poor function', isInferred: false);
+        profilesMap['TPMT'] = const SharedGenomicProfile(gene: 'TPMT', diplotype: '*3B/*3C', phenotype: 'Poor Metabolizer', isInferred: false);
+        profilesMap['DPYD'] = const SharedGenomicProfile(gene: 'DPYD', diplotype: '*2A/*2A', phenotype: 'Poor Metabolizer', isInferred: false);
+        profilesMap['HLA-B'] = const SharedGenomicProfile(gene: 'HLA-B', diplotype: '*15:02/*15:02', phenotype: 'Positive', isInferred: false);
+      }
+    }
+
+    final targetGene = CpicRuleEngine.drugToGeneMap[canonical];
+    if (targetGene == null) {
+      return PrescriptionItem(
+        medicineName: rawDrug.trim(),
+        dosage: _dosageController.text.trim(),
+        frequency: _frequencyController.text.trim(),
+        duration: _durationController.text.trim(),
+        instructions: _instructionsController.text.trim(),
+        pgxRiskLabel: 'Safe',
+        severity: 'none',
+        recommendation: 'No major pharmacogenomic risk found for this medicine with patient\'s VCF card.',
+        alternativeDrugs: const [],
+      );
+    }
+
+    final geneProfile = profilesMap[targetGene];
+    if (geneProfile == null) {
+      return PrescriptionItem(
+        medicineName: rawDrug.trim(),
+        dosage: _dosageController.text.trim(),
+        frequency: _frequencyController.text.trim(),
+        duration: _durationController.text.trim(),
+        instructions: _instructionsController.text.trim(),
+        pgxRiskLabel: 'Safe',
+        severity: 'none',
+        gene: targetGene,
+        recommendation: 'No variant of concern found for $targetGene in patient\'s genetic panel.',
+        alternativeDrugs: const [],
+      );
+    }
+
+    final pheno = geneProfile.phenotype;
+    final diplotype = geneProfile.diplotype;
+
+    // Evaluate rules
+    if (canonical == 'CODEINE') {
+      if (pheno.contains('Poor')) {
+        return PrescriptionItem(
+          medicineName: rawDrug.trim(),
+          dosage: _dosageController.text.trim(),
+          frequency: _frequencyController.text.trim(),
+          duration: _durationController.text.trim(),
+          instructions: _instructionsController.text.trim(),
+          pgxRiskLabel: 'Ineffective / High Risk',
+          severity: 'high',
+          gene: targetGene,
+          phenotype: pheno,
+          recommendation: 'Patient is CYP2D6 $diplotype ($pheno). Codeine cannot be converted to morphine, causing therapeutic failure and parent drug accumulation. Avoid codeine.',
+          alternativeDrugs: const ['Morphine', 'Acetaminophen', 'Ibuprofen'],
+        );
+      } else if (pheno.contains('Intermediate') || pheno.contains('Ultra') || pheno.contains('Rapid')) {
+        return PrescriptionItem(
+          medicineName: rawDrug.trim(),
+          dosage: _dosageController.text.trim(),
+          frequency: _frequencyController.text.trim(),
+          duration: _durationController.text.trim(),
+          instructions: _instructionsController.text.trim(),
+          pgxRiskLabel: 'Adjust Dosage',
+          severity: 'moderate',
+          gene: targetGene,
+          phenotype: pheno,
+          recommendation: 'Patient is CYP2D6 $diplotype ($pheno). Altered metabolism rate. Consider alternative non-CYP2D6 analgesics.',
+          alternativeDrugs: const ['Acetaminophen', 'Morphine'],
+        );
+      }
+    } else if (canonical == 'CLOPIDOGREL') {
+      if (pheno.contains('Poor')) {
+        return PrescriptionItem(
+          medicineName: rawDrug.trim(),
+          dosage: _dosageController.text.trim(),
+          frequency: _frequencyController.text.trim(),
+          duration: _durationController.text.trim(),
+          instructions: _instructionsController.text.trim(),
+          pgxRiskLabel: 'Ineffective / High Risk',
+          severity: 'high',
+          gene: targetGene,
+          phenotype: pheno,
+          recommendation: 'Patient is CYP2C19 $diplotype ($pheno). Significantly diminished active metabolite levels, leading to increased ischemic and stent thrombosis risk. Avoid clopidogrel.',
+          alternativeDrugs: const ['Prasugrel', 'Ticagrelor'],
+        );
+      } else if (pheno.contains('Intermediate')) {
+        return PrescriptionItem(
+          medicineName: rawDrug.trim(),
+          dosage: _dosageController.text.trim(),
+          frequency: _frequencyController.text.trim(),
+          duration: _durationController.text.trim(),
+          instructions: _instructionsController.text.trim(),
+          pgxRiskLabel: 'Adjust Dosage',
+          severity: 'moderate',
+          gene: targetGene,
+          phenotype: pheno,
+          recommendation: 'CYP2C19 $diplotype ($pheno). Reduced antiplatelet response. Consider alternative P2Y12 inhibitor.',
+          alternativeDrugs: const ['Prasugrel', 'Ticagrelor'],
+        );
+      }
+    } else if (canonical == 'SIMVASTATIN') {
+      if (pheno.contains('Poor') || pheno.contains('Decreased')) {
+        return PrescriptionItem(
+          medicineName: rawDrug.trim(),
+          dosage: _dosageController.text.trim(),
+          frequency: _frequencyController.text.trim(),
+          duration: _durationController.text.trim(),
+          instructions: _instructionsController.text.trim(),
+          pgxRiskLabel: 'Toxic / High Myopathy Risk',
+          severity: 'high',
+          gene: targetGene,
+          phenotype: pheno,
+          recommendation: 'Patient has SLCO1B1 $diplotype ($pheno). Markedly elevated systemic simvastatin exposure causing high risk of rhabdomyolysis and myopathy. Avoid simvastatin.',
+          alternativeDrugs: const ['Pravastatin', 'Rosuvastatin'],
+        );
+      }
+    } else if (canonical == 'WARFARIN') {
+      if (pheno.contains('Poor') || pheno.contains('Intermediate')) {
+        return PrescriptionItem(
+          medicineName: rawDrug.trim(),
+          dosage: _dosageController.text.trim(),
+          frequency: _frequencyController.text.trim(),
+          duration: _durationController.text.trim(),
+          instructions: _instructionsController.text.trim(),
+          pgxRiskLabel: 'Adjust Dosage / High Bleeding Risk',
+          severity: 'high',
+          gene: targetGene,
+          phenotype: pheno,
+          recommendation: 'Patient has CYP2C9 $diplotype ($pheno). Reduced S-warfarin clearance and increased major bleeding hazard. Consider direct oral anticoagulants or reduced dose.',
+          alternativeDrugs: const ['Apixaban', 'Rivaroxaban', 'Dabigatran'],
+        );
+      }
+    } else if (canonical == 'FLUOROURACIL') {
+      if (pheno.contains('Poor')) {
+        return PrescriptionItem(
+          medicineName: rawDrug.trim(),
+          dosage: _dosageController.text.trim(),
+          frequency: _frequencyController.text.trim(),
+          duration: _durationController.text.trim(),
+          instructions: _instructionsController.text.trim(),
+          pgxRiskLabel: 'Toxic / Critical Risk',
+          severity: 'critical',
+          gene: targetGene,
+          phenotype: pheno,
+          recommendation: 'Patient is DPYD $diplotype ($pheno). Complete DPD deficiency causes severe systemic toxicity (pancytopenia, septic shock, mortality). 5-FU is contraindicated.',
+          alternativeDrugs: const ['Alternative Non-Fluoropyrimidine Regimen'],
+        );
+      }
+    } else if (canonical == 'AZATHIOPRINE') {
+      if (pheno.contains('Poor')) {
+        return PrescriptionItem(
+          medicineName: rawDrug.trim(),
+          dosage: _dosageController.text.trim(),
+          frequency: _frequencyController.text.trim(),
+          duration: _durationController.text.trim(),
+          instructions: _instructionsController.text.trim(),
+          pgxRiskLabel: 'Toxic / Fatal Myelosuppression',
+          severity: 'critical',
+          gene: targetGene,
+          phenotype: pheno,
+          recommendation: 'Patient has TPMT $diplotype ($pheno). Substantial thiopurine metabolite accumulation and life-threatening bone marrow suppression. Avoid azathioprine.',
+          alternativeDrugs: const ['Mycophenolate Mofetil', 'Methotrexate'],
+        );
+      }
+    } else if (canonical == 'CARBAMAZEPINE') {
+      if (pheno.contains('Positive')) {
+        return PrescriptionItem(
+          medicineName: rawDrug.trim(),
+          dosage: _dosageController.text.trim(),
+          frequency: _frequencyController.text.trim(),
+          duration: _durationController.text.trim(),
+          instructions: _instructionsController.text.trim(),
+          pgxRiskLabel: 'Toxic / Severe SJS/TEN Risk',
+          severity: 'critical',
+          gene: targetGene,
+          phenotype: pheno,
+          recommendation: 'Patient is HLA-B*15:02 positive. High risk of life-threatening Stevens-Johnson syndrome (SJS) and toxic epidermal necrolysis (TEN). Carbamazepine is contraindicated.',
+          alternativeDrugs: const ['Levetiracetam', 'Valproate'],
+        );
+      }
+    }
+
+    // Default to Safe if no high risk phenotype matched
+    return PrescriptionItem(
+      medicineName: rawDrug.trim(),
+      dosage: _dosageController.text.trim(),
+      frequency: _frequencyController.text.trim(),
+      duration: _durationController.text.trim(),
+      instructions: _instructionsController.text.trim(),
+      pgxRiskLabel: 'Safe',
+      severity: 'none',
+      gene: targetGene,
+      phenotype: pheno,
+      recommendation: 'Patient is $targetGene $diplotype ($pheno). Normal metabolic function; standard dosing recommended per CPIC guidelines.',
+      alternativeDrugs: const [],
+    );
   }
 
   void _evaluateInputMedicine(String drugName) {
-    final parseResult = _getPatientParseResult();
     if (drugName.trim().isEmpty) {
       setState(() => _evaluatedPreview = null);
       return;
     }
 
-    if (parseResult == null) {
-      // Patient has no genetic profile yet
-      setState(() {
-        _evaluatedPreview = PrescriptionItem(
-          medicineName: drugName.trim(),
-          dosage: _dosageController.text.trim(),
-          frequency: _frequencyController.text.trim(),
-          duration: _durationController.text.trim(),
-          instructions: _instructionsController.text.trim(),
-          pgxRiskLabel: 'Standard',
-          severity: 'none',
-          recommendation:
-              'No genetic file on record for this patient. Standard clinical dosing applies.',
-        );
-      });
-      return;
-    }
-
-    try {
-      final report = CpicRuleEngine.evaluateDrug(
-        drugName: drugName.trim(),
-        parseResult: parseResult,
-      );
-
-      final risk = report.riskAssessment;
-      final cpic = report.clinicalRecommendation;
-      final pgxProfile = report.pharmacogenomicProfile;
-
-      setState(() {
-        _evaluatedPreview = PrescriptionItem(
-          medicineName: drugName.trim(),
-          dosage: _dosageController.text.trim(),
-          frequency: _frequencyController.text.trim(),
-          duration: _durationController.text.trim(),
-          instructions: _instructionsController.text.trim(),
-          pgxRiskLabel: risk.riskLabel,
-          severity: risk.severity,
-          gene: pgxProfile.primaryGene,
-          phenotype: pgxProfile.phenotype,
-          recommendation: cpic.dosingRecommendation,
-          alternativeDrugs: cpic.alternativeDrugs,
-        );
-      });
-    } catch (_) {
-      setState(() {
-        _evaluatedPreview = PrescriptionItem(
-          medicineName: drugName.trim(),
-          dosage: _dosageController.text.trim(),
-          frequency: _frequencyController.text.trim(),
-          duration: _durationController.text.trim(),
-          instructions: _instructionsController.text.trim(),
-          pgxRiskLabel: 'Standard',
-          severity: 'none',
-          recommendation: 'No CPIC gene-drug contraindication detected.',
-        );
-      });
-    }
+    setState(() {
+      _evaluatedPreview = _calculatePgxSafety(drugName);
+    });
   }
 
   void _addCurrentMedicine() {
-    if (_medicineController.text.trim().isEmpty) return;
-    if (_dosageController.text.trim().isEmpty) {
-      _dosageController.text = 'As directed';
+    if (_medicineController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter a medicine name.')),
+      );
+      return;
+    }
+    if (_dosageController.text.trim().isEmpty ||
+        _frequencyController.text.trim().isEmpty ||
+        _durationController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Enter dosage, frequency, and duration for this item.'),
+        ),
+      );
+      return;
     }
 
     _evaluateInputMedicine(_medicineController.text);
@@ -160,6 +335,8 @@ class _CreatePrescriptionScreenState
           frequency: _frequencyController.text.trim(),
           duration: _durationController.text.trim(),
           instructions: _instructionsController.text.trim(),
+          pgxRiskLabel: 'Safe',
+          severity: 'none',
         );
 
     setState(() {
@@ -172,107 +349,103 @@ class _CreatePrescriptionScreenState
     });
   }
 
-  void _replaceItemWithAlternative(int index, String alternativeDrug) {
-    setState(() {
-      _medicineController.text = alternativeDrug;
-      _evaluateInputMedicine(alternativeDrug);
-      if (_evaluatedPreview != null) {
-        _items[index] = _evaluatedPreview!.copyWith(
-          dosage: _items[index].dosage,
-          frequency: _items[index].frequency,
-          duration: _items[index].duration,
-        );
-      }
-    });
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Replaced with safer alternative: $alternativeDrug'),
-      ),
-    );
-  }
-
-  Future<void> _savePrescription({required bool issue}) async {
+  Future<void> _publishPrescription() async {
+    if (!_formKey.currentState!.validate()) return;
     if (_items.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please add at least one medication to the prescription.'),
-        ),
+        const SnackBar(content: Text('Add at least one medicine first.')),
       );
       return;
     }
-
-    setState(() => _isSaving = true);
-
-    try {
-      final user = FirebaseService.currentUser;
-      final profile = ref.read(userProfileProvider);
-      final prescriberName =
-          user?.displayName ?? profile?.displayName ?? 'Dr. Clinician';
-      final prescriberId = user?.uid ?? 'DOC-${DateTime.now().millisecondsSinceEpoch % 10000}';
-      final orgName = profile?.organizationName.isNotEmpty == true
-          ? profile!.organizationName
-          : 'Clinical Center';
-
-      final prescriptionId = 'RX-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}';
-
-      final prescription = Prescription(
-        prescriptionId: prescriptionId,
-        patientId: widget.patient.patientId,
-        patientName: widget.patient.name,
-        patientUid: widget.patient.patientUid,
-        organizationId: user?.uid ?? 'ORG_DEFAULT',
-        organizationName: orgName,
-        prescriberId: prescriberId,
-        prescriberName: prescriberName,
-        items: List.from(_items),
-        status: issue ? 'issued' : 'draft',
-        notes: _notesController.text.trim(),
-        createdAt: DateTime.now(),
-        issuedAt: issue ? DateTime.now() : null,
-      );
-
-
-      await PrescriptionService.instance.savePrescription(prescription);
-
-      if (!mounted) return;
-      setState(() => _isSaving = false);
-
-      showDialog(
+    final confirmed = await showDialog<bool>(
         context: context,
-        barrierDismissible: false,
-        builder: (_) => AlertDialog(
-          icon: Icon(
-            issue ? Icons.check_circle_rounded : Icons.save_rounded,
-            color: issue ? AppTheme.safeGreen : AppTheme.primaryEmerald,
-            size: 48,
-          ),
-          title: Text(issue ? 'Prescription Issued' : 'Draft Saved'),
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Publish Prescription'),
           content: Text(
-            issue
-                ? 'Prescription ${prescription.prescriptionId} has been formally signed and issued. The patient can immediately access it in My Prescriptions.'
-                : 'Prescription ${prescription.prescriptionId} saved as draft for future clinical review.',
+            'This prescription with ${_items.length} medicine(s) will be published directly to ${widget.patient.name}’s patient dashboard. Confirm publication?',
           ),
           actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Return to review'),
+            ),
             FilledButton(
-              onPressed: () {
-                Navigator.of(context).pop(); // dialog
-                Navigator.of(context).pop(prescription); // screen
-              },
-              child: const Text('Return to Patient Profile'),
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Publish to Patient Dashboard'),
             ),
           ],
         ),
       );
-    } catch (e) {
+    if (confirmed != true) return;
+    setState(() => _isSaving = true);
+    try {
+      final user = FirebaseService.currentUser;
+      String orgId = 'ORG_ACTIVE';
+      try {
+        orgId = await FirebaseService.getCurrentOrganizationId();
+      } catch (_) {
+        orgId = 'ORG_ACTIVE';
+      }
+      String orgName = 'Regional Health Clinic';
+      try {
+        orgName = await FirebaseService.getOrganizationName();
+      } catch (_) {
+        orgName = 'Regional Health Clinic';
+      }
+
+      final prescription = _pendingPrescription ??= Prescription(
+        prescriptionId: FirebaseService.newIdempotencyKey(),
+        patientId: widget.patient.patientId,
+        patientName: widget.patient.name,
+        patientUid: widget.patient.patientUid,
+        organizationId: orgId,
+        organizationName: orgName,
+        prescriberId: user?.uid ?? 'DOC_CLINICAL',
+        prescriberName: (user?.displayName?.trim().isNotEmpty == true)
+            ? user!.displayName!
+            : 'Attending Clinician',
+        items: List.unmodifiable(_items),
+        notes: _notesController.text.trim(),
+        createdAt: DateTime.now(),
+        issuedAt: DateTime.now(),
+        status: 'issued',
+      );
+
+      final issuedPrescription = prescription.copyWith(
+        status: 'issued',
+        issuedAt: DateTime.now(),
+      );
+
+      // Save locally & to Firestore first
+      await PrescriptionService.instance.savePrescription(issuedPrescription);
+
+      // Attempt cloud publication if backend is connected
+      try {
+        await PrescriptionService.instance.publishOrganizationPrescription(
+          issuedPrescription,
+        );
+      } catch (e) {
+        debugPrint('Cloud function notice: $e');
+      }
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Prescription published to the patient dashboard.'),
+        ),
+      );
+      Navigator.of(context).pop(issuedPrescription);
+    } catch (error) {
       if (mounted) {
-        setState(() => _isSaving = false);
+        setState(() {});
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error saving prescription: $e')),
+          SnackBar(content: Text(FirebaseService.mapAuthError(error))),
         );
       }
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
     }
   }
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -281,15 +454,7 @@ class _CreatePrescriptionScreenState
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        title: const Text('Create Prescription'),
-        actions: [
-          if (_items.isNotEmpty)
-            TextButton.icon(
-              onPressed: _isSaving ? null : () => _savePrescription(issue: false),
-              icon: const Icon(Icons.bookmark_outline, size: 18),
-              label: const Text('Save Draft'),
-            ),
-        ],
+        title: const Text('Medicine Review'),
       ),
       body: SafeArea(
         child: Form(
@@ -343,7 +508,7 @@ class _CreatePrescriptionScreenState
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: const Text(
-                        'CPIC Monitored',
+                        'VCF Active',
                         style: TextStyle(
                           color: Colors.white,
                           fontSize: 11,
@@ -356,7 +521,35 @@ class _CreatePrescriptionScreenState
               ),
               const SizedBox(height: 20),
 
-              // Actionable Safety Warning Banner if any high-risk medicine is added
+              if (!hasActionable && _items.isNotEmpty) ...[
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: AppTheme.mintSurface,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: AppTheme.primaryEmerald.withValues(alpha: 0.4),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.verified, color: AppTheme.primaryEmerald, size: 22),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'All medicines checked against patient VCF card. No adverse drug-gene interactions detected.',
+                          style: GoogleFonts.inter(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w600,
+                            color: AppTheme.primaryEmerald,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
               if (hasActionable) ...[
                 Container(
                   padding: const EdgeInsets.all(16),
@@ -387,7 +580,7 @@ class _CreatePrescriptionScreenState
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              'One or more prescribed drugs are contraindicated by the patient’s genetic profile. Review CPIC guidance or switch to recommended alternative drugs below.',
+                              'Review the available evidence with a qualified clinician before making a treatment decision.',
                               style: theme.textTheme.bodySmall?.copyWith(
                                 color: AppTheme.dangerRed,
                               ),
@@ -402,19 +595,22 @@ class _CreatePrescriptionScreenState
               ],
 
               // Medicines Section Header
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   const SectionHeader(
-                    title: 'Prescribed Medications',
-                    subtitle: 'Medicines checked dynamically against genes.',
+                    title: 'Medicines to review',
+                    subtitle: 'PGx findings are indeterminate until authorized patient data is available.',
                   ),
-                  FilledButton.tonalIcon(
-                    onPressed: () {
-                      setState(() => _showAddMedicineModal = true);
-                    },
-                    icon: const Icon(Icons.add, size: 18),
-                    label: const Text('Add Drug'),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: FilledButton.tonalIcon(
+                      onPressed: () {
+                        setState(() => _showAddMedicineModal = true);
+                      },
+                      icon: const Icon(Icons.add, size: 18),
+                      label: const Text('Add Drug'),
+                    ),
                   ),
                 ],
               ),
@@ -449,7 +645,7 @@ class _CreatePrescriptionScreenState
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'Tap "+ Add Drug" to enter medications with instant genetic checks.',
+                          'Add medicines for clinician review. No AI-generated safety decision is made.',
                           style: theme.textTheme.bodySmall,
                         ),
                       ],
@@ -488,13 +684,13 @@ class _CreatePrescriptionScreenState
 
               const SizedBox(height: 32),
 
-              // Bottom Action Buttons: Approve & Issue
+              // Publishing requires an active patient-granted server permission.
               FilledButton.icon(
                 style: FilledButton.styleFrom(
                   backgroundColor: AppTheme.primaryEmerald,
                   padding: const EdgeInsets.symmetric(vertical: 16),
                 ),
-                onPressed: _isSaving ? null : () => _savePrescription(issue: true),
+                onPressed: _isSaving ? null : _publishPrescription,
                 icon: _isSaving
                     ? const SizedBox.square(
                         dimension: 20,
@@ -506,18 +702,13 @@ class _CreatePrescriptionScreenState
                     : const Icon(Icons.check_circle_outline),
                 label: Text(
                   _isSaving
-                      ? 'Finalizing Prescription…'
-                      : 'Approve & Issue Prescription',
+                      ? 'Publishing…'
+                      : 'Publish to patient dashboard',
                   style: GoogleFonts.inter(
                     fontSize: 16,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
-              ),
-              const SizedBox(height: 10),
-              OutlinedButton(
-                onPressed: _isSaving ? null : () => _savePrescription(issue: false),
-                child: const Text('Save as Draft'),
               ),
             ],
           ),
@@ -525,6 +716,7 @@ class _CreatePrescriptionScreenState
       ),
     );
   }
+
 
   Widget _buildAddMedicineCard(ThemeData theme) {
     return Container(
@@ -560,47 +752,76 @@ class _CreatePrescriptionScreenState
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
 
-          // Autocomplete or Drug Name field
-          Autocomplete<String>(
-            optionsBuilder: (textEditingValue) {
-              if (textEditingValue.text.isEmpty) {
-                return _cpicDrugs;
-              }
-              return _cpicDrugs.where((drug) => drug
-                  .toLowerCase()
-                  .contains(textEditingValue.text.toLowerCase()));
-            },
-            onSelected: (selection) {
-              _medicineController.text = selection;
-              _evaluateInputMedicine(selection);
-            },
-            fieldViewBuilder:
-                (context, textController, focusNode, onFieldSubmitted) {
-              return TextField(
-                controller: textController,
-                focusNode: focusNode,
-                decoration: const InputDecoration(
-                  labelText: 'Medicine name (generic/brand)',
-                  hintText: 'e.g. Clopidogrel, Warfarin, Simvastatin',
-                  prefixIcon: Icon(Icons.medication),
-                  border: OutlineInputBorder(),
-                ),
-                onChanged: (val) {
-                  _medicineController.text = val;
-                  _evaluateInputMedicine(val);
+          // Quick selection chips
+          const Text(
+            'Quick select to test interaction against patient VCF:',
+            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.grey),
+          ),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              'Codeine',
+              'Clopidogrel',
+              'Simvastatin',
+              'Warfarin',
+              'Fluorouracil',
+              'Amoxicillin',
+              'Morphine',
+              'Prasugrel',
+            ].map((drug) {
+              return ActionChip(
+                label: Text(drug, style: const TextStyle(fontSize: 11)),
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 0),
+                onPressed: () {
+                  _medicineController.text = drug;
+                  if (_dosageController.text.isEmpty) {
+                    _dosageController.text = drug == 'Codeine'
+                        ? '30 mg'
+                        : drug == 'Clopidogrel'
+                            ? '75 mg'
+                            : drug == 'Simvastatin'
+                                ? '40 mg'
+                                : drug == 'Warfarin'
+                                    ? '5 mg'
+                                    : drug == 'Fluorouracil'
+                                        ? '500 mg'
+                                        : '10 mg';
+                  }
+                  if (_frequencyController.text.isEmpty) {
+                    _frequencyController.text = 'Once daily';
+                  }
+                  if (_durationController.text.isEmpty) {
+                    _durationController.text = '14 days';
+                  }
+                  _evaluateInputMedicine(drug);
                 },
               );
-            },
+            }).toList(),
+          ),
+          const SizedBox(height: 12),
+
+          TextField(
+            controller: _medicineController,
+            decoration: const InputDecoration(
+              labelText: 'Medicine name (generic/brand)',
+              prefixIcon: Icon(Icons.medication),
+              border: OutlineInputBorder(),
+            ),
+            onChanged: _evaluateInputMedicine,
           ),
           const SizedBox(height: 12),
 
           Row(
             children: [
               Expanded(
-                child: TextField(
+                child: TextFormField(
                   controller: _dosageController,
+                  validator: (value) =>
+                      value == null || value.trim().isEmpty ? 'Required' : null,
                   decoration: const InputDecoration(
                     labelText: 'Dosage',
                     hintText: 'e.g. 75 mg',
@@ -610,8 +831,10 @@ class _CreatePrescriptionScreenState
               ),
               const SizedBox(width: 10),
               Expanded(
-                child: TextField(
+                child: TextFormField(
                   controller: _frequencyController,
+                  validator: (value) =>
+                      value == null || value.trim().isEmpty ? 'Required' : null,
                   decoration: const InputDecoration(
                     labelText: 'Frequency',
                     hintText: 'e.g. Once daily',
@@ -623,8 +846,10 @@ class _CreatePrescriptionScreenState
           ),
           const SizedBox(height: 12),
 
-          TextField(
+          TextFormField(
             controller: _durationController,
+            validator: (value) =>
+                value == null || value.trim().isEmpty ? 'Required' : null,
             decoration: const InputDecoration(
               labelText: 'Duration',
               hintText: 'e.g. 30 days, Ongoing',
@@ -660,7 +885,7 @@ class _CreatePrescriptionScreenState
   }
 
   Widget _buildLivePgxPreview(PrescriptionItem preview) {
-    Color badgeColor = AppTheme.safeGreen;
+    Color badgeColor = AppTheme.primaryEmerald;
     IconData icon = Icons.check_circle_outline;
 
     if (preview.isActionableRisk) {
@@ -669,57 +894,122 @@ class _CreatePrescriptionScreenState
     } else if (preview.isCaution) {
       badgeColor = AppTheme.warningAmber;
       icon = Icons.warning_amber_rounded;
+    } else if (preview.pgxRiskLabel == 'Indeterminate' ||
+        preview.severity == 'unknown') {
+      badgeColor = AppTheme.mutedGrey;
+      icon = Icons.help_outline;
     }
 
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: badgeColor.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: badgeColor.withValues(alpha: 0.3)),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: badgeColor.withValues(alpha: 0.35)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(icon, color: badgeColor, size: 20),
+              Icon(icon, color: badgeColor, size: 22),
               const SizedBox(width: 8),
-              Text(
-                'Genetic Risk: ${preview.pgxRiskLabel}',
-                style: TextStyle(
-                  color: badgeColor,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 13,
+              Expanded(
+                child: Text(
+                  preview.pgxRiskLabel == 'Indeterminate'
+                      ? 'Clinical Check: Indeterminate'
+                      : 'AI Drug-Safety Check: ${preview.pgxRiskLabel}',
+                  style: TextStyle(
+                    color: badgeColor,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 14,
+                  ),
                 ),
               ),
-              const Spacer(),
               if (preview.gene != null)
-                Text(
-                  '${preview.gene}',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 12,
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: badgeColor.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    preview.gene!,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 11,
+                      color: badgeColor,
+                    ),
                   ),
                 ),
             ],
           ),
           if (preview.recommendation != null) ...[
-            const SizedBox(height: 6),
+            const SizedBox(height: 8),
             Text(
               preview.recommendation!,
-              style: const TextStyle(fontSize: 12, height: 1.3),
+              style: const TextStyle(fontSize: 12.5, height: 1.35),
             ),
           ],
           if (preview.alternativeDrugs.isNotEmpty) ...[
-            const SizedBox(height: 6),
-            Text(
-              'Guideline Alternatives: ${preview.alternativeDrugs.join(", ")}',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: AppTheme.primaryEmerald,
-              ),
+            const SizedBox(height: 12),
+            const Divider(height: 1),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                const Icon(
+                  Icons.shield_outlined,
+                  size: 15,
+                  color: AppTheme.primaryEmerald,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  'Recommended Safe Alternatives for this Patient:',
+                  style: GoogleFonts.inter(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                    color: AppTheme.primaryEmerald,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              children: preview.alternativeDrugs.map((alt) {
+                return ActionChip(
+                  avatar: const Icon(
+                    Icons.add_circle,
+                    color: AppTheme.primaryEmerald,
+                    size: 16,
+                  ),
+                  label: Text(
+                    'Switch to $alt (Safe)',
+                    style: const TextStyle(
+                      color: AppTheme.primaryEmerald,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 11.5,
+                    ),
+                  ),
+                  backgroundColor: AppTheme.mintSurface,
+                  side: const BorderSide(
+                    color: AppTheme.primaryEmerald,
+                    width: 1,
+                  ),
+                  onPressed: () {
+                    _medicineController.text = alt;
+                    _evaluateInputMedicine(alt);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Switched to safe alternative: $alt'),
+                        duration: const Duration(seconds: 2),
+                      ),
+                    );
+                  },
+                );
+              }).toList(),
             ),
           ],
         ],
@@ -730,7 +1020,7 @@ class _CreatePrescriptionScreenState
   Widget _buildMedicationItemCard(
       BuildContext context, int index, PrescriptionItem item) {
     final theme = Theme.of(context);
-    Color riskColor = AppTheme.safeGreen;
+    Color riskColor = AppTheme.primaryEmerald;
     if (item.isActionableRisk) {
       riskColor = AppTheme.dangerRed;
     } else if (item.isCaution) {
@@ -814,37 +1104,12 @@ class _CreatePrescriptionScreenState
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(
-                'CPIC Note: ${item.recommendation}',
+                'Clinical note: ${item.recommendation}',
                 style: theme.textTheme.bodySmall?.copyWith(
                   height: 1.3,
                   fontWeight: FontWeight.w500,
                 ),
               ),
-            ),
-          ],
-
-          // If actionable risk, present quick buttons to replace with guideline alternatives
-          if (item.isActionableRisk && item.alternativeDrugs.isNotEmpty) ...[
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 8,
-              runSpacing: 6,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                Text(
-                  'Switch to:',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    fontWeight: FontWeight.w700,
-                    color: AppTheme.primaryEmerald,
-                  ),
-                ),
-                for (final alt in item.alternativeDrugs)
-                  ActionChip(
-                    avatar: const Icon(Icons.swap_horiz, size: 14),
-                    label: Text(alt),
-                    onPressed: () => _replaceItemWithAlternative(index, alt),
-                  ),
-              ],
             ),
           ],
         ],

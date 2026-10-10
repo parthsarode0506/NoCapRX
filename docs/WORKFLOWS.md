@@ -44,11 +44,25 @@
    prerequisite for listing or receiving a directory contact request.
 4. For provisioned organizations, a patient can request profile access. An
    authorized organization member may review it, then the patient must
-   separately consent to sharing the basic profile (`read_profile`).
-5. The patient can revoke organization consent; subsequent callable reads are
-   denied. Raw VCF and derived genomic profiles remain on-device.
-6. Prescription authoring, clinician acknowledgment, clinical notes and
-   patient-authorized report synchronization are not implemented.
+   separately consent to `read_profile`. Patients may also separately allow
+   sharing of derived PGx profile fields (`read_genomic_profiles`) and clinician
+   prescription management (`manage_prescriptions`).
+5. Raw VCF content remains on-device. With explicit genomic-profile consent,
+   the patient may share only gene, diplotype, phenotype and inferred/observed
+   status through an App Check-protected callable. These parser-derived fields
+   are marked unvalidated and are not a clinical report or a safety decision.
+6. Provisioned clinicians can open the server-authorized accepted-patient list.
+   Each patient workspace rechecks membership and consent. It displays shared
+   derived fields only when `read_genomic_profiles` remains active.
+7. When `manage_prescriptions` is active, a clinician can enter and save a
+   draft, then explicitly publish it. Drafts are clinician-only; published
+   prescriptions appear in the patient's dashboard. Server callables verify
+   active membership and patient consent and write an audit event atomically.
+   Patients can read only published prescriptions. Medicine-level PGx
+   assessment remains indeterminate; AI safety decisions and alternative-drug
+   suggestions are not provided.
+8. Patients can revoke organization consent; subsequent callable and Firestore
+   reads are denied. Revocation also removes the organization patient-link index.
 
 ### Current organization workspace implementation boundary
 
@@ -83,9 +97,10 @@
   server-side.
 - Organization members can review patient requests. Their approval does not
   grant access; the patient must separately approve basic-profile sharing.
-- Patient links and organization search are callable-only. Search and profile
-  reads check active membership and unexpired patient consent; report and
-  prescription workflows are not implemented. Raw VCF files are never uploaded.
+- Patient links, patient search, and accepted-patient listing are callable-only.
+  Reads check active membership and unexpired patient consent. Raw VCF files
+  are never uploaded. Derived profile writes and prescription writes are also
+  callable-only and audited.
 - Patient accounts open the patient dashboard. The organization dashboard
   shell remains visible to self-registered accounts, but patient search and
   request-review controls are shown only when trusted organization claims are
@@ -100,11 +115,13 @@
   server results; no sample patient profiles or clinical counts are displayed.
   Server Functions enforce active membership and patient consent; report
   generation and prescription authoring remain unavailable.
-- The Patient Details workspace returns the shared basic profile only. VCF,
-  genomic findings, reports and prescriptions are explicitly shown as not
-  shared or not synchronized; missing records are not represented as zero
-  counts. Cloud analysis, report publication and prescription approval remain
-  unavailable until the approved processing and clinical-rule workflows exist.
+- The Patient Details workspace returns the shared basic profile and, only
+  with separate consent, patient-shared derived gene/diplotype/phenotype fields.
+  It never retrieves raw VCF content. Prescription authoring and publication
+  require separate patient consent. Missing genomic data is indeterminate;
+  no approved clinical rule pack is currently wired to this organization
+  workflow, so the app does not classify medicines as safe or suggest
+  alternatives.
 
 ---
 

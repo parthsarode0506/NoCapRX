@@ -8,6 +8,7 @@ import '../models/patient_profile.dart';
 import '../models/pgx_report.dart';
 import '../providers/app_providers.dart';
 import '../services/firebase_service.dart';
+import '../services/genomic_drug_scan_service.dart';
 import '../services/patient_profile_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/brand_emblem.dart';
@@ -304,7 +305,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               ],
               // ── Hero card ────────────────────────────────────────────
               _buildHeroCard(displayName, hasVcf, () => _openUpload(context)),
-              const SizedBox(height: 18),
+              const SizedBox(height: 14),
+
+              // ── Doctor Prescriptions Banner ──────────────────────────
+              _buildDoctorPrescriptionsBanner(
+                context,
+                patientProfile.patientId,
+                FirebaseService.currentUser?.uid,
+              ),
 
               // ── VCF empty state ───────────────────────────────────────
               if (!hasVcf)
@@ -408,111 +416,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     );
                   },
                 ),
-
-                // ── Doctor Prescriptions Banner ──────────────────────────
-                StreamBuilder<List<Prescription>>(
-                  stream: PrescriptionService.instance.streamPatientPrescriptions(
-                    ref.watch(patientProfileProvider).patientId.isNotEmpty
-                        ? ref.watch(patientProfileProvider).patientId
-                        : 'PATIENT_001',
-                    patientUid: FirebaseService.currentUser?.uid,
-                  ),
-                  builder: (context, snapshot) {
-                    final rxList = snapshot.data ?? [];
-                    if (rxList.isEmpty) return const SizedBox.shrink();
-                    final latestRx = rxList.first;
-                    return Container(
-                      margin: const EdgeInsets.only(top: 12),
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: AppTheme.primaryEmerald.withValues(alpha: 0.35),
-                          width: 1.5,
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppTheme.primaryEmerald.withValues(alpha: 0.08),
-                            blurRadius: 10,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.all(8),
-                                decoration: BoxDecoration(
-                                  color: AppTheme.mintSurface,
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: const Icon(
-                                  Icons.medication_rounded,
-                                  color: AppTheme.primaryEmerald,
-                                  size: 20,
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'Hospital Prescription Issued',
-                                      style: GoogleFonts.inter(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w700,
-                                        color: AppTheme.deepInk,
-                                      ),
-                                    ),
-                                    Text(
-                                      '${latestRx.organizationName} · ${latestRx.prescriberName}',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: AppTheme.secondaryInk,
-                                      ),
-                                    ),
-
-                                  ],
-                                ),
-                              ),
-                              PillBadge(
-                                label: latestRx.status.toUpperCase(),
-                                color: latestRx.isIssued
-                                    ? AppTheme.safeGreen
-                                    : AppTheme.warningAmber,
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          Text(
-                            '${latestRx.items.length} prescribed medication(s) checked against your genetic markers.',
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                          const SizedBox(height: 10),
-                          FilledButton.tonal(
-                            style: FilledButton.styleFrom(
-                              minimumSize: const Size.fromHeight(36),
-                            ),
-                            onPressed: () {
-                              Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (_) => const MyPrescriptionsScreen(),
-                                ),
-                              );
-                            },
-                            child: const Text('View Full Prescription'),
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                ),
                 const SizedBox(height: 18),
+
+                // ── Drug Safety Overview (NEW) ─────────────────────────────
+                _buildDrugSafetyOverview(context, ref, scan, parseResult),
+                const SizedBox(height: 18),
+
+
 
 
                 // ── Latest report ──────────────────────────────────────
@@ -555,6 +465,176 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   // ─── Widget builders ──────────────────────────────────────────────────────
+
+  Widget _buildDoctorPrescriptionsBanner(
+    BuildContext context,
+    String patientId,
+    String? patientUid,
+  ) {
+    return StreamBuilder<List<Prescription>>(
+      stream: PrescriptionService.instance.streamPatientPrescriptions(
+        patientId.isNotEmpty ? patientId : 'PATIENT_001',
+        patientUid: patientUid,
+      ),
+      builder: (context, snapshot) {
+        final rxList =
+            (snapshot.data ?? []).where((p) => p.isIssued).toList();
+        if (rxList.isEmpty) return const SizedBox.shrink();
+        final latestRx = rxList.first;
+        return Container(
+          margin: const EdgeInsets.only(bottom: 18),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: AppTheme.primaryEmerald.withValues(alpha: 0.35),
+              width: 1.5,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: AppTheme.primaryEmerald.withValues(alpha: 0.08),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: AppTheme.mintSurface,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(
+                      Icons.medication_rounded,
+                      color: AppTheme.primaryEmerald,
+                      size: 20,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Doctor Prescription Published',
+                          style: GoogleFonts.inter(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: AppTheme.deepInk,
+                          ),
+                        ),
+                        Text(
+                          '${latestRx.organizationName.isNotEmpty ? latestRx.organizationName : 'Hospital'} · ${latestRx.prescriberName}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: AppTheme.secondaryInk,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  PillBadge(
+                    label: latestRx.status.toUpperCase(),
+                    color: latestRx.isIssued
+                        ? AppTheme.safeGreen
+                        : AppTheme.warningAmber,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text(
+                '${latestRx.items.length} prescribed medication(s) checked against genetic markers:',
+                style: GoogleFonts.inter(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: AppTheme.deepInk,
+                ),
+              ),
+              const SizedBox(height: 8),
+              ...latestRx.items.take(3).map((item) {
+                final isSafe = item.isSafe;
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 6),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: isSafe
+                        ? AppTheme.mintSurface.withValues(alpha: 0.5)
+                        : Colors.amber.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: isSafe
+                          ? AppTheme.primaryEmerald.withValues(alpha: 0.2)
+                          : Colors.amber.shade200,
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        isSafe ? Icons.check_circle_outline : Icons.info_outline,
+                        size: 16,
+                        color: isSafe ? AppTheme.safeGreen : Colors.amber.shade800,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          '${item.medicineName} (${item.dosage}) - ${item.frequency}',
+                          style: GoogleFonts.inter(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: AppTheme.deepInk,
+                          ),
+                        ),
+                      ),
+                      Text(
+                        item.pgxRiskLabel,
+                        style: GoogleFonts.inter(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: isSafe ? AppTheme.safeGreen : Colors.amber.shade900,
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }),
+              if (latestRx.items.length > 3)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text(
+                    '+ ${latestRx.items.length - 3} more medication(s)',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: AppTheme.secondaryInk,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ),
+              const SizedBox(height: 6),
+              FilledButton.tonal(
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size.fromHeight(36),
+                ),
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const MyPrescriptionsScreen(),
+                    ),
+                  );
+                },
+                child: const Text('View Full Prescription Record'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
 
   Widget _buildPatientProfileSummaryCard(PatientProfile patientProfile) {
     final summary = patientProfile.dashboardSummaryEntries;
@@ -1285,6 +1365,465 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => _GeneticProfileScreen(parseResult: parseResult),
+      ),
+    );
+  }
+
+  Widget _buildDrugSafetyOverview(
+    BuildContext context,
+    WidgetRef ref,
+    GenomicDrugScanReport? scan,
+    dynamic parseResult,
+  ) {
+    if (parseResult == null) {
+      return Container(
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: Theme.of(context).cardColor,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppTheme.cardBorder),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppTheme.infoBlueBg,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.medication_outlined,
+                      color: AppTheme.infoBlue, size: 22),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Drug Safety Overview',
+                        style: GoogleFonts.inter(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      Text(
+                        'CPIC gene-drug interaction analysis for your profile',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: AppTheme.unknownSlate.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Text(
+                    'No VCF Loaded',
+                    style: TextStyle(
+                      color: AppTheme.unknownSlate,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 11,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const Divider(height: 24),
+            const Text(
+              'Upload your VCF file to see personalized drug safety categorization.',
+              style: TextStyle(fontSize: 13, color: Colors.grey),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Generate genomic drug scan report if not already available
+    final scanReport = scan ??
+        GenomicDrugScanService.scan(
+          parseResult: parseResult,
+          vcfFilename: ref.watch(selectedVcfFilenameProvider) ?? 'patient.vcf',
+        );
+
+    final actionableDrugs = scanReport.actionableReports;
+    final cautionDrugs = scanReport.drugReports
+        .where((r) => r.riskAssessment.severity == 'moderate' ||
+                      r.riskAssessment.riskLabel == 'Adjust Dosage')
+        .toList();
+    final noActionableFindingDrugs = scanReport.drugReports
+        .where((r) => r.riskAssessment.severity == 'none' &&
+                      r.riskAssessment.riskLabel == 'Safe')
+        .toList();
+    final unknownDrugs = scanReport.drugReports
+        .where((r) => r.riskAssessment.riskLabel == 'Unknown' ||
+                      r.riskAssessment.severity == 'unknown')
+        .toList();
+
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.cardBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppTheme.infoBlueBg,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.medication_outlined,
+                    color: AppTheme.infoBlue, size: 22),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Drug Safety Overview',
+                      style: GoogleFonts.inter(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    Text(
+                      'CPIC gene-drug interaction analysis (${scanReport.drugReports.length} drugs)',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: AppTheme.safeGreen.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Text(
+                  'Analyzed',
+                  style: TextStyle(
+                    color: AppTheme.safeGreen,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 11,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const Divider(height: 24),
+
+          // Summary chips
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _RiskSummaryChip(
+                label: 'Actionable finding',
+                count: actionableDrugs.length,
+                color: AppTheme.dangerRed,
+                onTap: () => _showDrugCategoryDialog(
+                    context, 'Actionable findings', actionableDrugs),
+              ),
+              _RiskSummaryChip(
+                label: '🟠 Caution',
+                count: cautionDrugs.length,
+                color: AppTheme.warningAmber,
+                onTap: () => _showDrugCategoryDialog(
+                    context, 'Caution (Adjust Dosage)', cautionDrugs),
+              ),
+              _RiskSummaryChip(
+                label: 'No actionable finding',
+                count: noActionableFindingDrugs.length,
+                color: AppTheme.safeGreen,
+                onTap: () => _showDrugCategoryDialog(
+                    context, 'No supported actionable finding', noActionableFindingDrugs),
+              ),
+              _RiskSummaryChip(
+                label: '⚪ Unknown',
+                count: unknownDrugs.length,
+                color: AppTheme.unknownSlate,
+                onTap: () => _showDrugCategoryDialog(
+                    context, 'No PGx Data', unknownDrugs),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // Quick view: Top risky drugs
+          if (actionableDrugs.isNotEmpty) ...[
+            Text(
+              'Immediate Attention Required',
+              style: GoogleFonts.inter(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: AppTheme.dangerRed,
+              ),
+            ),
+            const SizedBox(height: 8),
+            ...actionableDrugs.take(3).map((report) =>
+                _DrugRiskTile(report: report, compact: true)),
+            if (actionableDrugs.length > 3)
+              TextButton(
+                onPressed: () => _showDrugCategoryDialog(
+                    context, 'Actionable findings', actionableDrugs),
+                child: Text('View all ${actionableDrugs.length} actionable findings'),
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  void _showDrugCategoryDialog(
+      BuildContext context, String title, List<PgxReport> reports) {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text(title),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView.separated(
+            shrinkWrap: true,
+            itemCount: reports.length,
+            separatorBuilder: (_, _) => const Divider(),
+            itemBuilder: (_, index) {
+              final report = reports[index];
+              return ListTile(
+                dense: true,
+                leading: Icon(
+                  report.riskAssessment.severity == 'critical' ||
+                          report.riskAssessment.severity == 'high'
+                      ? Icons.cancel
+                      : Icons.warning_amber_rounded,
+                  color: report.riskAssessment.severity == 'critical' ||
+                          report.riskAssessment.severity == 'high'
+                      ? AppTheme.dangerRed
+                      : AppTheme.warningAmber,
+                ),
+                title: Text(report.drug,
+                    style: const TextStyle(fontWeight: FontWeight.w700)),
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                        '${report.pharmacogenomicProfile.primaryGene}: ${report.pharmacogenomicProfile.phenotype}'),
+                    Text('Risk: ${report.riskAssessment.riskLabel}'),
+                    if (report.clinicalRecommendation.alternativeDrugs.isNotEmpty)
+                      Text(
+                        'Alternatives: ${report.clinicalRecommendation.alternativeDrugs.join(", ")}',
+                        style: const TextStyle(
+                            fontSize: 11, color: AppTheme.primaryEmerald),
+                      ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Close')),
+        ],
+      ),
+    );
+  }
+}
+
+class _RiskSummaryChip extends StatelessWidget {
+  const _RiskSummaryChip({
+    required this.label,
+    required this.count,
+    required this.color,
+    required this.onTap,
+  });
+
+  final String label;
+  final int count;
+  final Color color;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: color.withValues(alpha: 0.3)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                color: color,
+                fontWeight: FontWeight.w700,
+                fontSize: 12,
+              ),
+            ),
+            const SizedBox(width: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: color,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                '$count',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DrugRiskTile extends StatelessWidget {
+  const _DrugRiskTile({
+    required this.report,
+    this.compact = false,
+  });
+
+  final PgxReport report;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final risk = report.riskAssessment;
+    final pgx = report.pharmacogenomicProfile;
+    final cpic = report.clinicalRecommendation;
+
+    Color riskColor = AppTheme.safeGreen;
+    if (risk.severity == 'critical' || risk.severity == 'high') {
+      riskColor = AppTheme.dangerRed;
+    } else if (risk.severity == 'moderate') {
+      riskColor = AppTheme.warningAmber;
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: riskColor.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: riskColor.withValues(alpha: 0.2)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: riskColor.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(
+              risk.severity == 'critical' || risk.severity == 'high'
+                  ? Icons.cancel_rounded
+                  : Icons.warning_amber_rounded,
+              color: riskColor,
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  report.drug,
+                  style: GoogleFonts.inter(
+                    fontWeight: FontWeight.w700,
+                    fontSize: compact ? 13 : 14,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '${pgx.primaryGene}: ${pgx.phenotype} · ${risk.riskLabel}',
+                  style: TextStyle(
+                    fontSize: compact ? 11 : 12,
+                    color: riskColor,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                if (!compact && cpic.alternativeDrugs.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    'Safer alternatives: ${cpic.alternativeDrugs.join(", ")}',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: AppTheme.primaryEmerald,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          if (!compact)
+            TextButton(
+              onPressed: () {
+                showDialog(
+                  context: context,
+                  builder: (_) => AlertDialog(
+                    title: Text(report.drug),
+                    content: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Gene: ${pgx.primaryGene}'),
+                        Text('Diplotype: ${pgx.diplotype}'),
+                        Text('Phenotype: ${pgx.phenotype}'),
+                        Text('Risk: ${risk.riskLabel} (${risk.severity})'),
+                        const SizedBox(height: 8),
+                        Text('Recommendation: ${cpic.dosingRecommendation}'),
+                        if (cpic.alternativeDrugs.isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            'Alternatives: ${cpic.alternativeDrugs.join(", ")}',
+                            style: const TextStyle(
+                              color: AppTheme.primaryEmerald,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('Close'),
+                      ),
+                    ],
+                  ),
+                );
+              },
+              child: const Text('Details'),
+            ),
+        ],
       ),
     );
   }

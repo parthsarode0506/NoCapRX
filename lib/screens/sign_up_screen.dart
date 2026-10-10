@@ -358,10 +358,10 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
                     () => shareDerivedProfile = value ?? false,
                   ),
                   title: const Text(
-                    'I agree to share derived profile data with this organization.',
+                    'I agree to share derived PGx findings with this organization.',
                   ),
                   subtitle: const Text(
-                    'Raw VCF files stay on your device. No profile data is synced by this link today.',
+                    'Only gene, diplotype, and phenotype fields may be shared. Raw VCF files stay on your device; shared findings are not a validated clinical report.',
                   ),
                 ),
               ],

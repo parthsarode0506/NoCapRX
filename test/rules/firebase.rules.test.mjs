@@ -549,3 +549,91 @@ test('a verified organization claim without active membership grants no patient 
   }).firestore();
   await assertFails(getDoc(doc(organizationDb, 'patients/patient-no-membership')));
 });
+
+test('shared derived findings and prescriptions require current patient consent', async () => {
+  await testEnvironment.withSecurityRulesDisabled(async (context) => {
+    const adminDb = context.firestore();
+    await setDoc(doc(adminDb, 'patients/patient-shared'), {
+      ownerUid: 'patient-owner',
+      name: 'Synthetic Patient',
+    });
+    await setDoc(doc(adminDb, 'patients/patient-shared/consents/org-shared'), {
+      grantee: 'org-shared',
+      scope: ['read_profile', 'read_genomic_profiles', 'manage_prescriptions'],
+      active: true,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    await setDoc(doc(adminDb, 'organizations/org-shared/members/doctor-shared'), {
+      role: 'doctor',
+      status: 'active',
+    });
+    await setDoc(
+      doc(adminDb, 'patients/patient-shared/genomicProfiles/profile-1'),
+      { profiles: [{ gene: 'CYP2C19' }], clinicalStatus: 'not_clinically_validated' },
+    );
+    await setDoc(
+      doc(adminDb, 'patients/patient-shared/prescriptions/rx-1'),
+      { organizationId: 'org-shared', status: 'issued' },
+    );
+    await setDoc(
+      doc(adminDb, 'patients/patient-shared/prescriptionDrafts/draft-1'),
+      { organizationId: 'org-shared', status: 'draft' },
+    );
+    await setDoc(doc(adminDb, 'prescriptions/legacy-rx'), {
+      patientId: 'patient-shared',
+      status: 'issued',
+    });
+  });
+
+  const organizationDb = testEnvironment.authenticatedContext('doctor-shared', {
+    role: 'doctor',
+    verified: true,
+    orgId: 'org-shared',
+  }).firestore();
+  await assertSucceeds(getDoc(doc(
+    organizationDb,
+    'patients/patient-shared/genomicProfiles/profile-1',
+  )));
+  await assertSucceeds(getDoc(doc(
+    organizationDb,
+    'patients/patient-shared/prescriptions/rx-1',
+  )));
+  await assertSucceeds(getDoc(doc(
+    organizationDb,
+    'patients/patient-shared/prescriptionDrafts/draft-1',
+  )));
+  await assertFails(setDoc(
+    doc(organizationDb, 'patients/patient-shared/prescriptions/forged'),
+    { organizationId: 'org-shared', status: 'issued' },
+  ));
+  await assertFails(getDoc(doc(organizationDb, 'prescriptions/legacy-rx')));
+
+  const patientDb = testEnvironment.authenticatedContext('patient-owner').firestore();
+  await assertSucceeds(getDoc(doc(
+    patientDb,
+    'patients/patient-shared/genomicProfiles/profile-1',
+  )));
+  await assertSucceeds(getDoc(doc(
+    patientDb,
+    'patients/patient-shared/prescriptions/rx-1',
+  )));
+  await assertFails(getDoc(doc(
+    patientDb,
+    'patients/patient-shared/prescriptionDrafts/draft-1',
+  )));
+
+  await testEnvironment.withSecurityRulesDisabled(async (context) => {
+    await updateDoc(
+      doc(context.firestore(), 'patients/patient-shared/consents/org-shared'),
+      { active: false },
+    );
+  });
+  await assertFails(getDoc(doc(
+    organizationDb,
+    'patients/patient-shared/genomicProfiles/profile-1',
+  )));
+  await assertFails(getDoc(doc(
+    organizationDb,
+    'patients/patient-shared/prescriptions/rx-1',
+  )));
+});

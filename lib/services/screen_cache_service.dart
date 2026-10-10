@@ -114,7 +114,7 @@ class ScreenCacheService {
       map[entry.organizationId] = entry;
       final raw = jsonEncode(map.values.map((e) => e.toJson()).toList());
       await prefs.setString(_keyCachedOrganizations, raw);
-      debugPrint('ScreenCacheService: cached organization ${entry.name} · ${entry.city}');
+      debugPrint('ScreenCacheService: cached organization ${entry.name} | ${entry.city}');
     } catch (e) {
       debugPrint('ScreenCacheService error caching organization: $e');
     }
@@ -234,4 +234,5 @@ class ScreenCacheService {
     return [];
   }
 }
+
 

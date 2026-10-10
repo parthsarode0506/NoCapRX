@@ -11,6 +11,7 @@ import '../theme/app_theme.dart';
 import '../widgets/ui_kit.dart';
 import 'new_patient_screen.dart';
 import 'organization_access_requests_screen.dart';
+import 'organization_accepted_patients_screen.dart';
 import 'organization_audit_screen.dart';
 import 'organization_invitations_screen.dart';
 import 'organization_patient_screen.dart';
@@ -197,6 +198,18 @@ class _OrganizationDashboardScreenState
                 icon: const Icon(Icons.inbox_outlined),
                 label: const Text('Review patient requests'),
               ),
+              const SizedBox(height: 10),
+              FilledButton.tonalIcon(
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const OrganizationAcceptedPatientsScreen(),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.people_alt_outlined),
+                label: const Text('Accepted patients & VCF records'),
+              ),
             ],
           ),
         ),
@@ -204,7 +217,7 @@ class _OrganizationDashboardScreenState
         const SectionHeader(
           title: 'Clinical workflows',
           subtitle:
-              'These actions are shown for clarity, but are not enabled yet.',
+              'Review authorized patient genomic cards and create prescriptions.',
         ),
         const _UnavailableWorkflowCard(
           icon: Icons.analytics_outlined,
@@ -246,6 +259,21 @@ class _OrganizationDashboardScreenState
         ),
         const SizedBox(height: 12),
         _buildActionButtonsRow(context),
+        const SizedBox(height: 10),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const OrganizationAcceptedPatientsScreen(),
+                ),
+              );
+            },
+            icon: const Icon(Icons.people_alt_outlined),
+            label: const Text('View all accepted patients'),
+          ),
+        ),
         const SizedBox(height: 24),
 
         // Search Existing Patients (Feature 2)
@@ -509,8 +537,7 @@ class _OrganizationDashboardScreenState
       children: [
         const SectionHeader(
           title: 'Prescription Activity',
-          subtitle:
-              'Recent doctor-issued prescriptions for authorized patients.',
+          subtitle: 'Prescription details stay within each patient workspace.',
         ),
         const SizedBox(height: 10),
         StreamBuilder<List<Prescription>>(
@@ -528,7 +555,9 @@ class _OrganizationDashboardScreenState
                   border: Border.all(color: AppTheme.cardBorder),
                 ),
                 child: const Center(
-                  child: Text('No prescriptions recorded yet.'),
+                  child: Text(
+                    'Open an accepted patient workspace to view authorized prescription records.',
+                  ),
                 ),
               );
             }

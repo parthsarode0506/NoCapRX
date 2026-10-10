@@ -154,6 +154,16 @@ class _NewPatientScreenState extends ConsumerState<NewPatientScreen> {
         analysisStatus: 'complete',
         reportCount: 1,
         prescriptionCount: 0,
+        vcfFileName: _selectedSampleVcf,
+        sharedGenomicProfiles: parseResult?.geneProfiles.entries
+                .map((e) => SharedGenomicProfile(
+                      gene: e.key,
+                      diplotype: e.value.diplotype,
+                      phenotype: e.value.phenotype,
+                      isInferred: false,
+                    ))
+                .toList() ??
+            const [],
       );
 
       // Log to Audit Log
@@ -183,7 +193,6 @@ class _NewPatientScreenState extends ConsumerState<NewPatientScreen> {
           builder: (_) => OrganizationPatientScreen(
             patientId: newId,
             initialPatient: newPatient,
-            initialParseResult: parseResult,
           ),
         ),
       );

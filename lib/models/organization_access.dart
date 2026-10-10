@@ -41,6 +41,8 @@ class OrganizationAccessRequest {
     required this.status,
     this.requestedAt,
     this.isDirectoryContactRequest = false,
+    this.shareGenomicProfile = false,
+    this.allowPrescriptions = false,
   });
 
   final String organizationId;
@@ -51,6 +53,8 @@ class OrganizationAccessRequest {
   final String status;
   final DateTime? requestedAt;
   final bool isDirectoryContactRequest;
+  final bool shareGenomicProfile;
+  final bool allowPrescriptions;
 
   Map<String, dynamic> toJson() => {
         'organizationId': organizationId,
@@ -61,6 +65,8 @@ class OrganizationAccessRequest {
         'status': status,
         'requestedAt': requestedAt?.toIso8601String(),
         'isDirectoryContactRequest': isDirectoryContactRequest,
+        'shareGenomicProfile': shareGenomicProfile,
+        'allowPrescriptions': allowPrescriptions,
       };
 
   factory OrganizationAccessRequest.fromJson(Map<String, dynamic> json) {
@@ -79,7 +85,8 @@ class OrganizationAccessRequest {
           : null,
       isDirectoryContactRequest:
           json['isDirectoryContactRequest'] as bool? ?? false,
+      shareGenomicProfile: json['shareGenomicProfile'] as bool? ?? false,
+      allowPrescriptions: json['allowPrescriptions'] as bool? ?? false,
     );
   }
 }
-

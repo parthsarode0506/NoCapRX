@@ -7,6 +7,20 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('Pharmacogenomics Prescription Engine & Lifecycle', () {
+    test('new prescription items default to an honest indeterminate status', () {
+      const item = PrescriptionItem(
+        medicineName: 'Synthetic medicine',
+        dosage: 'clinician-entered',
+        frequency: 'clinician-entered',
+        duration: 'clinician-entered',
+      );
+
+      expect(item.pgxRiskLabel, 'Indeterminate');
+      expect(item.isActionableRisk, isFalse);
+      expect(item.isCaution, isFalse);
+      expect(item.alternativeDrugs, isEmpty);
+    });
+
     test('PrescriptionItem correctly classifies high-risk and caution drugs', () {
       const toxicItem = PrescriptionItem(
         medicineName: 'Clopidogrel',

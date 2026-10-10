@@ -77,7 +77,9 @@ class _OrganizationAuditScreenState extends State<OrganizationAuditScreen>
                 Icon(Icons.medication_outlined,
                     size: 48, color: Colors.grey.shade400),
                 const SizedBox(height: 12),
-                const Text('No prescriptions created yet by your clinic.'),
+                const Text(
+                  'Prescription records are available in each consent-authorized patient workspace.',
+                ),
               ],
             ),
           );

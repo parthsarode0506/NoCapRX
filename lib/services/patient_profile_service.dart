@@ -4,7 +4,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/patient_profile.dart';
-import 'firebase_service.dart';
 
 class PatientProfileService {
   static const _keyPrefix = 'patient_profile';

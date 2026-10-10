@@ -1,18 +1,20 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/organization_access.dart';
+import '../providers/app_providers.dart';
 import '../services/firebase_service.dart';
 
-class PatientOrganizationAccessScreen extends StatefulWidget {
+class PatientOrganizationAccessScreen extends ConsumerStatefulWidget {
   const PatientOrganizationAccessScreen({super.key});
 
   @override
-  State<PatientOrganizationAccessScreen> createState() =>
+  ConsumerState<PatientOrganizationAccessScreen> createState() =>
       _PatientOrganizationAccessScreenState();
 }
 
 class _PatientOrganizationAccessScreenState
-    extends State<PatientOrganizationAccessScreen> {
+    extends ConsumerState<PatientOrganizationAccessScreen> {
   final _searchController = TextEditingController();
   List<OrganizationDirectoryEntry> _organizations = const [];
   List<OrganizationAccessRequest> _requests = const [];
@@ -118,13 +120,159 @@ class _PatientOrganizationAccessScreenState
     OrganizationAccessRequest request, {
     required bool accepted,
   }) async {
+    final sharing = accepted ? await _chooseSharingSettings() : null;
+    if (accepted && sharing == null) return;
     setState(() => _busyOrganizationId = request.organizationId);
     try {
       await FirebaseService.respondToPatientOrganizationRequest(
         invitation: request,
         accepted: accepted,
+        shareGenomicProfile: sharing?.shareGenomicProfile ?? false,
+        allowPrescriptions: sharing?.allowPrescriptions ?? false,
       );
       await _loadRequests();
+    } catch (error) {
+      if (mounted) {
+        setState(() => _requestError = FirebaseService.mapAuthError(error));
+      }
+    } finally {
+      if (mounted) setState(() => _busyOrganizationId = null);
+    }
+  }
+
+  Future<void> _updateSharing(OrganizationAccessRequest request) async {
+    final sharing = await _chooseSharingSettings(
+      initialShareGenomicProfile: request.shareGenomicProfile,
+      initialAllowPrescriptions: request.allowPrescriptions,
+    );
+    if (sharing == null) return;
+    setState(() => _busyOrganizationId = request.organizationId);
+    try {
+      await FirebaseService.updatePatientOrganizationSharing(
+        organizationId: request.organizationId,
+        shareGenomicProfile: sharing.shareGenomicProfile,
+        allowPrescriptions: sharing.allowPrescriptions,
+      );
+      await _loadRequests();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Sharing preferences updated.')),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() => _requestError = FirebaseService.mapAuthError(error));
+      }
+    } finally {
+      if (mounted) setState(() => _busyOrganizationId = null);
+    }
+  }
+
+  Future<({bool shareGenomicProfile, bool allowPrescriptions})?>
+      _chooseSharingSettings({
+    bool initialShareGenomicProfile = false,
+    bool initialAllowPrescriptions = false,
+  }) async {
+    var shareGenomicProfile = initialShareGenomicProfile;
+    var allowPrescriptions = initialAllowPrescriptions;
+    return showDialog<({bool shareGenomicProfile, bool allowPrescriptions})>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Choose what to share'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Basic profile sharing is required for this organization link. Saving replaces your optional sharing choices. Raw VCF files stay on your device.',
+              ),
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                value: shareGenomicProfile,
+                onChanged: (value) => setDialogState(
+                  () => shareGenomicProfile = value ?? false,
+                ),
+                title: const Text('Share derived PGx findings'),
+                subtitle: const Text(
+                  'Shares gene, diplotype and phenotype only. These findings are not a validated clinical report.',
+                ),
+              ),
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                value: allowPrescriptions,
+                onChanged: (value) => setDialogState(
+                  () => allowPrescriptions = value ?? false,
+                ),
+                title: const Text('Allow prescription drafts and publication'),
+                subtitle: const Text(
+                  'The organization can save drafts and publish clinician-authored prescriptions to your dashboard.',
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(
+                dialogContext,
+                (
+                  shareGenomicProfile: shareGenomicProfile,
+                  allowPrescriptions: allowPrescriptions,
+                ),
+              ),
+              child: const Text('Save choices'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _shareDerivedProfile(OrganizationAccessRequest request) async {
+    final profile = ref.read(vcfParseResultProvider);
+    final patientId = ref.read(patientProfileProvider).patientId.trim();
+    if (profile == null || patientId.isEmpty) {
+      setState(() {
+        _requestError =
+            'Load a VCF and complete patient account linking before sharing derived findings.';
+      });
+      return;
+    }
+    setState(() {
+      _busyOrganizationId = request.organizationId;
+      _requestError = null;
+    });
+    try {
+      final profiles = profile.geneProfiles.values
+          .map(
+            (gene) => <String, Object?>{
+              'gene': gene.gene,
+              'diplotype': gene.diplotype,
+              'phenotype': gene.phenotype,
+              'isInferred': gene.isInferred,
+            },
+          )
+          .toList(growable: false);
+      if (profiles.isEmpty) {
+        throw StateError('The loaded VCF has no derived gene profiles to share.');
+      }
+      await FirebaseService.publishDerivedGenomicProfile(
+        patientId: patientId,
+        organizationId: request.organizationId,
+        profiles: profiles,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Derived findings shared. The raw VCF remains on this device.',
+            ),
+          ),
+        );
+      }
     } catch (error) {
       if (mounted) {
         setState(() => _requestError = FirebaseService.mapAuthError(error));
@@ -251,7 +399,7 @@ class _PatientOrganizationAccessScreenState
           child: Padding(
             padding: EdgeInsets.all(16),
             child: Text(
-              'Sharing is optional. If you approve a request, only your basic patient profile is shared for up to one year. Genetic files stay on your device. You can revoke access here at any time.',
+              'Sharing is optional and can be changed at any time. Raw VCF files always stay on your device. You may separately choose to share derived PGx findings and allow prescriptions.',
             ),
           ),
         ),
@@ -307,7 +455,7 @@ class _PatientOrganizationAccessScreenState
             if (request.status == 'awaiting_patient_confirmation') ...[
               const SizedBox(height: 8),
               const Text(
-                'The organization reviewed your request. Approving shares your basic patient profile only.',
+                'The organization reviewed your request. You choose whether to share derived PGx findings or allow prescriptions.',
               ),
               Wrap(
                 spacing: 8,
@@ -327,11 +475,26 @@ class _PatientOrganizationAccessScreenState
                 ],
               ),
             ],
-            if (request.status == 'accepted')
-              TextButton(
-                onPressed: busy ? null : () => _revoke(request),
-                child: const Text('Revoke access'),
+            if (request.status == 'accepted') ...[
+              Wrap(
+                spacing: 8,
+                children: [
+                  TextButton(
+                    onPressed: busy ? null : () => _updateSharing(request),
+                    child: const Text('Sharing settings'),
+                  ),
+                  if (ref.watch(vcfParseResultProvider) != null)
+                    TextButton(
+                      onPressed: busy ? null : () => _shareDerivedProfile(request),
+                      child: const Text('Share derived PGx findings'),
+                    ),
+                  TextButton(
+                    onPressed: busy ? null : () => _revoke(request),
+                    child: const Text('Revoke access'),
+                  ),
+                ],
               ),
+            ],
           ],
         ),
       ),
