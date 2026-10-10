@@ -1,143 +1,300 @@
-# PharmaGuard (NoCapRX) — App Concept
+# OnDeviceRx — Concept, workflows, and implementation status
 
-## 1. Problem
-Different people respond differently to the same medicine, often due to genetic variation that affects metabolism, activation, exposure, adverse-event risk, or required dose. Traditional prescribing rarely incorporates this automatically. PharmaGuard makes pharmacogenomic (PGx) decision support accessible and understandable.
+## Product summary
 
-## 2. What the user does
-1. Create an account.
-2. Upload a genetic VCF file.
-3. Enter a medicine name (e.g. *Clopidogrel*).
-4. The app identifies the relevant gene(s) (e.g. *CYP2C19*).
-5. The app extracts the relevant genetic information from the VCF **on the phone**.
-6. If the clinical rule requires extra information (age, weight, etc.), the app asks only for that.
-7. The deterministic PGx engine evaluates the information.
-8. The user receives one of: 🟢 Safe, 🟡 Adjust Dosage, 🔴 Toxic, 🟠 Ineffective, ⚪ Unknown.
-9. The user can tap **"Why?"** to understand the result.
+OnDeviceRx is an offline-first pharmacogenomics (PGx) decision-support
+application. It uses a patient's locally imported genetic variant data and a
+versioned deterministic rules engine to identify supported gene–medicine
+findings. Patients can review their own locally available results and any
+information explicitly shared with their account. Authorized healthcare
+organization users can search and manage records linked to their organization.
 
-## 3. "Any medicine" support
-- **Case A — Known medicine**: local database → validated evidence → analyze.
-- **Case B — Not local, but validated online evidence exists**: online search → validated evidence → analyze.
-- **Case C — No sufficient evidence**: → **UNKNOWN — insufficient validated pharmacogenomic evidence**.
+The rules engine, not an AI model, determines the structured result. Any
+explanation layer may restate an existing result, but cannot create or change
+clinical findings. The application supports review by a qualified clinician;
+it does not make treatment decisions.
 
-The system must never ask an AI model to *guess* safety.
+This file describes both the intended product and the implementation boundary
+that exists in this repository. A listed or planned feature is not evidence
+that it is implemented or clinically validated.
 
-## 4. Role of AI
-- **AI does**: explain the result, explain the genetic mechanism, translate to plain language, answer questions about the generated report.
-- **AI does NOT**: decide risk, change risk, invent variants/phenotypes/CPIC recommendations, prescribe, override the deterministic engine.
+## The problem and intended use
 
-## 5. Evidence Chain
-For every result: `Detected Variant → Gene → Star Allele → Diplotype → Phenotype → Medicine → Clinical Evidence → Risk Classification`.
+Medicine response can vary between people, and genetic variation is one factor
+that may affect metabolism or response. PGx results can be difficult to
+interpret and may not be available in a useful form during a medication
+review.
 
-## 6. What is a VCF?
-Variant Call Format — a standard representation of genetic variants (chromosome, position, ref/alt allele, rsID, genotype). Parsed **locally**.
+OnDeviceRx aims to make supported PGx information easier to review by
+connecting on-device genetic analysis, explainable rule results, and
+authorization-controlled patient and organization experiences. Genetics is
+only one part of medication safety. The result must be considered alongside
+the patient's current clinical context and trusted evidence.
 
-## 7. Initial pharmacogenomic coverage
-| Gene     | Medicine      |
-|----------|---------------|
-| CYP2D6   | Codeine       |
-| CYP2C19  | Clopidogrel   |
-| CYP2C9   | Warfarin      |
-| SLCO1B1  | Simvastatin   |
-| TPMT     | Azathioprine  |
-| DPYD     | Fluorouracil  |
+OnDeviceRx is advisory decision support, not a replacement for clinical
+judgment. It does not autonomously prescribe, finalize a prescription, change
+a dose, or select a substitute.
 
-Architecture must be expandable for additional gene–drug pairs.
+## User types and access model
 
-## 8. Three cases for any medicine
-See section 3. Never fabricate a Safe/Harmful result.
+### Patient
 
-## 9. Privacy — core principle
-**Raw genetic data never leaves the device.**
+The patient experience is intended to provide access to:
 
-Architecture:
+- Their own profile and relevant account details.
+- On-device VCF import and analysis status.
+- Available local PGx findings and medication checks.
+- Their report history and PDF export where implemented.
+- AI-assisted explanation or chat features where enabled.
+- Organization-linked patient-record status and privacy controls.
+- Approved reports or prescriptions only when a future authorized sharing
+  workflow makes them available.
 
-```
-PHONE
- ├── VCF
- ├── Local VCF Parser
- ├── Local PGx Engine
- ├── Derived Report
- │     ├──► Firebase
- │     └──► AI explanation
-Raw VCF ──X──► Cloud
-Raw VCF ──X──► AI
-```
+Authentication identifies the account; it does not authorize access to every
+record. Patient data must remain scoped to the signed-in patient and applicable
+grants or consents.
 
-UI badge: 🔒 Genomic Privacy — VCF processing ✓ On Device, Raw VCF uploaded 0 KB, Raw genetic data Never uploaded.
+### Organization / healthcare team
 
-## 10. Phone-first (iQOO hackathon fit)
-The phone performs the important work:
-- VCF parsing
-- Variant analysis
-- PGx rule evaluation
-- Risk calculation
+The organization workspace is intended for authorized healthcare teams. The
+current organization dashboard supports:
 
-A local/open-source model can power the explanation layer; Snapdragon NPU acceleration may be investigated — **do not claim NPU usage unless implemented and measured.**
+- Searching patients linked to the authenticated user's active organization.
+- Opening the matching organization patient workspace.
+- Registering a patient when no accessible match is found.
+- Creating a one-time, email-bound account invitation for a registered
+  patient.
+- Reviewing the record's stored workflow status and available counts.
 
-## 11. Offline-first
-Without internet the app still performs:
-- VCF parsing, variant matching, diplotype inference, phenotype mapping, local PGx rules, risk calculation, cached explanations.
+The current workspace does **not** upload or retrieve VCF data, perform cloud
+analysis, publish reports, or finalize prescriptions. Those functions must not
+be represented as available until a privacy-approved, clinically validated
+data flow is implemented.
 
-Internet is only needed for: online medicine discovery, live evidence retrieval, Gemini/live AI, Firebase sync, auth.
+The app does not ask users to choose a suggested professional role. Selecting
+an Organization workspace or entering an organization name does not grant
+organization access. Callable operations require trusted server-provisioned
+claims and active membership.
 
-Demo: turn off internet → upload VCF → analyze a locally supported drug → result still works.
+## End-to-end user journeys
 
-## 12. Chatbot — "Ask About This Result"
-Scoped to the current report only. Refuses general medical questions with: *"I can only answer questions about your current PharmaGuard report."*
+### Sign up and sign in
 
-## 13. Result screen
-Risk badge, confidence bar, gene, diplotype, phenotype, evidence checklist, and `WHY?` / `VIEW EVIDENCE` / `ASK ABOUT RESULT` actions.
+1. A person signs up or signs in through Firebase Authentication.
+2. Signup collects the minimum account details and a privacy-notice
+   acknowledgment. Organization signup may save the user's organization name
+   and city as self-entered display information.
+3. The app loads the user's profile and workspace preference.
+4. Patient and Organization choices control navigation only. Protected
+   organization data operations are authorized by server-managed claims and
+   active organization membership.
+5. The app loads only data permitted to that authenticated account.
 
-## 14. Report (JSON)
-Contains: patient, patient ID, medicine, timestamp, risk (label, confidence, severity), pharmacogenomic profile (gene, diplotype, phenotype, detected variants), clinical recommendation (guideline citation, dosing, alternatives, monitoring), AI explanation (summary, mechanism, patient-friendly text, clinician note), and quality metrics.
+### Patient's own PGx workflow
 
-## 15. Evidence and sources
-Prioritize: CPIC, PharmGKB, FDA pharmacogenomic information, recognized clinical PGx guidelines.
-For online-discovered medicines, track: medicine, gene, variant, evidence source, guideline, evidence strength, retrieval time → auditable trail.
+1. The patient imports a VCF file from local device storage.
+2. VCF parsing and supported variant extraction happen on the device.
+3. The deterministic rule engine evaluates only supported, locally available
+   rules and returns an explicit indeterminate or unsupported outcome when
+   inputs or evidence are insufficient.
+4. The app presents the result with provenance and its decision-support
+   limitations.
+5. An explanation component may simplify the already-decided structured result
+   and falls back to a deterministic template when an explanation is
+   unavailable or invalid.
 
-## 16. Synthetic demo patients
-- **001** — Normal/reference profile (Safe pathway)
-- **002** — Reduced-function profile (Adjusted-response pathway)
-- **003** — Toxicity-relevant profile (High-risk pathway)
-- **004** — Incomplete genetic information (Unknown pathway)
+Raw VCF files are not uploaded to Firebase Storage, Firestore, Cloud
+Functions, or an AI provider. Derived-result synchronization is not a general
+sharing pipeline and must not be assumed to exist merely because account or
+report metadata is stored remotely.
 
-## 17. Technical architecture
-```
-Flutter
-├── Authentication
-├── Home
-├── VCF Module (local parser)
-├── Medicine Module (local DB + online discovery)
-├── Pharmacogenomics Engine
-│   ├── Variant matcher
-│   ├── Star allele mapper
-│   ├── Diplotype engine
-│   ├── Phenotype engine
-│   └── Deterministic rules
-├── Evidence Engine (source validation + provenance)
-├── AI Explanation (local model + Gemini fallback)
-├── Report (JSON + PDF)
-├── Chatbot
-├── History
-└── Privacy / Security
-```
+### Organization patient search and registration
 
-## 18. USP
-> "PharmaGuard is an on-device pharmacogenomic decision-support system that lets a user enter a medicine, discovers the relevant pharmacogenomic evidence, analyzes the patient's genetic data locally, applies deterministic clinical rules, and uses AI to explain the result."
+1. An authorized organization user searches by patient name or patient ID.
+2. Search results are limited to the organization's server-maintained patient
+   links. A name match alone is not enough to authorize access to an unrelated
+   record.
+3. The user selects the intended accessible record, or registers a new one if
+   no accessible match exists.
+4. Registration is callable-only, membership-checked, idempotent, and audited.
+   Duplicate normalized name and birth-year matches are rejected so the user
+   can search for an existing record.
+5. The organization workspace displays only the status and summary fields
+   currently returned by the backend. A VCF reference, analysis, report, or
+   prescription must not be shown as available when it has not been
+   implemented.
 
-Strongest statement: **"AI doesn't make the decision. The pharmacogenomic rule engine makes the decision; AI explains it."**
+### Patient account invitation and record link
 
-## 19. iQOO hackathon alignment
-| Judging area | PharmaGuard feature |
-|--------------|---------------------|
-| End Product — 30% | Complete phone-first drug-safety workflow |
-| Novelty — 20% | On-device PGx analysis + online medicine discovery |
-| Creative Phone Use — 15% | VCF processing and risk engine on the iQOO device |
-| Technical Depth — 15% | VCF parsing + variant/diplotype/phenotype + deterministic rules |
-| Office Kit — 10% | Phone-first development/demo workflow |
-| Demo — 10% | Enter medicine → analyze → evidence chain → AI explanation |
+1. During patient registration, the organization enters the patient's email.
+2. The backend creates a random one-time code, stores only its hash, binds it
+   to the invited email, and sets a seven-day expiry.
+3. The organization shares the code with the patient manually. No invitation
+   email delivery provider is configured.
+4. The patient creates or signs into their own account, verifies the email,
+   and enters the code. Existing accounts can use the patient dashboard's
+   **Link hospital record** action.
+5. The patient reviews the organization and patient record, then accepts or
+   declines the link.
+6. Accepting the record link and consenting to derived-profile sharing are
+   separate actions. Consent can be withdrawn from the patient dashboard.
+7. The present opt-in records a consent state; it does not activate a general
+   derived-profile or report synchronization pipeline. Raw VCF files remain
+   on the patient's device.
 
-## 30-second pitch
-"PharmaGuard is a phone-first pharmacogenomic safety assistant. A user uploads their genetic VCF and enters the medicine they want to check. The app identifies the relevant pharmacogenomic evidence, extracts the required genetic information directly on the phone, and applies deterministic clinical rules to assess the patient's predicted drug response. If a medicine isn't in our local database, we search validated online pharmacogenomic sources. AI doesn't decide the medical result — it explains the result and its evidence in simple language. Most importantly, the raw genetic file never leaves the device."
+Declining the invitation does not associate that patient account with the
+organization-created record.
 
-**One sentence**: 🧬 Upload your genetics → 💊 enter a medicine → 📋 receive a transparent, evidence-backed risk assessment with an AI explanation you can trust.
+## Feature catalogue and current status
+
+| Area | Current implementation boundary |
+|---|---|
+| Firebase Authentication | Email/password sign-in and signup; Google sign-in is limited to supported Web configuration. |
+| Workspace routing | Patient/Organization preference controls the initial dashboard route, not permissions. |
+| Organization authorization | Cloud Functions verify trusted role/org claims and active membership. No in-app professional verification or role assignment. |
+| Patient profile | Account profile and local patient profile; local profile storage is namespaced by Firebase UID. |
+| VCF | Local import and on-device parsing. No Firebase VCF upload, cloud VCF retrieval, or server-side analysis. |
+| PGx decisions | Deterministic local rule logic is the decision source. Rule coverage and evidence must be verified against the versioned data. |
+| Organization patient search | Callable-only, scoped to organization patient links, capped, and audited. |
+| Patient registration | Callable-only, retry-safe, with duplicate checks and audit events. |
+| Patient account linking | One-time, seven-day email-bound invitation; patient email verification; explicit accept/decline; separate sharing-consent choice. |
+| Consent withdrawal | Patient-facing callable revokes the stored organization consent; Firestore access checks reject inactive or expired consent. |
+| Report and prescription sync | No complete organization-to-patient publication/approval workflow is implemented. |
+| Prescription creation and approval | Not implemented as an organization workflow. |
+| Clinical interactions, allergy checks, and contraindication checks | Not represented as available unless a validated configured engine and its data source are connected. |
+| AI explanations | Explanation-only by design; actual provider availability and grounding depend on the configured implementation. |
+| PDF export, chat history, and reminders | Available only to the extent implemented in the corresponding app screens/services; verify before making deployment claims. |
+| Firebase Rules | Firestore and Storage rules are separate. They must be published to the correct Firebase project and emulator-tested. |
+
+## Data flow and responsibilities
+
+### Flutter client
+
+- Presents patient and organization screens, signup, account-link review, and
+  on-device analysis.
+- Imports and parses VCF files locally.
+- Calls Firebase Authentication and narrowly scoped callable operations.
+- Clears transient patient-analysis state when changing accounts.
+- Must not contain Firebase Admin credentials, backend secrets, or authority
+  to assign privileged roles.
+
+### Firebase Authentication
+
+- Authenticates the account and supplies its UID.
+- Email verification is required before invitation preview or response.
+- Authentication alone does not authorize organization patient access.
+
+### Cloud Firestore
+
+Current data paths include:
+
+- `users/{uid}` for account profile and workspace preference.
+- `organizations/{orgId}/members/{uid}` for server-maintained membership.
+- `organizations/{orgId}/patientLinks/{patientId}` for the organization's
+  scoped patient search index.
+- `organizations/{orgId}/idempotency/{key}` for safe registration retries.
+- `patients/{patientId}` for organization-created patient identity/workflow
+  metadata and the server-linked owner UID after invitation acceptance.
+- `patients/{patientId}/accountInvitations/{codeHash}` for a hashed,
+  expiring, email-bound one-time invitation.
+- `patients/{patientId}/consents/{organizationId}` for explicit derived-data
+  sharing consent, when granted.
+- `auditLogs/{eventId}` for backend-written organization and invitation
+  events.
+
+Raw VCF contents do not belong in Firestore documents. Use the actual
+collection schema and deployed rules as the source of truth; this list is a
+summary, not a replacement for [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md).
+
+### Cloud Functions
+
+Privileged organization search, registration, patient workspace reads, and
+account invitation operations are performed by callable Functions. They
+validate input, App Check, claims, active membership, and patient-link
+ownership, and write audit events. The client must not bypass these callables
+to query the full patient collection.
+
+### Firebase Storage
+
+Storage rules are separate from Firestore rules. The current app must not
+create a public VCF path or upload raw genetic files. Existing PDF/profile
+paths are independently restricted by Storage Rules.
+
+### Clinical rules and explanations
+
+- The deterministic engine consumes supported inputs and validated rules.
+- Every result should preserve its rule version, evidence reference, input
+  traceability, and limitations as applicable to the implemented model.
+- Unsupported drugs, missing data, and uncallable input must not produce a
+  reassuring or invented result.
+- AI may explain an existing structured result only. It cannot determine
+  risk, invent evidence, or approve a prescription.
+- Clinical rule content must be ingested from maintained authoritative
+  sources and reviewed; it must not be authored from memory.
+
+## Security and privacy requirements
+
+- Default-deny Firestore and Storage access; check authorization on the
+  backend and in direct database rules.
+- Use server-managed custom claims plus active organization membership for
+  organization access. Profile workspace preferences and self-entered
+  organization details are not authorization claims.
+- Restrict patient records to the owner and appropriately consented,
+  verified, actively affiliated organizations.
+- Invitation codes are one-time, short-lived, email-bound, and stored only as
+  hashes.
+- Keep raw VCF data on-device. Do not include genetic data or other PHI in
+  logs, analytics, notifications, screenshots, or unapproved external calls.
+- Keep sensitive audit events server-written and append-only.
+- Provide consent revocation and ensure authorization checks honor inactive
+  and expired consent.
+- Test positive and negative authorization paths using the Firebase Emulator
+  Suite before deployment.
+- Confirm retention, erasure, consent, regulatory, and clinical-validation
+  obligations with qualified advisors before production use.
+
+## Important implementation gaps
+
+The following are future work, not current promises:
+
+- Uploading or retrieving VCF files from Firebase Storage.
+- Cloud VCF processing or cloud genetic analysis.
+- Cross-dashboard synchronization of derived genomic profiles.
+- Organization publication of reports and prescriptions to patient accounts.
+- Prescription drafting, human approval, override acknowledgment, and
+  history in the organization dashboard.
+- Validated clinical interaction, allergy, and contraindication data sources.
+- A complete consent center, data-export, erasure, and retention workflow.
+- A general patient report-grounded AI chat with validated safeguards.
+
+Any future cloud processing of genetic data requires a separate privacy,
+security, and clinical architecture review. It must not be added by changing
+the client alone.
+
+## Definition of an end-to-end release workflow
+
+A release candidate should demonstrate that:
+
+1. Patient and organization accounts route to their selected workspaces
+   without client preferences granting access.
+2. An unprivileged account cannot search, register, or retrieve organization
+   patient records.
+3. Active members can access only patient records linked to their
+   organization and covered by required consent.
+4. Patient invitations require the matching verified email and cannot be
+   reused or accepted after expiry.
+5. Patients can decline invitations and separately grant or withdraw
+   derived-profile sharing consent.
+6. Raw VCF parsing and PGx decisions remain on-device.
+7. Unknown, missing, unsupported, or ambiguous input produces an explicit
+   non-reassuring result.
+8. Firestore and Storage rules reject unauthorized access, including
+   suspended organization members and cross-patient reads.
+9. Failed requests report an actionable error and retry-safe operations do
+   not create duplicate patient records.
+10. No unavailable cloud upload, report, prescription, or AI behavior is
+    presented as complete.
+
+For current workflows and schema detail, see
+[`docs/WORKFLOWS.md`](docs/WORKFLOWS.md) and
+[`docs/DATA_MODEL.md`](docs/DATA_MODEL.md).

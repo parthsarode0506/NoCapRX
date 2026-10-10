@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../features/chat/ask_nocaprx_screen.dart';
 import '../models/genomic_drug_scan_report.dart';
+import '../models/patient_profile.dart';
 import '../models/pgx_report.dart';
 import '../providers/app_providers.dart';
 import '../services/firebase_service.dart';
@@ -26,6 +27,12 @@ class HomeScreen extends ConsumerWidget {
   // ─── Navigation helpers ───────────────────────────────────────────────────
 
   Future<void> _signOut(BuildContext context, WidgetRef ref) async {
+    ref.read(patientProfileProvider.notifier).state = const PatientProfile();
+    ref.read(vcfParseResultProvider.notifier).state = null;
+    ref.read(genomicScanReportProvider.notifier).state = null;
+    ref.read(currentReportProvider.notifier).state = null;
+    ref.read(selectedDrugsProvider.notifier).state = <String>{};
+    ref.read(customDrugTextProvider.notifier).state = '';
     await FirebaseService.signOut();
     ref.read(userProfileProvider.notifier).state = null;
     if (context.mounted) {

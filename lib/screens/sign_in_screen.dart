@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../providers/app_providers.dart';
+import '../models/patient_profile.dart';
 import '../services/firebase_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/security_cards.dart';
@@ -39,6 +40,15 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
     super.dispose();
   }
 
+  void _clearPreviousPatientSession() {
+    ref.read(patientProfileProvider.notifier).state = const PatientProfile();
+    ref.read(vcfParseResultProvider.notifier).state = null;
+    ref.read(genomicScanReportProvider.notifier).state = null;
+    ref.read(currentReportProvider.notifier).state = null;
+    ref.read(selectedDrugsProvider.notifier).state = <String>{};
+    ref.read(customDrugTextProvider.notifier).state = '';
+  }
+
   Future<void> _handleSignIn() async {
     if (!_formKey.currentState!.validate()) return;
     if (_isLoading) return;
@@ -55,7 +65,10 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
       );
 
       final user = cred.user;
-      if (user != null) await _openSelectedDashboard(user.uid);
+      if (user != null) {
+        _clearPreviousPatientSession();
+        await _openSelectedDashboard(user.uid);
+      }
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -78,6 +91,7 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
   }
 
   Future<void> _openSelectedDashboard(String uid) async {
+    ref.read(userProfileProvider.notifier).state = null;
     final profileBeforeRouting = await FirebaseService.getUserProfile(uid);
     if (!mounted) return;
     final openOrganization = _dashboardChoiceExplicitlySelected
@@ -129,6 +143,7 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
     try {
       final cred = await FirebaseService.signInWithGoogle();
       if (cred != null && cred.user != null) {
+        _clearPreviousPatientSession();
         final profile = await FirebaseService.getUserProfile(cred.user!.uid);
         if (profile == null) {
           await FirebaseService.signOut();
@@ -142,6 +157,7 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
               ),
             );
           }
+
           return;
         }
         await _openSelectedDashboard(cred.user!.uid);

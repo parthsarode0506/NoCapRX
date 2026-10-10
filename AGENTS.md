@@ -4,6 +4,7 @@ This repository follows the NoCapRx build pack. The single source of truth for
 agents and GitHub Copilot is:
 
 - [`.github/copilot-instructions.md`](.github/copilot-instructions.md) — master prompt
+- [`concept.md`](concept.md) — product concept and current implementation boundary
 - [`docs/WORKFLOWS.md`](docs/WORKFLOWS.md) — behavioral spec
 - [`docs/RULEPACK_SCHEMA.md`](docs/RULEPACK_SCHEMA.md) — signed clinical rule pack
 - [`docs/EXPLANATION_LAYER.md`](docs/EXPLANATION_LAYER.md) — safe LLM explanation layer

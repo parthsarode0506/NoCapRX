@@ -7,19 +7,26 @@ service firebase.storage {
     function tok()         { return request.auth.token; }
     function role()        { return tok().get('role', ''); }
     function isSelf(uid)   { return signedIn() && request.auth.uid == uid; }
-    function isPlatformAdmin() { return signedIn() && role() == 'platform_admin'; }
+    function isPlatformAdmin() {
+      return signedIn()
+        && role() == 'platform_admin'
+        && tok().get('verified', false) == true;
+    }
 
     // Max file sizes
     function maxDocSize()  { return 10 * 1024 * 1024; }
 
     // ---------- exported reports (PDF) ----------
-    // Users can store generated PDF reports for sharing with clinicians.
+    // Patient-owned PDF exports. Organization sharing is not enabled here.
     match /reports/{uid}/{reportId}/{fileName} {
       allow read: if isSelf(uid) || isPlatformAdmin();
       allow create: if isSelf(uid)
         && request.resource.contentType == 'application/pdf'
         && request.resource.size < maxDocSize();
-      allow update, delete: if isSelf(uid);
+      allow update: if isSelf(uid)
+        && request.resource.contentType == 'application/pdf'
+        && request.resource.size < maxDocSize();
+      allow delete: if isSelf(uid);
     }
 
     // ---------- profile photos ----------

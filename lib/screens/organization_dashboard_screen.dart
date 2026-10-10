@@ -128,6 +128,12 @@ class _OrganizationDashboardScreenState
       children: [
         _OrganizationHero(organizationName: _organizationName),
         const SizedBox(height: 24),
+        const AppCard(
+          child: Text(
+            'Hospital access codes and patient-account invitations are unavailable in free Firebase mode. Patient records created here are organization-only and will not appear in a patient login.',
+          ),
+        ),
+        const SizedBox(height: 20),
         const SectionHeader(
           title: 'Patient records',
           subtitle: 'Find an existing patient or create a new record.',
@@ -162,6 +168,10 @@ class _OrganizationDashboardScreenState
               Text(
                 'Results are limited to records linked to your active organization.',
                 style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'This creates a patient record only. The patient creates their own account and password from Patient Sign Up; organization staff should not collect or set the patient password.',
               ),
             ],
           ),
@@ -462,7 +472,8 @@ class _NewPatientDialogState extends State<_NewPatientDialog> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-    title: const Text('Register patient'),
+    title: const Text('Add patient record'),
+    scrollable: true,
     content: Form(
       key: _formKey,
       child: Column(
@@ -496,6 +507,10 @@ class _NewPatientDialogState extends State<_NewPatientDialog> {
               return null;
             },
           ),
+          const SizedBox(height: 8),
+          const Text(
+            'This creates an organization-only record. Hospital access codes and patient account linking are disabled in free Firebase mode, so this record will not appear in a patient login.',
+          ),
         ],
       ),
     ),
@@ -515,7 +530,7 @@ class _NewPatientDialogState extends State<_NewPatientDialog> {
             ),
           );
         },
-        child: const Text('Save Patient'),
+        child: const Text('Create record'),
       ),
     ],
   );

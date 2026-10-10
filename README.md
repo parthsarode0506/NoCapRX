@@ -6,6 +6,8 @@ It parses patient `.VCF` genetic files locally on-device, cross-references 6 tar
 
 > 🔒 **Privacy Guarantee**: Raw genetic VCF file data **NEVER** leaves the user's device. Only derived JSON reports sync to Firebase Firestore.
 
+See [`concept.md`](concept.md) for the user journeys, implemented feature boundaries, and data-flow responsibilities. Organization VCF upload, cloud analysis, and report/prescription publication are not implemented.
+
 ---
 
 ## 🛠️ Tech Stack & Architecture

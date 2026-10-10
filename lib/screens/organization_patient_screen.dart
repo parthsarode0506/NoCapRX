@@ -47,7 +47,12 @@ class _OrganizationPatientScreenState extends State<OrganizationPatientScreen> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   const Text(
-                    'Patient details are unavailable or your organization does not have access.',
+                    'Could not load this patient record.',
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    FirebaseService.mapAuthError(snapshot.error!),
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 8),

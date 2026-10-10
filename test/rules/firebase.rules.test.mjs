@@ -45,7 +45,31 @@ test('a user can save a workspace preference without gaining authorization', asy
   }));
   await assertSucceeds(updateDoc(profile, { displayName: 'Updated patient' }));
   await assertSucceeds(updateDoc(profile, { accountType: 'organization' }));
+  await assertSucceeds(updateDoc(profile, {
+    organizationName: 'Sample Hospital',
+    city: 'Pune',
+  }));
   await assertSucceeds(updateDoc(profile, { accountType: 'patient' }));
+});
+
+test('organization signup profile and privacy acknowledgment can both be stored', async () => {
+  const userDb = testEnvironment.authenticatedContext('organization-signup').firestore();
+  await assertSucceeds(setDoc(doc(userDb, 'users/organization-signup'), {
+    displayName: 'Org User',
+    accountType: 'organization',
+    organizationName: 'Sample Hospital',
+    city: 'Pune',
+    locale: 'en',
+    createdAt: serverTimestamp(),
+  }));
+  await assertSucceeds(setDoc(
+    doc(userDb, 'users/organization-signup/consents/privacy_notice'),
+    {
+      accepted: true,
+      noticeVersion: '1.0',
+      createdAt: serverTimestamp(),
+    },
+  ));
 });
 
 test('a user cannot assign a privileged or unsupported account type', async () => {
@@ -59,6 +83,8 @@ test('a user cannot assign a privileged or unsupported account type', async () =
   }));
   await assertFails(updateDoc(profile, { accountType: 'doctor' }));
   await assertFails(updateDoc(profile, { accountType: 'platform_admin' }));
+  await assertFails(updateDoc(profile, { linkedPatientId: 'forged-link' }));
+  await assertFails(updateDoc(profile, { linkedPatientBirthYear: 1990 }));
 });
 
 test('a user can record required privacy-notice acknowledgment', async () => {
@@ -87,6 +113,19 @@ test('a user cannot create a profile with client-assigned role or email', async 
     displayName: 'Patient',
     accountType: 'platform_admin',
     createdAt: serverTimestamp(),
+  }));
+});
+
+test('professional credential verification has no client-write path', async () => {
+  const userDb = testEnvironment.authenticatedContext('no-verification').firestore();
+  await assertFails(setDoc(doc(userDb, 'verifications/no-verification'), {
+    type: 'doctor',
+    registrationNumber: 'TEST-12345',
+    council: 'Example',
+    institution: 'Example Clinic',
+    docPaths: [],
+    submittedAt: serverTimestamp(),
+    status: 'pending',
   }));
 });
 
@@ -133,6 +172,17 @@ test('professional registration documents have no upload path', async () => {
   ));
 });
 
+test('report updates remain restricted to bounded PDF files', async () => {
+  const userStorage = testEnvironment.authenticatedContext('report-owner').storage();
+  const reportRef = ref(userStorage, 'reports/report-owner/report-1/report.pdf');
+  await assertSucceeds(uploadBytes(reportRef, new Uint8Array([37, 80, 68, 70]), {
+    contentType: 'application/pdf',
+  }));
+  await assertFails(uploadBytes(reportRef, new Uint8Array([1, 2, 3]), {
+    contentType: 'application/octet-stream',
+  }));
+});
+
 test('profile photos can only be read by the owner or platform admins', async () => {
   const ownerStorage = testEnvironment.authenticatedContext('patient-photo').storage();
   const photoRef = ref(ownerStorage, 'profiles/patient-photo/avatar.png');
@@ -168,4 +218,68 @@ test('organization patient data and audit logs are callable-only', async () => {
     actorUid: 'doctor-1',
     action: 'forged',
   }));
+});
+
+test('organization access to patient data follows revocable organization consent', async () => {
+  await testEnvironment.withSecurityRulesDisabled(async (context) => {
+    const adminDb = context.firestore();
+    await setDoc(doc(adminDb, 'patients/patient-consent'), {
+      ownerUid: 'patient-owner',
+      name: 'Patient',
+      version: 1,
+    });
+    await setDoc(doc(adminDb, 'patients/patient-consent/consents/org-1'), {
+      grantee: 'org-1',
+      scope: ['read_profile'],
+      active: true,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    await setDoc(doc(adminDb, 'organizations/org-1/members/doctor-consent'), {
+      role: 'doctor',
+      status: 'active',
+    });
+  });
+
+  const organizationDb = testEnvironment.authenticatedContext('doctor-consent', {
+    role: 'doctor',
+    verified: true,
+    orgId: 'org-1',
+  }).firestore();
+  const patientRef = doc(organizationDb, 'patients/patient-consent');
+  await assertSucceeds(getDoc(patientRef));
+
+  await testEnvironment.withSecurityRulesDisabled(async (context) => {
+    await updateDoc(
+      doc(context.firestore(), 'patients/patient-consent/consents/org-1'),
+      { active: false },
+    );
+  });
+  await assertFails(getDoc(patientRef));
+});
+
+test('a verified organization claim without active membership grants no patient access', async () => {
+  await testEnvironment.withSecurityRulesDisabled(async (context) => {
+    const adminDb = context.firestore();
+    await setDoc(doc(adminDb, 'patients/patient-no-membership'), {
+      ownerUid: 'patient-owner',
+      name: 'Patient',
+    });
+    await setDoc(doc(adminDb, 'patients/patient-no-membership/consents/org-2'), {
+      grantee: 'org-2',
+      scope: ['read_profile'],
+      active: true,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    await setDoc(doc(adminDb, 'organizations/org-2/members/doctor-no-membership'), {
+      role: 'doctor',
+      status: 'suspended',
+    });
+  });
+
+  const organizationDb = testEnvironment.authenticatedContext('doctor-no-membership', {
+    role: 'doctor',
+    verified: true,
+    orgId: 'org-2',
+  }).firestore();
+  await assertFails(getDoc(doc(organizationDb, 'patients/patient-no-membership')));
 });

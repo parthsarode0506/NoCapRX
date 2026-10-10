@@ -3,10 +3,16 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/patient_profile.dart';
+import 'firebase_service.dart';
 
 class PatientProfileService {
-  static const _key = 'patient_profile';
-  static PatientProfile _memoryCache = const PatientProfile();
+  static const _legacyKey = 'patient_profile';
+  static final Map<String, PatientProfile> _memoryCache = {};
+
+  static String get _key {
+    final uid = FirebaseService.currentUser?.uid;
+    return uid == null ? _legacyKey : '$_legacyKey:$uid';
+  }
 
   static Future<PatientProfile> load() async {
     try {
@@ -14,17 +20,17 @@ class PatientProfileService {
       final value = prefs.getString(_key);
       if (value != null) {
         final profile = PatientProfile.fromJson(jsonDecode(value) as Map<String, dynamic>);
-        _memoryCache = profile;
+        _memoryCache[_key] = profile;
         return profile;
       }
     } catch (e) {
       debugPrint('PatientProfileService.load error: $e');
     }
-    return _memoryCache;
+    return _memoryCache[_key] ?? const PatientProfile();
   }
 
   static Future<void> save(PatientProfile profile) async {
-    _memoryCache = profile;
+    _memoryCache[_key] = profile;
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_key, jsonEncode(profile.toJson()));
@@ -34,7 +40,7 @@ class PatientProfileService {
   }
 
   static Future<void> clear() async {
-    _memoryCache = const PatientProfile();
+    _memoryCache.remove(_key);
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(_key);

@@ -59,6 +59,14 @@
   organization claims and active membership before returning or creating data.
 - Public signup never assigns organization roles. There is no
   professional-verification workflow in the app.
+- Organization signup stores organization name and city only as self-entered
+  profile details; they do not create an organization or grant member claims.
+- In free Firebase Spark mode, Add Patient creates an organization-only record:
+  it does not collect an email, create a Firebase Auth account, or issue a
+  setup code. The record does not appear in a patient's login.
+- Hospital access codes and patient-account invitations are disabled in the
+  UI. Derived-profile sharing and patient-side organization access are also
+  unavailable through this workflow; raw VCF files are never uploaded.
 - Patient accounts open the patient dashboard. The organization dashboard is
   not hidden behind a client-side membership check; each patient-data callable
   still denies unauthorized access server-side and returns no patient data.
@@ -127,5 +135,16 @@
 - Organization membership and custom claims are provisioned by trusted
   organization administration. The app does not collect credentials or provide
   professional-review screens.
+- Free Firebase Spark mode does not deploy Cloud Functions. Hospital access
+  codes and patient-account invitations are therefore disabled in the UI.
+- Add Patient creates an organization-only record and does not collect an
+  email, create a Firebase Auth account, or issue a setup code. These records
+  do not appear in a patient's login.
+- Organization search, registration, and workspace actions still use callable
+  Functions when available. They may fail until Functions are deployed on a
+  supported Firebase plan; the UI keeps these pathways visible by design.
 - **Consent doc** per grantee: `scope[]`, `active`, `expiresAt` (max 365 days).
-- Revoke by setting `active=false`; the grantee's next read fails immediately.
+  Consent-based organization sharing remains separate from disabled
+  account-invitation flows.
+- Revoke by setting `active=false` through the patient-facing callable; the
+  grantee's next consent-checked read fails immediately.

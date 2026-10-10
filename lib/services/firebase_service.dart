@@ -12,6 +12,13 @@ import '../models/organization_patient.dart';
 import '../models/pgx_report.dart';
 import 'local_report_service.dart';
 
+class AccountSetupFailure implements Exception {
+  const AccountSetupFailure({required this.step, required this.cause});
+
+  final String step;
+  final Object cause;
+}
+
 /// Firebase Auth service handling real cloud authentication.
 /// VCF parsing and genomic analysis remain on-device and private.
 class FirebaseService {
@@ -64,6 +71,25 @@ class FirebaseService {
       return error.message?.toString() ?? 'Some account details are invalid.';
     }
     if (error is StateError) return error.message;
+    if (error is FirebaseFunctionsException) {
+      switch (error.code) {
+        case 'internal':
+          debugPrint('Firebase Functions internal error [${error.code}]');
+          return 'The Firebase service failed internally. Deploy the latest Cloud Functions and check the Firebase Functions logs.';
+        case 'failed-precondition':
+        case 'not-found':
+        case 'permission-denied':
+        case 'resource-exhausted':
+          return error.message ?? 'The requested operation is unavailable.';
+        case 'unauthenticated':
+          return 'Your session has expired. Sign in again to continue.';
+        case 'unavailable':
+          return 'Could not reach the service. Check your connection and retry.';
+        default:
+          return error.message ??
+              'The requested operation could not be completed (${error.code}).';
+      }
+    }
     if (error is FirebaseAuthException) {
       debugPrint('FirebaseAuthException [${error.code}]: ${error.message}');
       switch (error.code) {
@@ -114,18 +140,29 @@ class FirebaseService {
     Object error, {
     required bool authAccountExists,
   }) {
+    final cause = error is AccountSetupFailure ? error.cause : error;
+    final failedStep = error is AccountSetupFailure
+        ? error.step
+        : 'profile or privacy acknowledgment';
     if (authAccountExists &&
-        error is FirebaseException &&
-        error.code == 'permission-denied') {
-      return 'Your Firebase Authentication account was created, but Firestore '
-          'blocked profile setup. Android logs also show App Check token '
-          'verification failing. Enable the Firebase App Check API, register '
-          'a new Android debug token (or configure Play Integrity), and confirm '
-          'Firestore rules allow the signed-in user to create their own profile '
-          'and privacy acknowledgment. Then tap “Retry account setup”; do not '
-          'create another account.';
+        cause is FirebaseException &&
+        cause.code == 'permission-denied') {
+      final platformGuidance = kIsWeb
+          ? 'For localhost/web, if Firestore App Check enforcement is enabled, '
+                'register the Web app and authorize its Web debug token from '
+                'the browser console (or configure reCAPTCHA for production).'
+          : 'For Android debug, if Firestore App Check enforcement is enabled, '
+                'register the Android debug token from Logcat; use Play '
+                'Integrity for release builds.';
+      return 'Your Firebase sign-in succeeded, but Firestore denied saving '
+          'your $failedStep. The account already exists. In Firebase Console, '
+          'select the same project as the app and publish Firestore Rules that '
+          'allow the signed-in user to create/update users/{uid} and create '
+          'users/{uid}/consents/privacy_notice. $platformGuidance Then tap '
+          '“Retry account setup” or sign in with this account; do not sign up '
+          'again.';
     }
-    return mapAuthError(error);
+    return mapAuthError(cause);
   }
 
   static Future<UserCredential> signInWithEmail(
@@ -151,6 +188,8 @@ class FirebaseService {
     required String locale,
     required bool privacyNoticeAccepted,
     String accountType = 'patient',
+    String organizationName = '',
+    String city = '',
   }) async {
     if (!_initialized) {
       await init();
@@ -177,6 +216,8 @@ class FirebaseService {
         locale: locale,
         privacyNoticeAccepted: privacyNoticeAccepted,
         accountType: accountType,
+        organizationName: organizationName,
+        city: city,
       );
     }
     return credential;
@@ -188,6 +229,8 @@ class FirebaseService {
     required String locale,
     required bool privacyNoticeAccepted,
     String accountType = 'patient',
+    String organizationName = '',
+    String city = '',
   }) async {
     if (!{'en', 'hi', 'mr'}.contains(locale)) {
       throw ArgumentError('Unsupported preferred language.');
@@ -201,18 +244,42 @@ class FirebaseService {
     if (!{'patient', 'organization'}.contains(accountType)) {
       throw ArgumentError('Unsupported account workspace.');
     }
+    if (organizationName.trim().length > 120 || city.trim().length > 100) {
+      throw ArgumentError('Organization name or city is too long.');
+    }
+    if (!_initialized || currentUser?.uid != user.uid) {
+      throw StateError(
+        'The signed-in Firebase account changed before account setup completed. Sign in again to continue.',
+      );
+    }
     await user.updateDisplayName(displayName.trim());
-    await saveUserProfile(
-      AppUser(
-        uid: user.uid,
-        displayName: displayName.trim(),
-        email: user.email ?? '',
-        role: accountType,
-        locale: locale,
-        createdAt: DateTime.now(),
-      ),
-    );
-    await _savePrivacyNoticeAcknowledgment(user.uid);
+    try {
+      await saveUserProfile(
+        AppUser(
+          uid: user.uid,
+          displayName: displayName.trim(),
+          email: user.email ?? '',
+          role: accountType,
+          locale: locale,
+          createdAt: DateTime.now(),
+          organizationName: organizationName.trim(),
+          city: city.trim(),
+        ),
+      );
+    } catch (error) {
+      throw AccountSetupFailure(
+        step: 'user profile (users/{uid})',
+        cause: error,
+      );
+    }
+    try {
+      await _savePrivacyNoticeAcknowledgment(user.uid);
+    } catch (error) {
+      throw AccountSetupFailure(
+        step: 'privacy acknowledgment (users/{uid}/consents/privacy_notice)',
+        cause: error,
+      );
+    }
   }
 
   /// Google popup sign-in is supported on Web when the provider is enabled.
@@ -263,7 +330,10 @@ class FirebaseService {
 
   // Cloud sync stores account metadata and derived reports only. Raw VCF data remains on-device.
   static Future<void> saveUserProfile(AppUser user) async {
-    if (!_initialized) return;
+    _requireAuth();
+    if (currentUser?.uid != user.uid) {
+      throw StateError('Cannot save a profile for a different signed-in user.');
+    }
     try {
       final firestore = FirebaseFirestore.instance;
       final profileRef = firestore.collection('users').doc(user.uid);
@@ -274,6 +344,8 @@ class FirebaseService {
             'displayName': user.displayName.trim(),
             'accountType': user.role,
             'locale': user.locale,
+            'organizationName': user.organizationName,
+            'city': user.city,
           });
           return;
         }
@@ -281,6 +353,8 @@ class FirebaseService {
           'displayName': user.displayName.trim(),
           'accountType': user.role,
           'locale': user.locale,
+          'organizationName': user.organizationName,
+          'city': user.city,
           'createdAt': FieldValue.serverTimestamp(),
         });
       });
@@ -301,6 +375,7 @@ class FirebaseService {
       if (data == null) return null;
       final profile = <String, dynamic>{...data, 'uid': uid};
       profile['role'] = profile['accountType'] ?? 'patient';
+      profile['linkedPatientId'] = data['linkedPatientId'];
       final authUser = _auth.currentUser;
       if (authUser?.uid == uid) {
         profile['email'] = authUser?.email ?? '';
@@ -346,11 +421,195 @@ class FirebaseService {
   }
 
   static Future<String> getOrganizationName() async {
+    final user = currentUser;
+    if (user != null) {
+      final profile = await getUserProfile(user.uid);
+      final organizationName = profile?.organizationName.trim() ?? '';
+      final city = profile?.city.trim() ?? '';
+      if (organizationName.isNotEmpty) {
+        return city.isEmpty ? organizationName : '$organizationName · $city';
+      }
+    }
     final result = await _organizationFunctions
         .httpsCallable('getOrganizationSummary')
         .call();
     final data = Map<String, dynamic>.from(result.data as Map);
     return data['name'] as String? ?? 'Organization';
+  }
+
+  static Future<String> getOrganizationCode() async {
+    final result = await _organizationFunctions
+        .httpsCallable('getOrganizationSummary')
+        .call();
+    final data = Map<String, dynamic>.from(result.data as Map);
+    final organizationCode = data['organizationCode'];
+    if (organizationCode is! String ||
+        !RegExp(r'^\d{8}$').hasMatch(organizationCode)) {
+      throw const FormatException(
+        'Organization summary did not include a valid numeric access code.',
+      );
+    }
+    return organizationCode;
+  }
+
+  static Future<String> requestOrganizationPatientAccess(
+    String organizationCode,
+  ) async {
+    final result = await _organizationFunctions
+        .httpsCallable('requestOrganizationPatientAccess')
+        .call(<String, Object?>{'organizationCode': organizationCode.trim()});
+    final data = Map<String, dynamic>.from(result.data as Map);
+    final status = data['status'];
+    if (status is! String || status.isEmpty) {
+      throw const FormatException(
+        'Organization invitation returned an invalid status.',
+      );
+    }
+    return status;
+  }
+
+  static Future<List<PatientOrganizationInvitation>>
+  listPatientOrganizationInvitations() async {
+    final result = await _organizationFunctions
+        .httpsCallable('listPatientOrganizationInvitations')
+        .call();
+    final data = Map<String, dynamic>.from(result.data as Map);
+    final invitations = data['invitations'];
+    if (invitations is! List) {
+      throw const FormatException(
+        'Patient organization invitations returned an invalid response.',
+      );
+    }
+    return invitations
+        .map(
+          (invitation) => PatientOrganizationInvitation.fromCallable(
+            Map<String, dynamic>.from(invitation as Map),
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  static Future<bool> revokePatientOrganizationConsent({
+    required String organizationId,
+  }) async {
+    final result = await _organizationFunctions
+        .httpsCallable('revokePatientOrganizationConsent')
+        .call(<String, Object?>{'organizationId': organizationId});
+    final data = Map<String, dynamic>.from(result.data as Map);
+    final revoked = data['revoked'];
+    if (revoked is! bool) {
+      throw const FormatException('Organization consent response was invalid.');
+    }
+    return revoked;
+  }
+
+  static Future<List<PatientOrganizationInvitation>>
+  listOrganizationPatientInvitations() async {
+    final result = await _organizationFunctions
+        .httpsCallable('listOrganizationPatientInvitations')
+        .call();
+    final data = Map<String, dynamic>.from(result.data as Map);
+    final invitations = data['invitations'];
+    if (invitations is! List) {
+      throw const FormatException(
+        'Organization invitations returned an invalid response.',
+      );
+    }
+    return invitations
+        .map(
+          (invitation) => PatientOrganizationInvitation.fromCallable(
+            Map<String, dynamic>.from(invitation as Map),
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  static Future<void> respondToOrganizationPatientInvitation({
+    required String patientUid,
+    required bool accepted,
+  }) async {
+    await _organizationFunctions
+        .httpsCallable('respondToOrganizationPatientInvitation')
+        .call(<String, Object?>{
+          'patientUid': patientUid,
+          'accepted': accepted,
+        });
+  }
+
+  static Future<Map<String, dynamic>> respondToPatientOrganizationInvitation({
+    required String organizationId,
+    required bool accepted,
+    required bool shareProfile,
+  }) async {
+    final result = await _organizationFunctions
+        .httpsCallable('respondToPatientOrganizationInvitation')
+        .call(<String, Object?>{
+          'organizationId': organizationId,
+          'accepted': accepted,
+          'shareProfile': accepted && shareProfile,
+        });
+    return Map<String, dynamic>.from(result.data as Map);
+  }
+
+  static Future<String> createPatientAccountInvitation({
+    required String patientId,
+    required String email,
+  }) async {
+    final result = await _organizationFunctions
+        .httpsCallable('createPatientAccountInvitation')
+        .call(<String, Object?>{'patientId': patientId, 'email': email.trim()});
+    final data = Map<String, dynamic>.from(result.data as Map);
+    final code = data['code'];
+    if (code is! String || code.isEmpty) {
+      throw const FormatException(
+        'Patient invitation response did not include a setup code.',
+      );
+    }
+    return code;
+  }
+
+  static Future<void> sendCurrentUserEmailVerification() async {
+    final user = currentUser;
+    if (user == null) {
+      throw StateError('Sign in before verifying your email.');
+    }
+    await user.sendEmailVerification();
+  }
+
+  static Future<User> reloadCurrentUser() async {
+    final user = currentUser;
+    if (user == null) throw StateError('Sign in to continue.');
+    await user.reload();
+    final refreshed = currentUser;
+    if (refreshed == null) throw StateError('Sign in to continue.');
+    await refreshed.getIdToken(true);
+    return refreshed;
+  }
+
+  static Future<PatientInvitationPreview> previewPatientAccountInvitation(
+    String code,
+  ) async {
+    final result = await _organizationFunctions
+        .httpsCallable('previewPatientAccountInvitation')
+        .call(<String, Object?>{'code': code.trim()});
+    return PatientInvitationPreview.fromCallable(
+      Map<String, dynamic>.from(result.data as Map),
+    );
+  }
+
+  static Future<Map<String, dynamic>> respondToPatientAccountInvitation({
+    required String code,
+    required bool accepted,
+    required bool shareDerivedProfile,
+  }) async {
+    final result = await _organizationFunctions
+        .httpsCallable('respondToPatientAccountInvitation')
+        .call(<String, Object?>{
+          'code': code.trim(),
+          'accepted': accepted,
+          'shareDerivedProfile': accepted && shareDerivedProfile,
+        });
+    return Map<String, dynamic>.from(result.data as Map);
   }
 
   static Future<String> registerOrganizationPatient({

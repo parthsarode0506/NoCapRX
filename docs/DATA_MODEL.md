@@ -4,7 +4,8 @@ Region: create the Firestore database in **asia-south1 (Mumbai)** or
 **asia-south2 (Delhi)**. Native mode. The location cannot be changed later.
 
 ```
-users/{uid}                        self profile (displayName, phone, locale, accountType, createdAt). UID is the document ID; email comes from Firebase Auth. `accountType` is a display preference only, never an authorization claim.
+users/{uid}                        self profile (displayName, phone, locale, accountType, organizationName, city, linkedPatientId, linkedPatientBirthYear, linked organization display fields, createdAt). UID is the document ID; email comes from Firebase Auth. `accountType`, organizationName and city are display preferences only, never authorization claims.
+organizations/{orgId}/patientLinks/{patientId} organization-scoped patient search index; patient-originated invitation links are disabled in free Firebase mode.
 users/{uid}/consents/privacy_notice immutable acknowledgment (accepted, noticeVersion, createdAt); optional processing consents must use separately versioned, revocable records.
 users/{uid}/reports/{id}           legacy cloud report history; new reports remain local until an explicit derived-data sync consent flow is implemented.
 orgs/{orgId}                       displayName, type(pharmacy|lab|hospital|clinic), plan, status, logoUrl, contactEmail, kybStatus
@@ -18,8 +19,9 @@ patients/{pid}/prescriptions/{id}     drugs[{generic, brand, strength, frequency
 patients/{pid}/screenings/{id}        prescriptionId, drug, gene[], phenotype[], severity, recommendationRef, cpicGuidelineRef, evidenceLevel, ruleSetVersion, inputHash, appVersion, createdBy, createdAt  (append-only)
 patients/{pid}/screenings/{id}/acknowledgments/{ackId}   actorUid, actorRole, action(accepted|alternative_chosen|overridden|deferred), reasonCode, reasonText, createdAt  (immutable)
 patients/{pid}/grants/{granteeUid}    scopes[], expiresAt, revokedAt, createdAt, grantedBy, granteeOrgId, label, breakGlass(bool, Functions only)
-patients/{pid}/consents/{id}          purpose, granted, textVersion, createdAt, revokedAt
+patients/{pid}/consents/{id}          purpose, granted, textVersion, createdAt, revokedAt; organization sharing consent is keyed by organization ID and revocable via a callable.
 patients/{pid}/accessLog/{id}         actorUid, actorRole, orgId, action, at   (append-only; patient can read)
+patients/{pid}/accountInvitations/{sha256(code)} legacy email-bound one-time account link; not available in free Firebase mode.
 orders/{orderId}                      patientId, labOrgId, panel, status, createdAt
 ruleSets/{version}                    sha256, signature, storagePath, cpicSnapshot, changelog, signoff{reviewerUid, at}, status, createdAt
 ruleChannels/{channel}                currentVersion, canaryOrgIds[], canaryPercent, pinnedVersion
@@ -36,9 +38,14 @@ users/{uid}/notifications/{id}        type, title, body(no PHI), read, createdAt
 - Rules allow at most 10 document-access calls per request. Denormalize `ownerUid`
   onto subcollection docs if the limit is hit.
 - List queries must include the same filter the rule checks, else Firestore rejects the query.
-- Public signup creates patient accounts only. Organization access is provisioned
-  out-of-band by a trusted organization administrator; the application does not
-  implement professional credential verification or a reviewer queue.
+- Signup lets users choose Patient or Organization as a dashboard preference.
+  Organization name/city are self-entered profile details and do not create an
+  organization or grant access. Trusted organization claims are provisioned
+  separately; professional credential verification is not implemented.
+- In free Firebase mode, the UI disables numeric hospital access codes and
+  patient account invitations. Add Patient creates an organization-only record
+  without collecting an email, creating an Auth account, or issuing a setup
+  code; it does not link to patient sign-in. Raw VCF files remain on-device.
 - Organization patient search and registration are callable-only operations.
   `organizations/{orgId}/patientLinks/{patientId}` is the scoped search index;
   it points to the single canonical `patients/{patientId}` record. The

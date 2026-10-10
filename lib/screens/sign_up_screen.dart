@@ -24,12 +24,16 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
+  final _organizationNameController = TextEditingController();
+  final _cityController = TextEditingController();
+  final _invitationCodeController = TextEditingController();
 
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
   bool _isLoading = false;
   bool _privacyNoticeAccepted = false;
   bool _accountSetupIncomplete = false;
+  bool _awaitingInvitationEmailVerification = false;
   late bool _organizationAccount = widget.organizationWorkspaceRequested;
   String? _errorMessage;
   String _locale = 'en';
@@ -40,6 +44,9 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
     _emailController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
+    _organizationNameController.dispose();
+    _cityController.dispose();
+    _invitationCodeController.dispose();
     super.dispose();
   }
 
@@ -87,6 +94,8 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
           locale: _locale,
           privacyNoticeAccepted: _privacyNoticeAccepted,
           accountType: _organizationAccount ? 'organization' : 'patient',
+          organizationName: _organizationNameController.text,
+          city: _cityController.text,
         );
       } else {
         await FirebaseService.signUpWithEmail(
@@ -96,7 +105,18 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
           locale: _locale,
           privacyNoticeAccepted: _privacyNoticeAccepted,
           accountType: _organizationAccount ? 'organization' : 'patient',
+          organizationName: _organizationNameController.text,
+          city: _cityController.text,
         );
+      }
+
+      if (!_organizationAccount &&
+          _invitationCodeController.text.trim().isNotEmpty) {
+        await FirebaseService.sendCurrentUserEmailVerification();
+        if (mounted) {
+          setState(() => _awaitingInvitationEmailVerification = true);
+        }
+        return;
       }
 
       final user = FirebaseService.currentUser;
@@ -120,7 +140,8 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
     } catch (e) {
       if (mounted) {
         final authAccountExists =
-            FirebaseService.currentUser?.email == _emailController.text.trim();
+            FirebaseService.currentUser?.email?.toLowerCase() ==
+            _emailController.text.trim().toLowerCase();
         setState(() {
           _accountSetupIncomplete = authAccountExists;
           _errorMessage = FirebaseService.mapAccountSetupError(
@@ -170,11 +191,19 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
           locale: _locale,
           privacyNoticeAccepted: _privacyNoticeAccepted,
           accountType: _organizationAccount ? 'organization' : 'patient',
+          organizationName: _organizationNameController.text,
+          city: _cityController.text,
         );
         profile = await FirebaseService.getUserProfile(cred.user!.uid);
         _accountSetupIncomplete = false;
         if (profile != null) {
           ref.read(userProfileProvider.notifier).state = profile;
+        }
+
+        if (!_organizationAccount &&
+            _invitationCodeController.text.trim().isNotEmpty) {
+          await _verifyAndCompletePatientInvitation();
+          return;
         }
 
         if (mounted) {
@@ -201,6 +230,100 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
           _isLoading = false;
         });
       }
+    }
+  }
+
+  Future<void> _verifyAndCompletePatientInvitation() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+    try {
+      final user = await FirebaseService.reloadCurrentUser();
+      if (!user.emailVerified) {
+        setState(() {
+          _errorMessage =
+              'Verify the invitation email first, then tap “I verified my email”.';
+        });
+        return;
+      }
+      final invitation = await FirebaseService.previewPatientAccountInvitation(
+        _invitationCodeController.text,
+      );
+      if (!mounted) return;
+      var shareDerivedProfile = false;
+      final response = await showDialog<(bool, bool)>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
+            title: const Text('Review patient invitation'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${invitation.organizationName}${invitation.organizationCity.isEmpty ? '' : ', ${invitation.organizationCity}'} invited you to link the patient record for ${invitation.patientName}.',
+                ),
+                const SizedBox(height: 12),
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  value: shareDerivedProfile,
+                  onChanged: (value) => setDialogState(
+                    () => shareDerivedProfile = value ?? false,
+                  ),
+                  title: const Text(
+                    'I agree to share derived profile data with this organization.',
+                  ),
+                  subtitle: const Text(
+                    'Raw VCF files stay on your device. No profile data is synced by this link today.',
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, (false, false)),
+                child: const Text('Decline link'),
+              ),
+              FilledButton(
+                onPressed: () =>
+                    Navigator.pop(dialogContext, (true, shareDerivedProfile)),
+                child: const Text('Accept link'),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (response == null) return;
+      final result = await FirebaseService.respondToPatientAccountInvitation(
+        code: _invitationCodeController.text,
+        accepted: response.$1,
+        shareDerivedProfile: response.$2,
+      );
+      final profile = await FirebaseService.getUserProfile(user.uid);
+      if (profile != null) {
+        ref.read(userProfileProvider.notifier).state = profile;
+      }
+      if (!mounted) return;
+      if (result['accepted'] == true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Patient record linked. Your VCF file and analysis remain on this device.',
+            ),
+          ),
+        );
+      }
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const HomeScreen()),
+        (_) => false,
+      );
+    } catch (error) {
+      if (mounted) {
+        setState(() => _errorMessage = FirebaseService.mapAuthError(error));
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -280,7 +403,7 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
                       ],
 
                       Text(
-                        'Choose which workspace to open after signup. Organization patient access still requires administrator provisioning.',
+                        'Choose which workspace to open after signup. Organization name and city are profile details, not access credentials.',
                       ),
                       const SizedBox(height: 12),
                       SegmentedButton<bool>(
@@ -304,7 +427,38 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
                       if (_organizationAccount) ...[
                         const SizedBox(height: 10),
                         const Text(
-                          'This opens the organization dashboard. Your organization administrator must assign access before you can search or register patients.',
+                          'This opens the organization dashboard. Organization name and city are saved to your profile; they do not assign trusted patient-data permissions.',
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: _organizationNameController,
+                          maxLength: 120,
+                          decoration: const InputDecoration(
+                            labelText: 'Organization name',
+                            prefixIcon: Icon(Icons.business_outlined),
+                          ),
+                          validator: (value) {
+                            if (_organizationAccount &&
+                                (value?.trim().isEmpty ?? true)) {
+                              return 'Enter your organization name.';
+                            }
+                            return null;
+                          },
+                        ),
+                        TextFormField(
+                          controller: _cityController,
+                          maxLength: 100,
+                          decoration: const InputDecoration(
+                            labelText: 'City',
+                            prefixIcon: Icon(Icons.location_city_outlined),
+                          ),
+                          validator: (value) {
+                            if (_organizationAccount &&
+                                (value?.trim().isEmpty ?? true)) {
+                              return 'Enter your organization city.';
+                            }
+                            return null;
+                          },
                         ),
                       ],
                       const SizedBox(height: 16),
@@ -392,6 +546,18 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
                           return null;
                         },
                       ),
+                      if (!_organizationAccount) ...[
+                        const SizedBox(height: 16),
+                        TextFormField(
+                          controller: _invitationCodeController,
+                          decoration: const InputDecoration(
+                            labelText: 'Hospital invitation code (optional)',
+                            helperText:
+                                'Enter a code supplied by your hospital to review a patient-record link.',
+                            prefixIcon: Icon(Icons.key_outlined),
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 16),
 
                       // Password Field
@@ -571,12 +737,27 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
                           ),
                         ),
                       ),
+                      if (_awaitingInvitationEmailVerification) ...[
+                        const SizedBox(height: 12),
+                        const Card(
+                          child: Padding(
+                            padding: EdgeInsets.all(14),
+                            child: Text(
+                              'A verification email was sent to your signup email. Verify it, then continue to review or decline the hospital link.',
+                            ),
+                          ),
+                        ),
+                      ],
 
                       // Primary CTA: Create Account →
                       SizedBox(
                         height: 48,
                         child: ElevatedButton(
-                          onPressed: _isLoading ? null : _handleSignUp,
+                          onPressed: _isLoading
+                              ? null
+                              : _awaitingInvitationEmailVerification
+                              ? _verifyAndCompletePatientInvitation
+                              : _handleSignUp,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: AppTheme.primaryEmerald,
                             foregroundColor: Colors.white,
@@ -598,7 +779,9 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
                                     Text(
-                                      _accountSetupIncomplete
+                                      _awaitingInvitationEmailVerification
+                                          ? 'I verified my email'
+                                          : _accountSetupIncomplete
                                           ? 'Retry account setup'
                                           : 'Create Account',
                                       style: GoogleFonts.inter(
