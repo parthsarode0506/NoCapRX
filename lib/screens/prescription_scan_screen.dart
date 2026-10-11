@@ -45,6 +45,7 @@ class _PrescriptionScanScreenState
   String? _imagePath;
   String? _rawText;
   String? _errorMessage;
+  String? _cloudNotice;
 
   /// Confirmed medicine names the user has accepted.
   List<String> _confirmedMedicines = [];
@@ -140,15 +141,36 @@ class _PrescriptionScanScreenState
       _phase = _ScanPhase.scanning;
       _errorMessage = null;
       _rawText = null;
+      _cloudNotice = null;
     });
 
     try {
+      // Step 1: ask the vision model for medicine names directly (most reliable).
+      final aiMedicines =
+          await PrescriptionOcrService.extractMedicinesFromImage(path);
+      if (aiMedicines != null && aiMedicines.isNotEmpty && mounted) {
+        // Grab raw text too so the user can inspect it.
+        final text = await PrescriptionOcrService.extractText(path);
+        if (!mounted) return;
+        _populateEditField(text, aiMedicines);
+        setState(() {
+          _rawText = text;
+          _confirmedMedicines = List.from(aiMedicines);
+          _phase = _ScanPhase.verifying;
+          _cloudNotice = null;
+        });
+        return;
+      }
+
+      // Step 2: fall back to OCR text + local medicine matching.
+      final cloudFailure = PrescriptionOcrService.lastCloudError;
       final text = await PrescriptionOcrService.extractText(path);
 
       if (text.trim().isEmpty) {
         _setError(
           'No text was detected in the image. '
-          'Try taking a clearer, well-lit photo of the prescription.',
+          'Try taking a clearer, well-lit photo of the prescription.'
+          '${cloudFailure != null ? '\n\nCloud OCR status: $cloudFailure' : ''}',
         );
         return;
       }
@@ -160,6 +182,7 @@ class _PrescriptionScanScreenState
         _rawText = text;
         _confirmedMedicines = List.from(candidates);
         _phase = _ScanPhase.verifying;
+        _cloudNotice = cloudFailure;
       });
     } catch (e) {
       _setError('Failed to scan prescription: $e');
@@ -657,6 +680,37 @@ class _PrescriptionScanScreenState
             ),
           ),
           const SizedBox(height: 16),
+
+          // Cloud OCR status notice (when cloud was unavailable / rate-limited)
+          if (_cloudNotice != null) ...[
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.amber.shade50,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.amber.shade300),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.cloud_off_outlined,
+                      color: Colors.amber.shade800, size: 18),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Cloud OCR note: $_cloudNotice\nUsing on-device results — verify the medicines below carefully.',
+                      style: GoogleFonts.inter(
+                        fontSize: 11.5,
+                        color: Colors.amber.shade900,
+                        height: 1.35,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
 
           // Image thumbnail
           if (_imagePath != null) ...[
