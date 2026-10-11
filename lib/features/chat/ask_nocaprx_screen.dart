@@ -103,7 +103,19 @@ class _AskNocapRxScreenState extends ConsumerState<AskNocapRxScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           child: Row(children: [
             const Text('🟢'), const SizedBox(width: 6),
-            Expanded(child: Text(_loading ? 'On-device AI is loading...' : 'On-device AI', style: GoogleFonts.inter(fontWeight: FontWeight.w700, color: AppTheme.primaryDarkEmerald))),
+            Expanded(
+              child: Text(
+                _loading
+                    ? 'AI Assistant is initializing...'
+                    : (_service.onDevice.isReady
+                        ? 'On-device AI Active'
+                        : 'NOCAPRx AI Active'),
+                style: GoogleFonts.inter(
+                  fontWeight: FontWeight.w700,
+                  color: AppTheme.primaryDarkEmerald,
+                ),
+              ),
+            ),
             if (_loading) const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
           ]),
         ),

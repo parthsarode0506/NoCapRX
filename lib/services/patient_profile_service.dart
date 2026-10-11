@@ -29,11 +29,6 @@ class PatientProfileService {
     }
   }
 
-  static String get _key {
-    final uid = _resolveUid();
-    return uid == null ? _keyPrefix : '${_keyPrefix}_$uid';
-  }
-
   static Future<PatientProfile> load([String? userId]) async {
     final uid = _resolveUid(userId);
     final key = uid == null ? _keyPrefix : '${_keyPrefix}_$uid';

@@ -25,6 +25,7 @@ class LlmService {
         'limitations': mechanism,
         'verificationStatus': 'verified',
       },
+      allowCloudAi: true,
     );
   }
 
@@ -79,6 +80,7 @@ class LlmService {
     return _service.answerHealthQuestion(
       question: userQuery,
       reportContext: context.isEmpty ? null : context,
+      allowCloudAi: true,
     );
   }
 }

@@ -24,8 +24,10 @@ class _MyPrescriptionsScreenState extends ConsumerState<MyPrescriptionsScreen> {
   @override
   Widget build(BuildContext context) {
     final patientProfile = ref.watch(patientProfileProvider);
-    final patientId = patientProfile.patientId.trim();
     final user = FirebaseService.currentUser;
+    final patientId = patientProfile.patientId.trim().isNotEmpty
+        ? patientProfile.patientId.trim()
+        : (user?.uid ?? '');
 
     return Scaffold(
       backgroundColor: AppTheme.bgLight,
@@ -38,7 +40,7 @@ class _MyPrescriptionsScreenState extends ConsumerState<MyPrescriptionsScreen> {
                 child: Padding(
                   padding: EdgeInsets.all(24),
                   child: Text(
-                    'Your patient record is not configured. Complete your patient profile to load published prescriptions.',
+                    'Please sign in to view your prescriptions.',
                     textAlign: TextAlign.center,
                   ),
                 ),

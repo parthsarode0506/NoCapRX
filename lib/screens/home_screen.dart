@@ -7,7 +7,6 @@ import '../models/genomic_drug_scan_report.dart';
 import '../models/patient_profile.dart';
 import '../models/pgx_report.dart';
 import '../providers/app_providers.dart';
-import '../models/uploaded_vcf_file.dart';
 import '../parser/vcf_parser.dart';
 import '../services/firebase_service.dart';
 import '../services/genomic_drug_scan_service.dart';
@@ -355,7 +354,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               // ── Doctor Prescriptions Banner ──────────────────────────
               _buildDoctorPrescriptionsBanner(
                 context,
-                patientProfile.patientId,
+                patientProfile.patientId.isNotEmpty
+                    ? patientProfile.patientId
+                    : (FirebaseService.currentUser?.uid ?? ''),
                 FirebaseService.currentUser?.uid,
               ),
 
@@ -516,9 +517,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     String patientId,
     String? patientUid,
   ) {
+    final effectiveId = patientId.trim().isNotEmpty
+        ? patientId.trim()
+        : (patientUid?.trim().isNotEmpty == true ? patientUid!.trim() : '');
     return StreamBuilder<List<Prescription>>(
       stream: PrescriptionService.instance.streamPatientPrescriptions(
-        patientId.isNotEmpty ? patientId : 'PATIENT_001',
+        effectiveId,
         patientUid: patientUid,
       ),
       builder: (context, snapshot) {

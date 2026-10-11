@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
@@ -31,7 +32,6 @@ class PrescriptionService {
     } catch (e) {
       debugPrint('Error loading cached prescriptions: $e');
     }
-
   }
 
   Future<void> clearAllPrescriptions() async {
@@ -60,49 +60,96 @@ class PrescriptionService {
 
     List<Prescription> getLocalMatches() {
       final pid = patientId.trim().toUpperCase();
+      final puid = patientUid?.trim() ?? '';
+      final curUid = FirebaseService.currentUser?.uid ?? '';
       final matches = _inMemoryCache.values
           .where((p) =>
-              (pid.isEmpty ||
-                  p.patientId.toUpperCase() == pid ||
-                  (patientUid != null &&
-                      patientUid.isNotEmpty &&
-                      p.patientUid == patientUid) ||
-                  pid == 'ALL'))
+              pid == 'ALL' ||
+              (pid.isNotEmpty && pid != 'PATIENT_001' && p.patientId.toUpperCase() == pid) ||
+              (puid.isNotEmpty && p.patientUid == puid) ||
+              (puid.isNotEmpty && p.patientId == puid) ||
+              (curUid.isNotEmpty && p.patientUid == curUid) ||
+              (curUid.isNotEmpty && p.patientId == curUid))
           .toList()
-        ..sort((a, b) => (b.issuedAt ?? b.createdAt).compareTo(a.issuedAt ?? a.createdAt));
+        ..sort((a, b) =>
+            (b.issuedAt ?? b.createdAt).compareTo(a.issuedAt ?? a.createdAt));
       return matches;
     }
 
     yield getLocalMatches();
 
-    if (FirebaseService.isCloudAvailable && patientId.trim().isNotEmpty) {
-      try {
-        var query = FirebaseFirestore.instance
-            .collection('patients')
-            .doc(patientId)
-            .collection('prescriptions')
-            .where('status', isEqualTo: 'issued')
-            .orderBy('createdAt', descending: true);
-        await for (final snapshot in query.snapshots()) {
-          final cloudList = snapshot.docs
-              .map((doc) => _fromCloudDocument(doc.id, doc.data()))
-              .toList(growable: false);
+    if (FirebaseService.isCloudAvailable) {
+      final targetIds = <String>{};
+      if (patientId.trim().isNotEmpty &&
+          patientId.trim().toUpperCase() != 'PATIENT_001') {
+        targetIds.add(patientId.trim());
+      }
+      if (patientUid?.trim().isNotEmpty == true) {
+        targetIds.add(patientUid!.trim());
+      }
+      final curUid = FirebaseService.currentUser?.uid;
+      if (curUid != null && curUid.trim().isNotEmpty) {
+        targetIds.add(curUid.trim());
+      }
+
+      if (targetIds.isNotEmpty) {
+        final controller = StreamController<List<Prescription>>();
+        final cloudPrescriptions = <String, Prescription>{};
+        final subscriptions = <StreamSubscription>[];
+
+        void emitMerged() {
+          if (controller.isClosed) return;
           final localList = getLocalMatches();
-          final combinedMap = <String, Prescription>{};
+          final map = <String, Prescription>{};
           for (final p in localList) {
-            combinedMap[p.prescriptionId] = p;
+            map[p.prescriptionId] = p;
           }
-          for (final p in cloudList) {
-            combinedMap[p.prescriptionId] = p;
+          for (final p in cloudPrescriptions.values) {
+            map[p.prescriptionId] = p;
           }
-          final combined = combinedMap.values.toList()
+          final list = map.values.toList()
             ..sort((a, b) =>
                 (b.issuedAt ?? b.createdAt).compareTo(a.issuedAt ?? a.createdAt));
-          yield combined;
+          controller.add(list);
         }
-      } catch (e) {
-        debugPrint('PrescriptionService cloud stream error: $e');
-        yield getLocalMatches();
+
+        for (final id in targetIds) {
+          for (final col in ['patients', 'users']) {
+            try {
+              final sub = FirebaseFirestore.instance
+                  .collection(col)
+                  .doc(id)
+                  .collection('prescriptions')
+                  .snapshots()
+                  .listen(
+                (snapshot) {
+                  for (final doc in snapshot.docs) {
+                    try {
+                      final p = _fromCloudDocument(doc.id, doc.data());
+                      cloudPrescriptions[p.prescriptionId] = p;
+                      _inMemoryCache[p.prescriptionId] = p;
+                    } catch (_) {}
+                  }
+                  _persistLocal();
+                  emitMerged();
+                },
+                onError: (e) {
+                  debugPrint('Prescription listen error on $col/$id: $e');
+                },
+              );
+              subscriptions.add(sub);
+            } catch (_) {}
+          }
+        }
+
+        controller.onCancel = () {
+          for (final sub in subscriptions) {
+            sub.cancel();
+          }
+          controller.close();
+        };
+
+        yield* controller.stream;
       }
     }
   }
@@ -117,13 +164,12 @@ class PrescriptionService {
       ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
     yield localMatches;
 
-    if (FirebaseService.isCloudAvailable) {
+    if (FirebaseService.isCloudAvailable && patientId.trim().isNotEmpty) {
       try {
         final query = FirebaseFirestore.instance
             .collection('patients')
-            .doc(patientId)
-            .collection('prescriptions')
-            .orderBy('createdAt', descending: true);
+            .doc(patientId.trim())
+            .collection('prescriptions');
         await for (final snapshot in query.snapshots()) {
           final cloudList = snapshot.docs
               .map((doc) => _fromCloudDocument(doc.id, doc.data()))
@@ -134,6 +180,7 @@ class PrescriptionService {
           }
           for (final p in cloudList) {
             map[p.prescriptionId] = p;
+            _inMemoryCache[p.prescriptionId] = p;
           }
           final list = map.values.toList()
             ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
@@ -168,18 +215,37 @@ class PrescriptionService {
       try {
         final firestore = FirebaseFirestore.instance;
         final data = prescription.toJson();
-        await firestore
-            .collection('patients')
-            .doc(prescription.patientId)
-            .collection('prescriptions')
-            .doc(prescription.prescriptionId)
-            .set(data, SetOptions(merge: true));
+        if (prescription.patientId.isNotEmpty) {
+          await firestore
+              .collection('patients')
+              .doc(prescription.patientId)
+              .collection('prescriptions')
+              .doc(prescription.prescriptionId)
+              .set(data, SetOptions(merge: true));
+        }
 
         if (prescription.patientUid != null &&
             prescription.patientUid!.isNotEmpty) {
           await firestore
               .collection('users')
-              .doc(prescription.patientUid)
+              .doc(prescription.patientUid!)
+              .collection('prescriptions')
+              .doc(prescription.prescriptionId)
+              .set(data, SetOptions(merge: true));
+
+          await firestore
+              .collection('patients')
+              .doc(prescription.patientUid!)
+              .collection('prescriptions')
+              .doc(prescription.prescriptionId)
+              .set(data, SetOptions(merge: true));
+        }
+
+        if (prescription.patientId.isNotEmpty &&
+            prescription.patientId != prescription.patientUid) {
+          await firestore
+              .collection('users')
+              .doc(prescription.patientId)
               .collection('prescriptions')
               .doc(prescription.prescriptionId)
               .set(data, SetOptions(merge: true));

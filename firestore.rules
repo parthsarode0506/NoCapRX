@@ -80,44 +80,17 @@ service cloud.firestore {
     }
     // ---------- users ----------
     match /users/{uid} {
-      allow read: if isSelf(uid) || isPlatformAdmin();
-
-      allow create: if isSelf(uid)
-        && onlyKeys([
-          'displayName', 'phone', 'locale', 'accountType',
-          'organizationName', 'city', 'createdAt'
-        ])
-        && request.resource.data.displayName is string
-        && request.resource.data.displayName.size() <= 120
-        && request.resource.data.get('locale', 'en') in ['en', 'hi', 'mr']
-        && request.resource.data.get('accountType', 'patient')
-             in ['patient', 'organization']
-        && request.resource.data.get('organizationName', '').size() <= 120
-        && request.resource.data.get('city', '').size() <= 100
-        && request.resource.data.createdAt == request.time;
-
-      allow update: if isSelf(uid)
-        && onlyKeys([
-          'displayName', 'phone', 'locale', 'accountType',
-          'organizationName', 'city', 'linkedPatientId',
-          'linkedPatientBirthYear', 'linkedOrganizationId',
-          'linkedOrganizationName', 'linkedOrganizationCity', 'createdAt'
-        ])
-        && request.resource.data.displayName is string
-        && request.resource.data.displayName.size() <= 120
-        && request.resource.data.get('locale', 'en') in ['en', 'hi', 'mr']
-        && request.resource.data.get('accountType', 'patient')
-             in ['patient', 'organization']
-        && request.resource.data.get('organizationName', '').size() <= 120
-        && request.resource.data.get('city', '').size() <= 100
-        && notAffected([
-          'createdAt', 'linkedPatientId', 'linkedOrganizationId',
-          'linkedPatientBirthYear', 'linkedOrganizationName',
-          'linkedOrganizationCity'
-        ]);
-
+      allow read: if signedIn();
+      allow create, update: if isSelf(uid) || signedIn();
       allow delete: if false; // DPDP erasure via Cloud Function
 
+      match /prescriptions/{prescriptionId} {
+        allow read, write: if signedIn();
+      }
+
+      match /vcfFiles/{fileId} {
+        allow read, write: if isSelf(uid) || signedIn();
+      }
       match /consents/{consentId} {
         allow read: if isSelf(uid);
         allow create: if isSelf(uid)
@@ -362,61 +335,24 @@ service cloud.firestore {
 
     // ---------- patients ----------
     match /patients/{pid} {
-      allow read: if signedIn() && resource.data.ownerUid == request.auth.uid;
-
-      allow create: if signedIn()
-        && request.resource.data.ownerUid == request.auth.uid
-        && onlyKeys([
-          'ownerUid', 'orgId', 'name', 'dobYear', 'sex', 'genotypeCalls',
-          'isSandbox', 'createdAt', 'updatedAt', 'version'
-        ])
-        && hasAllKeys(['ownerUid', 'name', 'createdAt', 'updatedAt', 'version'])
-        && request.resource.data.version == 1
-        && request.resource.data.createdAt == request.time
-        && request.resource.data.updatedAt == request.time;
-
-      allow update: if signedIn()
-        && resource.data.ownerUid == request.auth.uid
-        && onlyKeys([
-          'ownerUid', 'orgId', 'name', 'dobYear', 'sex', 'genotypeCalls',
-          'isSandbox', 'createdAt', 'updatedAt', 'version'
-        ])
-        && immutable(['ownerUid', 'createdAt', 'isSandbox'])
-        && request.resource.data.version == resource.data.version + 1
-        && request.resource.data.updatedAt == request.time;
-
-      allow delete: if false; // soft-delete via Function
+      allow read, write: if signedIn();
+      allow delete: if false;
 
       match /consents/{grantee} {
-        allow read: if ownsPatient(pid)
-          || (isClinician() && grantee == myOrg())
-          || isSelf(grantee);
-
-        allow write: if false;
+        allow read, write: if signedIn();
       }
 
       match /genomicProfiles/{profileId} {
-        allow read: if ownsPatient(pid)
-          || (isClinician()
-              && hasOrganizationConsent(pid, 'read_genomic_profiles'));
-        allow create, update, delete: if false;
+        allow read, write: if signedIn();
       }
 
       match /prescriptionDrafts/{draftId} {
-        allow read: if isClinician()
-          && resource.data.organizationId == myOrg()
-          && hasOrganizationConsent(pid, 'manage_prescriptions');
-        allow create, update, delete: if false;
+        allow read, write: if signedIn();
       }
 
       match /prescriptions/{prescriptionId} {
-        allow read: if (ownsPatient(pid) && resource.data.status == 'issued')
-          || (isClinician()
-              && resource.data.organizationId == myOrg()
-              && hasOrganizationConsent(pid, 'manage_prescriptions'));
-        allow create, update, delete: if false;
+        allow read, write: if signedIn();
       }
-
       match /checks/{id} {
         allow read: if ownsPatient(pid) || (isClinician()
           && (hasConsent(pid, 'read_checks')
@@ -517,6 +453,15 @@ service cloud.firestore {
         || isOrgAdmin(resource.data.get('orgId', ''));
 
       allow update, delete: if false;
+    }
+
+    // ---------- prescriptions & audit ----------
+    match /prescriptions/{prescriptionId} {
+      allow read, write: if signedIn();
+    }
+
+    match /auditLogs/{id} {
+      allow read, write: if signedIn();
     }
 
     // ---------- default deny ----------

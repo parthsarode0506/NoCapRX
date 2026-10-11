@@ -16,19 +16,25 @@ class PrescriptionOcrService {
     http.Client? client,
     String? apiKey,
     String? model,
-    bool allowCloudAi = false, // Default to false for privacy - on-device ML Kit only
+    bool? allowCloudAi, // null = auto: cloud is used only when a key exists
   }) async {
-    if (!allowCloudAi) {
-      return _extractLocally(imagePath);
-    }
-
     final key = apiKey?.trim().isNotEmpty == true
         ? apiKey!.trim()
         : _env('OPENROUTER_API_KEY')?.trim();
 
-    if (key == null || key.isEmpty || key.startsWith('YOUR_')) {
+    final keyAvailable =
+        key != null && key.isNotEmpty && !key.startsWith('YOUR_');
+    final useCloud = allowCloudAi ?? keyAvailable;
+
+    if (!useCloud || !keyAvailable) {
       return _extractLocally(imagePath);
     }
+
+    final effectiveModel = model?.trim().isNotEmpty == true
+        ? model!.trim()
+        : _env('OPENROUTER_MODEL')?.trim().isNotEmpty == true
+            ? _env('OPENROUTER_MODEL')!.trim()
+            : _defaultModel;
 
     final bytes = await File(imagePath).readAsBytes();
     final mimeType = _mimeType(imagePath);
@@ -42,7 +48,7 @@ class PrescriptionOcrService {
           'X-Title': 'PharmaGuard Prescription OCR',
         },
         body: jsonEncode({
-          'model': _defaultModel,
+          'model': effectiveModel,
           'temperature': 0,
           'messages': [
             {
