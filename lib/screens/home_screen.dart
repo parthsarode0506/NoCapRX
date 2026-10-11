@@ -7,9 +7,12 @@ import '../models/genomic_drug_scan_report.dart';
 import '../models/patient_profile.dart';
 import '../models/pgx_report.dart';
 import '../providers/app_providers.dart';
+import '../models/uploaded_vcf_file.dart';
+import '../parser/vcf_parser.dart';
 import '../services/firebase_service.dart';
 import '../services/genomic_drug_scan_service.dart';
 import '../services/patient_profile_service.dart';
+import '../services/screen_cache_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/brand_emblem.dart';
 import 'chatbot_screen.dart';
@@ -48,9 +51,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   Future<void> _ensurePatientIntake() async {
     if (_hasCheckedPatientIntake || !mounted) return;
     _hasCheckedPatientIntake = true;
+
+    // 1. Load & restore patient personal health profile
     final profile = await PatientProfileService.load();
     if (!mounted) return;
     ref.read(patientProfileProvider.notifier).state = profile;
+
+    // 2. Load & restore user's uploaded VCF files if not already in memory
+    await _restoreUserVcfFiles();
+
     if (profile.hasCompletedIntake) return;
 
     await Navigator.of(context).push<void>(
@@ -60,17 +69,53 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
+  Future<void> _restoreUserVcfFiles() async {
+    final user = FirebaseService.currentUser;
+    if (user == null) return;
+    if (ref.read(vcfParseResultProvider) != null) return;
+
+    final cachedFiles = await ScreenCacheService.getUserVcfFiles(user.uid);
+    if (cachedFiles.isNotEmpty && mounted) {
+      ref.read(uploadedVcfFilesProvider.notifier).state = cachedFiles;
+      final parseResults = <VcfParseResult>[];
+      for (final f in cachedFiles) {
+        try {
+          final res = VcfParser.parseVcfContent(f.content);
+          parseResults.add(res);
+        } catch (_) {}
+      }
+
+      if (parseResults.isNotEmpty) {
+        final merged = VcfParser.mergeResults(parseResults);
+        final names = cachedFiles.map((f) => f.fileName).join(', ');
+        ref.read(selectedVcfFilenameProvider.notifier).state = names;
+        ref.read(selectedVcfContentProvider.notifier).state =
+            cachedFiles.last.content;
+        ref.read(vcfParseResultProvider.notifier).state = merged;
+        ref.read(genomicScanReportProvider.notifier).state =
+            GenomicDrugScanService.scan(
+          parseResult: merged,
+          vcfFilename: names,
+        );
+      }
+    }
+  }
+
   // ─── Navigation helpers ───────────────────────────────────────────────────
 
   Future<void> _signOut(BuildContext context, WidgetRef ref) async {
     ref.read(patientProfileProvider.notifier).state = const PatientProfile();
+    ref.read(selectedVcfFilenameProvider.notifier).state = null;
+    ref.read(selectedVcfContentProvider.notifier).state = null;
     ref.read(vcfParseResultProvider.notifier).state = null;
     ref.read(genomicScanReportProvider.notifier).state = null;
+    ref.read(uploadedVcfFilesProvider.notifier).state = const [];
     ref.read(currentReportProvider.notifier).state = null;
     ref.read(selectedDrugsProvider.notifier).state = <String>{};
     ref.read(customDrugTextProvider.notifier).state = '';
-    await FirebaseService.signOut();
     ref.read(userProfileProvider.notifier).state = null;
+    await PatientProfileService.clearMemory();
+    await FirebaseService.signOut();
     if (context.mounted) {
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(builder: (_) => const SignInScreen()),
@@ -773,7 +818,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ),
           const SizedBox(height: 16),
           InkWell(
-            onTap: analyzed ? null : onUpload,
+            onTap: onUpload,
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               decoration: BoxDecoration(
@@ -800,7 +845,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   Expanded(
                     child: Text(
                       analyzed
-                          ? 'Genetic profile loaded'
+                          ? 'Genetic profile loaded (tap to manage/add VCF)'
                           : 'Upload your VCF file to begin',
                       style: GoogleFonts.inter(
                         color: Colors.white,
@@ -809,15 +854,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       ),
                     ),
                   ),
-                  if (!analyzed)
-                    Text(
-                      'Upload →',
-                      style: GoogleFonts.inter(
-                        color: Colors.amberAccent,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 12,
-                      ),
+                  Text(
+                    analyzed ? 'Manage →' : 'Upload →',
+                    style: GoogleFonts.inter(
+                      color:
+                          analyzed ? AppTheme.vibrantMint : Colors.amberAccent,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 12,
                     ),
+                  ),
                 ],
               ),
             ),

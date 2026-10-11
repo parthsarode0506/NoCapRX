@@ -28,41 +28,14 @@ class AuditService {
       debugPrint('Error loading audit logs: $e');
     }
 
-    if (_inMemoryLogs.isEmpty) {
-      _inMemoryLogs.addAll([
-        AuditLogEntry(
-          id: 'AUDIT-101',
-          action: 'organization_registered',
-          actorUid: 'USER-CLINIC-01',
-          actorRole: 'organization',
-          organizationId: 'ORG-APOLLO-01',
-          targetId: 'ORG-APOLLO-01',
-          description: 'Apollo Clinical Genomics Center registered in directory.',
-          timestamp: DateTime.now().subtract(const Duration(days: 5)),
-        ),
-        AuditLogEntry(
-          id: 'AUDIT-102',
-          action: 'patient_access_granted',
-          actorUid: 'USER-PATIENT-01',
-          actorRole: 'patient',
-          organizationId: 'ORG-APOLLO-01',
-          targetId: 'PATIENT_001',
-          description: 'Patient Alex Mercer authorized genetic report sharing.',
-          timestamp: DateTime.now().subtract(const Duration(days: 4)),
-        ),
-        AuditLogEntry(
-          id: 'AUDIT-103',
-          action: 'prescription_issued',
-          actorUid: 'DOC-5501',
-          actorRole: 'doctor',
-          organizationId: 'ORG-APOLLO-01',
-          targetId: 'PATIENT_001',
-          description: 'Prescription RX-98241 approved and issued after CPIC review.',
-          timestamp: DateTime.now().subtract(const Duration(days: 3)),
-        ),
-      ]);
-      await _persistLocal();
-    }
+  }
+
+  Future<void> clearAllLogs() async {
+    _inMemoryLogs.clear();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_localAuditLogsKey);
+    } catch (_) {}
   }
 
   Future<void> _persistLocal() async {

@@ -119,6 +119,7 @@ class _OrganizationDashboardScreenState
   }
 
   Future<void> _signOut() async {
+    await FirebaseService.clearLocalStateAndCache();
     await FirebaseService.signOut();
     if (!mounted) return;
     Navigator.of(context).pushAndRemoveUntil(

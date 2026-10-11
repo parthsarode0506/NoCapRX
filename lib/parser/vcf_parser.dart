@@ -351,4 +351,82 @@ class VcfParser {
         return 'Unknown';
     }
   }
+
+  /// Merges multiple VCF parse results (e.g. separate files for different genes)
+  /// into a single unified PGx result.
+  static VcfParseResult mergeResults(
+    List<VcfParseResult> results, {
+    String patientId = 'PATIENT_001',
+  }) {
+    if (results.isEmpty) {
+      return VcfParseResult(
+        patientId: patientId,
+        geneProfiles: {},
+        qualityMetrics: QualityMetrics(
+          vcfParsingSuccess: false,
+          variantsDetected: 0,
+          genesCovered: const [],
+          diplotypeInferred: true,
+          annotationCompleteness: 0.0,
+        ),
+      );
+    }
+    if (results.length == 1) return results.first;
+
+    final mergedProfiles = <String, ParsedGeneData>{};
+    int totalVars = 0;
+    final allCoveredGenes = <String>{};
+    bool anyInferred = false;
+    double completenessSum = 0;
+
+    for (final res in results) {
+      totalVars += res.qualityMetrics.variantsDetected;
+      allCoveredGenes.addAll(res.qualityMetrics.genesCovered);
+      if (res.qualityMetrics.diplotypeInferred) anyInferred = true;
+      completenessSum += res.qualityMetrics.annotationCompleteness;
+
+      for (final entry in res.geneProfiles.entries) {
+        final gene = entry.key;
+        final geneData = entry.value;
+
+        if (!mergedProfiles.containsKey(gene)) {
+          mergedProfiles[gene] = geneData;
+        } else {
+          final existing = mergedProfiles[gene]!;
+          if (existing.isInferred && !geneData.isInferred) {
+            mergedProfiles[gene] = geneData;
+          } else if (existing.variants.isEmpty && geneData.variants.isNotEmpty) {
+            mergedProfiles[gene] = geneData;
+          } else if (geneData.variants.isNotEmpty) {
+            final allVariants = <DetectedVariant>[
+              ...existing.variants,
+              ...geneData.variants.where((v) => !existing.variants.any((ev) => ev.rsid == v.rsid)),
+            ];
+            mergedProfiles[gene] = ParsedGeneData(
+              gene: gene,
+              allele1: geneData.allele1 != '*1' ? geneData.allele1 : existing.allele1,
+              allele2: geneData.allele2 != '*1' ? geneData.allele2 : existing.allele2,
+              phenotype: geneData.phenotype != 'Unknown' ? geneData.phenotype : existing.phenotype,
+              isInferred: existing.isInferred && geneData.isInferred,
+              variants: allVariants,
+            );
+          }
+        }
+      }
+    }
+
+    final avgCompleteness = completenessSum / results.length;
+
+    return VcfParseResult(
+      patientId: patientId,
+      geneProfiles: mergedProfiles,
+      qualityMetrics: QualityMetrics(
+        vcfParsingSuccess: true,
+        variantsDetected: totalVars,
+        genesCovered: allCoveredGenes.toList(),
+        diplotypeInferred: anyInferred,
+        annotationCompleteness: avgCompleteness > 1.0 ? 1.0 : avgCompleteness,
+      ),
+    );
+  }
 }

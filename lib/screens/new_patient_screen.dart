@@ -76,44 +76,6 @@ class _NewPatientScreenState extends ConsumerState<NewPatientScreen> {
         // Fallback search in known registry
       }
 
-      // Check standard demonstration patients if matches query
-      final standardRegistry = [
-        const OrganizationPatient(
-          patientId: 'PATIENT_001',
-          name: 'Alex Mercer',
-          birthYear: 1988,
-          vcfStatus: 'uploaded',
-          analysisStatus: 'complete',
-          reportCount: 3,
-          prescriptionCount: 2,
-        ),
-        const OrganizationPatient(
-          patientId: 'PATIENT_002',
-          name: 'Priya Sharma',
-          birthYear: 1992,
-          vcfStatus: 'uploaded',
-          analysisStatus: 'complete',
-          reportCount: 1,
-          prescriptionCount: 1,
-        ),
-        const OrganizationPatient(
-          patientId: 'PATIENT_003',
-          name: 'David Kim',
-          birthYear: 1979,
-          vcfStatus: 'uploaded',
-          analysisStatus: 'complete',
-          reportCount: 2,
-          prescriptionCount: 0,
-        ),
-      ];
-
-      for (final p in standardRegistry) {
-        if ((p.name.toLowerCase().contains(query.toLowerCase()) ||
-                p.patientId.toLowerCase().contains(query.toLowerCase())) &&
-            !results.any((r) => r.patientId == p.patientId)) {
-          results.add(p);
-        }
-      }
 
       setState(() {
         _searchResults = results;

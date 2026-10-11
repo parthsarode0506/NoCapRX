@@ -2,17 +2,15 @@ import '../../models/patient_profile.dart';
 import '../../services/universal_medicine_safety_engine.dart';
 import 'chat_models.dart';
 import 'chat_safety_filter.dart';
-import 'cloud_fallback_service.dart';
 import 'medicine_retriever.dart';
 import 'on_device_chat_service.dart';
 
+/// Fully on-device chat pipeline. No cloud AI is ever contacted.
 class ChatService {
-  ChatService({OnDeviceChatService? onDevice, CloudFallbackService? cloud})
-    : onDevice = onDevice ?? OnDeviceChatService(),
-      cloud = cloud ?? GroqCloudFallbackService();
+  ChatService({OnDeviceChatService? onDevice})
+    : onDevice = onDevice ?? OnDeviceChatService();
 
   final OnDeviceChatService onDevice;
-  final CloudFallbackService cloud;
 
   Future<void> load() => onDevice.load();
 
@@ -20,7 +18,6 @@ class ChatService {
     required String question,
     PatientProfile profile = const PatientProfile(),
     String? contextMedicine,
-    bool allowCloudAi = false,
   }) async {
     final intent = MedicineRetriever.parse(
       question,
@@ -32,21 +29,6 @@ class ChatService {
     );
 
     if (evidence == null) {
-      if (allowCloudAi) {
-        try {
-          final text = await cloud.answer(
-            question: question,
-            safetyFacts: 'No verified local medicine record was found.',
-          );
-          if (text?.trim().isNotEmpty == true) {
-            return ChatAnswer(
-              text: text!.trim(),
-              sourceLabel: 'Live AI (consent-gated)',
-            );
-          }
-        } catch (_) {}
-      }
-
       try {
         final text = await onDevice.answerWithoutLocalEvidence(
           question: question,
@@ -63,7 +45,7 @@ class ChatService {
 
       return ChatAnswer(
         text: ChatSafetyFilter.withFooter(
-          'No verified local medicine record was found. This chat remains on-device unless you explicitly opt in to the cloud AI proxy.',
+          'No verified local medicine record was found. This chat stays entirely on this device.',
         ),
         sourceLabel: 'On-device only',
       );
@@ -85,23 +67,6 @@ class ChatService {
               )
               .join('\n');
 
-    if (allowCloudAi) {
-      try {
-        final text = await cloud.answer(
-          question: question,
-          evidence: evidence,
-          safetyFacts: safetyFacts,
-        );
-        if (text?.trim().isNotEmpty == true) {
-          return ChatAnswer(
-            text: text!.trim(),
-            sourceLabel: 'Live AI (consent-gated)',
-            evidence: evidence,
-          );
-        }
-      } catch (_) {}
-    }
-
     try {
       final text = await onDevice.answer(
         question: question,
@@ -121,7 +86,7 @@ class ChatService {
 
     return ChatAnswer(
       text: ChatSafetyFilter.withFooter(
-        'The local recommendation is available offline. Cloud AI remains off until you explicitly grant consent.',
+        'The local recommendation is available offline. No cloud AI is used.',
       ),
       sourceLabel: 'On-device only',
       evidence: evidence,

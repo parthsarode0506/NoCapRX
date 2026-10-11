@@ -130,10 +130,12 @@ class _OrganizationAcceptedPatientsScreenState
                             p.phenotype.toLowerCase().contains('poor') ||
                             p.phenotype.toLowerCase().contains('positive'),
                       );
-                      final geneCount = patient.sharedGenomicProfiles.isNotEmpty
-                          ? patient.sharedGenomicProfiles.length
-                          : 7;
-                      final vcfFile = patient.vcfFileName ?? 'patient_003_high_risk.vcf';
+                      final geneCount = patient.sharedGenomicProfiles.length;
+                      final hasVcf = geneCount > 0 ||
+                          patient.vcfFileName != null ||
+                          patient.vcfStatus == 'uploaded';
+                      final vcfFile = patient.vcfFileName ??
+                          (hasVcf ? 'Genomic VCF Profile' : 'VCF Not Uploaded');
 
                       return Card(
                         margin: const EdgeInsets.only(bottom: 12),

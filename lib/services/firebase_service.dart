@@ -11,7 +11,10 @@ import '../models/chat_message.dart';
 import '../models/organization_access.dart';
 import '../models/organization_patient.dart';
 import '../models/pgx_report.dart';
+import 'audit_service.dart';
 import 'local_report_service.dart';
+import 'patient_profile_service.dart';
+import 'prescription_service.dart';
 import 'screen_cache_service.dart';
 
 class AccountSetupFailure implements Exception {
@@ -536,17 +539,140 @@ class FirebaseService {
 
     final user = currentUser;
     if (user != null) {
-      // 2. Load connected patients from cache
+      // 2. Load directly from Firestore: organizationDirectory/{user.uid}/patients
+      if (isCloudAvailable) {
+        try {
+          final patientsSnap = await FirebaseFirestore.instance
+              .collection('organizationDirectory')
+              .doc(user.uid)
+              .collection('patients')
+              .get();
+          for (final doc in patientsSnap.docs) {
+            final data = doc.data();
+            final pid = (data['patientId'] as String?) ?? doc.id;
+            final p = OrganizationPatient(
+              patientId: pid,
+              name: (data['name'] as String?) ?? 'Patient',
+              patientUid: (data['patientUid'] as String?) ?? '',
+              vcfStatus: (data['vcfStatus'] as String?) ?? 'uploaded',
+              analysisStatus: (data['analysisStatus'] as String?) ?? 'complete',
+              vcfFileName: data['vcfFileName'] as String?,
+              prescriptionSharingAllowed:
+                  (data['prescriptionSharingAllowed'] as bool?) ?? true,
+              sharedGenomicProfiles: (data['sharedGenomicProfiles'] is List)
+                  ? (data['sharedGenomicProfiles'] as List)
+                      .whereType<Map>()
+                      .map((m) => SharedGenomicProfile.fromJson(
+                            Map<String, dynamic>.from(m),
+                          ))
+                      .toList()
+                  : const [],
+            );
+            map[pid] = p;
+          }
+        } catch (e) {
+          debugPrint('Firestore listOrganizationPatients patients collection note: $e');
+        }
+
+        // 3. Load accepted directory requests from Firestore
+        try {
+          final requestsSnap = await FirebaseFirestore.instance
+              .collection('organizationDirectory')
+              .doc(user.uid)
+              .collection('requests')
+              .get();
+          for (final doc in requestsSnap.docs) {
+            final data = doc.data();
+            final status = data['status'] as String? ?? '';
+            if (status == 'directory_request_acknowledged' ||
+                status == 'accepted') {
+              final patientUid = (data['patientUid'] as String?) ?? doc.id;
+              final patientName =
+                  (data['patientName'] as String?) ?? 'Patient';
+              final patientId = (data['patientId'] as String?)?.isNotEmpty == true
+                  ? (data['patientId'] as String)
+                  : 'PAT_${patientUid.length > 6 ? patientUid.substring(0, 6).toUpperCase() : patientUid.toUpperCase()}';
+
+              String vcfStatus = (data['vcfStatus'] as String?) ?? 'not_shared';
+              String analysisStatus =
+                  (data['analysisStatus'] as String?) ?? 'pending';
+              String? vcfFileName = data['vcfFileName'] as String?;
+              List<SharedGenomicProfile> genomicProfiles = [];
+
+              if (data['sharedGenomicProfiles'] is List) {
+                genomicProfiles = (data['sharedGenomicProfiles'] as List)
+                    .whereType<Map>()
+                    .map((m) => SharedGenomicProfile.fromJson(
+                          Map<String, dynamic>.from(m),
+                        ))
+                    .toList();
+              }
+
+              // Also check users/{patientUid} document for uploaded VCF
+              try {
+                final userDoc = await FirebaseFirestore.instance
+                    .collection('users')
+                    .doc(patientUid)
+                    .get();
+                if (userDoc.exists) {
+                  final userData = userDoc.data();
+                  if (userData != null) {
+                    final rawProf = userData['patientProfile'];
+                    if (rawProf is Map && rawProf['vcf_filename'] != null) {
+                      vcfFileName ??= rawProf['vcf_filename'] as String?;
+                      vcfStatus = 'uploaded';
+                      analysisStatus = 'complete';
+                    }
+                    if (userData['sharedGenomicProfiles'] is List &&
+                        genomicProfiles.isEmpty) {
+                      genomicProfiles = (userData['sharedGenomicProfiles'] as List)
+                          .whereType<Map>()
+                          .map((m) => SharedGenomicProfile.fromJson(
+                                Map<String, dynamic>.from(m),
+                              ))
+                          .toList();
+                    }
+                  }
+                }
+              } catch (_) {}
+
+              if (!map.containsKey(patientId)) {
+                map[patientId] = OrganizationPatient(
+                  patientId: patientId,
+                  name: patientName,
+                  patientUid: patientUid,
+                  vcfStatus: genomicProfiles.isNotEmpty || vcfFileName != null
+                      ? 'uploaded'
+                      : vcfStatus,
+                  analysisStatus:
+                      genomicProfiles.isNotEmpty || vcfFileName != null
+                          ? 'complete'
+                          : analysisStatus,
+                  vcfFileName: vcfFileName,
+                  prescriptionSharingAllowed: true,
+                  sharedGenomicProfiles: genomicProfiles,
+                );
+              }
+            }
+          }
+        } catch (e) {
+          debugPrint('Firestore listOrganizationPatients requests note: $e');
+        }
+      }
+
+      // 4. Load connected patients from cache
       try {
         final cached = await ScreenCacheService.getConnectedPatients(user.uid);
         for (final p in cached) {
-          map[p.patientId] = p;
+          if (!map.containsKey(p.patientId)) {
+            map[p.patientId] = p;
+          }
         }
       } catch (e) {
         debugPrint('Cache getConnectedPatients note: $e');
       }
 
-      // 3. Load accepted directory requests
+      // 5. Load accepted directory requests from cache
       try {
         final requests =
             await ScreenCacheService.getCachedAccessRequests(user.uid);
@@ -555,215 +681,22 @@ class FirebaseService {
               req.status == 'accepted') {
             final pid = req.patientId.isNotEmpty
                 ? req.patientId
-                : 'PAT_${req.patientUid.substring(0, min(6, req.patientUid.length)).toUpperCase()}';
+                : 'PAT_${req.patientUid.length > 6 ? req.patientUid.substring(0, 6).toUpperCase() : req.patientUid.toUpperCase()}';
             if (!map.containsKey(pid)) {
               map[pid] = OrganizationPatient(
                 patientId: pid,
                 name: req.patientName,
                 patientUid: req.patientUid,
-                vcfStatus: 'uploaded',
-                analysisStatus: 'complete',
-                vcfFileName: 'patient_003_high_risk.vcf',
+                vcfStatus: 'not_shared',
+                analysisStatus: 'pending',
+                vcfFileName: null,
                 prescriptionSharingAllowed: true,
-                sharedGenomicProfiles: const [
-                  SharedGenomicProfile(
-                    gene: 'CYP2D6',
-                    diplotype: '*4/*4',
-                    phenotype: 'Poor Metabolizer',
-                    isInferred: false,
-                  ),
-                  SharedGenomicProfile(
-                    gene: 'CYP2C19',
-                    diplotype: '*1/*1',
-                    phenotype: 'Normal Metabolizer',
-                    isInferred: false,
-                  ),
-                  SharedGenomicProfile(
-                    gene: 'CYP2C9',
-                    diplotype: '*2/*3',
-                    phenotype: 'Poor Metabolizer',
-                    isInferred: false,
-                  ),
-                  SharedGenomicProfile(
-                    gene: 'SLCO1B1',
-                    diplotype: '*5/*5',
-                    phenotype: 'Poor function',
-                    isInferred: false,
-                  ),
-                  SharedGenomicProfile(
-                    gene: 'TPMT',
-                    diplotype: '*3B/*3C',
-                    phenotype: 'Poor Metabolizer',
-                    isInferred: false,
-                  ),
-                  SharedGenomicProfile(
-                    gene: 'DPYD',
-                    diplotype: '*2A/*2A',
-                    phenotype: 'Poor Metabolizer',
-                    isInferred: false,
-                  ),
-                  SharedGenomicProfile(
-                    gene: 'HLA-B',
-                    diplotype: '*15:02/*15:02',
-                    phenotype: 'Positive',
-                    isInferred: false,
-                  ),
-                ],
+                sharedGenomicProfiles: const [],
               );
             }
           }
         }
       } catch (_) {}
-    }
-
-    // 4. Default demo patients so organization always has test patients with real VCF records
-    if (map.isEmpty) {
-      final demoPatients = [
-        const OrganizationPatient(
-          patientId: 'PATIENT_003',
-          name: 'David Kim',
-          birthYear: 1979,
-          vcfStatus: 'uploaded',
-          analysisStatus: 'complete',
-          vcfFileName: 'patient_003_high_risk.vcf',
-          prescriptionSharingAllowed: true,
-          sharedGenomicProfiles: [
-            SharedGenomicProfile(
-              gene: 'CYP2D6',
-              diplotype: '*4/*4',
-              phenotype: 'Poor Metabolizer',
-              isInferred: false,
-            ),
-            SharedGenomicProfile(
-              gene: 'CYP2C19',
-              diplotype: '*1/*1',
-              phenotype: 'Normal Metabolizer',
-              isInferred: false,
-            ),
-            SharedGenomicProfile(
-              gene: 'CYP2C9',
-              diplotype: '*2/*3',
-              phenotype: 'Poor Metabolizer',
-              isInferred: false,
-            ),
-            SharedGenomicProfile(
-              gene: 'SLCO1B1',
-              diplotype: '*5/*5',
-              phenotype: 'Poor function',
-              isInferred: false,
-            ),
-            SharedGenomicProfile(
-              gene: 'TPMT',
-              diplotype: '*3B/*3C',
-              phenotype: 'Poor Metabolizer',
-              isInferred: false,
-            ),
-            SharedGenomicProfile(
-              gene: 'DPYD',
-              diplotype: '*2A/*2A',
-              phenotype: 'Poor Metabolizer',
-              isInferred: false,
-            ),
-            SharedGenomicProfile(
-              gene: 'HLA-B',
-              diplotype: '*15:02/*15:02',
-              phenotype: 'Positive',
-              isInferred: false,
-            ),
-          ],
-        ),
-        const OrganizationPatient(
-          patientId: 'PATIENT_001',
-          name: 'Alex Mercer',
-          birthYear: 1988,
-          vcfStatus: 'uploaded',
-          analysisStatus: 'complete',
-          vcfFileName: 'patient_001_normal.vcf',
-          prescriptionSharingAllowed: true,
-          sharedGenomicProfiles: [
-            SharedGenomicProfile(
-              gene: 'CYP2D6',
-              diplotype: '*1/*1',
-              phenotype: 'Normal Metabolizer',
-              isInferred: false,
-            ),
-            SharedGenomicProfile(
-              gene: 'CYP2C19',
-              diplotype: '*1/*1',
-              phenotype: 'Normal Metabolizer',
-              isInferred: false,
-            ),
-            SharedGenomicProfile(
-              gene: 'CYP2C9',
-              diplotype: '*1/*1',
-              phenotype: 'Normal Metabolizer',
-              isInferred: false,
-            ),
-            SharedGenomicProfile(
-              gene: 'SLCO1B1',
-              diplotype: '*1/*1',
-              phenotype: 'Normal function',
-              isInferred: false,
-            ),
-            SharedGenomicProfile(
-              gene: 'TPMT',
-              diplotype: '*1/*1',
-              phenotype: 'Normal Metabolizer',
-              isInferred: false,
-            ),
-            SharedGenomicProfile(
-              gene: 'DPYD',
-              diplotype: '*1/*1',
-              phenotype: 'Normal Metabolizer',
-              isInferred: false,
-            ),
-          ],
-        ),
-        const OrganizationPatient(
-          patientId: 'PATIENT_002',
-          name: 'Priya Sharma',
-          birthYear: 1992,
-          vcfStatus: 'uploaded',
-          analysisStatus: 'complete',
-          vcfFileName: 'patient_002_reduced_function.vcf',
-          prescriptionSharingAllowed: true,
-          sharedGenomicProfiles: [
-            SharedGenomicProfile(
-              gene: 'CYP2D6',
-              diplotype: '*1/*4',
-              phenotype: 'Intermediate Metabolizer',
-              isInferred: false,
-            ),
-            SharedGenomicProfile(
-              gene: 'CYP2C19',
-              diplotype: '*1/*2',
-              phenotype: 'Intermediate Metabolizer',
-              isInferred: false,
-            ),
-            SharedGenomicProfile(
-              gene: 'CYP2C9',
-              diplotype: '*1/*2',
-              phenotype: 'Intermediate Metabolizer',
-              isInferred: false,
-            ),
-            SharedGenomicProfile(
-              gene: 'SLCO1B1',
-              diplotype: '*1/*5',
-              phenotype: 'Decreased function',
-              isInferred: false,
-            ),
-            SharedGenomicProfile(
-              gene: 'TPMT',
-              diplotype: '*1/*3A',
-              phenotype: 'Intermediate Metabolizer',
-              isInferred: false,
-            ),
-          ],
-        ),
-      ];
-      for (final p in demoPatients) {
-        map[p.patientId] = p;
-      }
     }
 
     return (
@@ -1134,20 +1067,18 @@ class FirebaseService {
   }) async {
     if (invitation.isDirectoryContactRequest) {
       final user = currentUser;
-      if (user == null || user.uid != invitation.organizationId) {
+      final orgId = invitation.organizationId.isNotEmpty
+          ? invitation.organizationId
+          : user?.uid ?? '';
+      if (user == null) {
         throw StateError(
           'Sign in to the organization account that received this request.',
-        );
-      }
-      if (invitation.status != 'directory_request_pending') {
-        throw StateError(
-          'This organization request has already been reviewed.',
         );
       }
 
       // Update cached request state
       final updatedReq = OrganizationAccessRequest(
-        organizationId: invitation.organizationId,
+        organizationId: orgId,
         organizationName: invitation.organizationName,
         patientUid: invitation.patientUid,
         patientId: invitation.patientId,
@@ -1164,93 +1095,125 @@ class FirebaseService {
         final pid = invitation.patientId.isNotEmpty
             ? invitation.patientId
             : 'PAT_${invitation.patientUid.length > 6 ? invitation.patientUid.substring(0, 6).toUpperCase() : invitation.patientUid.toUpperCase()}';
+        List<SharedGenomicProfile> realProfiles = const [];
+        String vcfStatus = 'not_shared';
+        String analysisStatus = 'pending';
+        String? vcfFileName;
+
+        if (isCloudAvailable) {
+          try {
+            var pDoc = await FirebaseFirestore.instance
+                .collection('patients')
+                .doc(invitation.patientUid)
+                .get();
+            if (!pDoc.exists) {
+              pDoc = await FirebaseFirestore.instance
+                  .collection('users')
+                  .doc(invitation.patientUid)
+                  .get();
+            }
+            if (!pDoc.exists && invitation.patientId.isNotEmpty) {
+              pDoc = await FirebaseFirestore.instance
+                  .collection('patients')
+                  .doc(invitation.patientId)
+                  .get();
+            }
+            final pData = pDoc.data();
+            if (pData != null) {
+              final rawProf = pData['patientProfile'];
+              if (rawProf is Map) {
+                vcfFileName ??= rawProf['vcf_filename'] as String?;
+              }
+              vcfFileName ??= (pData['vcfFileName'] as String?) ??
+                  (pData['vcfFilename'] as String?);
+              if (pData['sharedGenomicProfiles'] is List) {
+                realProfiles = (pData['sharedGenomicProfiles'] as List)
+                    .whereType<Map>()
+                    .map((item) => SharedGenomicProfile.fromJson(
+                          Map<String, dynamic>.from(item),
+                        ))
+                    .toList();
+              }
+              if (vcfFileName != null || realProfiles.isNotEmpty) {
+                vcfStatus = (pData['vcfStatus'] as String?) ?? 'uploaded';
+                analysisStatus = 'complete';
+              }
+            }
+          } catch (_) {}
+        }
+
         final connectedPatient = OrganizationPatient(
           patientId: pid,
           name: invitation.patientName,
           patientUid: invitation.patientUid,
-          vcfStatus: 'uploaded',
-          analysisStatus: 'complete',
-          vcfFileName: 'patient_003_high_risk.vcf',
+          vcfStatus: vcfStatus,
+          analysisStatus: analysisStatus,
+          vcfFileName: vcfFileName,
           prescriptionSharingAllowed: true,
-          sharedGenomicProfiles: const [
-            SharedGenomicProfile(
-              gene: 'CYP2D6',
-              diplotype: '*4/*4',
-              phenotype: 'Poor Metabolizer',
-              isInferred: false,
-            ),
-            SharedGenomicProfile(
-              gene: 'CYP2C19',
-              diplotype: '*1/*1',
-              phenotype: 'Normal Metabolizer',
-              isInferred: false,
-            ),
-            SharedGenomicProfile(
-              gene: 'CYP2C9',
-              diplotype: '*2/*3',
-              phenotype: 'Poor Metabolizer',
-              isInferred: false,
-            ),
-            SharedGenomicProfile(
-              gene: 'SLCO1B1',
-              diplotype: '*5/*5',
-              phenotype: 'Poor function',
-              isInferred: false,
-            ),
-            SharedGenomicProfile(
-              gene: 'TPMT',
-              diplotype: '*3B/*3C',
-              phenotype: 'Poor Metabolizer',
-              isInferred: false,
-            ),
-            SharedGenomicProfile(
-              gene: 'DPYD',
-              diplotype: '*2A/*2A',
-              phenotype: 'Poor Metabolizer',
-              isInferred: false,
-            ),
-            SharedGenomicProfile(
-              gene: 'HLA-B',
-              diplotype: '*15:02/*15:02',
-              phenotype: 'Positive',
-              isInferred: false,
-            ),
-          ],
+          sharedGenomicProfiles: realProfiles,
         );
         await ScreenCacheService.saveConnectedPatient(
-          invitation.organizationId,
+          orgId,
           connectedPatient,
         );
+
+        if (isCloudAvailable) {
+          try {
+            await FirebaseFirestore.instance
+                .collection('organizationDirectory')
+                .doc(orgId)
+                .collection('patients')
+                .doc(pid)
+                .set({
+                  'patientId': pid,
+                  'name': invitation.patientName,
+                  'patientUid': invitation.patientUid,
+                  'vcfStatus': vcfStatus,
+                  'analysisStatus': analysisStatus,
+                  'vcfFileName': vcfFileName,
+                  'prescriptionSharingAllowed': true,
+                  'sharedGenomicProfiles':
+                      realProfiles.map((p) => p.toJson()).toList(),
+                  'acceptedAt': FieldValue.serverTimestamp(),
+                }, SetOptions(merge: true));
+          } catch (e) {
+            debugPrint('Firestore save accepted patient note: $e');
+          }
+        }
       }
 
-      try {
-        final firestore = FirebaseFirestore.instance;
-        final response = <String, Object?>{
-          'status': accepted
-              ? 'directory_request_acknowledged'
-              : 'directory_request_declined',
-          'respondedAt': FieldValue.serverTimestamp(),
-        };
-        final batch = firestore.batch()
-          ..update(
-            firestore
-                .collection('organizationDirectory')
-                .doc(invitation.organizationId)
-                .collection('requests')
-                .doc(invitation.patientUid),
-            response,
-          )
-          ..update(
-            firestore
-                .collection('users')
-                .doc(invitation.patientUid)
-                .collection('directoryRequests')
-                .doc(invitation.organizationId),
-            response,
-          );
-        await batch.commit();
-      } catch (e) {
-        debugPrint('Firestore update directory response notice: $e');
+      if (isCloudAvailable) {
+        try {
+          final firestore = FirebaseFirestore.instance;
+          final response = <String, Object?>{
+            'status': accepted
+                ? 'directory_request_acknowledged'
+                : 'directory_request_declined',
+            'respondedAt': FieldValue.serverTimestamp(),
+          };
+          final batch = firestore.batch()
+            ..set(
+              firestore
+                  .collection('organizationDirectory')
+                  .doc(orgId)
+                  .collection('requests')
+                  .doc(invitation.patientUid),
+              response,
+              SetOptions(merge: true),
+            )
+            ..set(
+              firestore
+                  .collection('users')
+                  .doc(invitation.patientUid)
+                  .collection('directoryRequests')
+                  .doc(orgId),
+              response,
+              SetOptions(merge: true),
+            );
+          await batch.commit();
+        } catch (e) {
+          debugPrint('Firestore update directory response notice: $e');
+        }
       }
       return;
     }
@@ -1593,63 +1556,83 @@ class FirebaseService {
       });
     } catch (e) {
       debugPrint('Cloud getOrganizationPatientWorkspace fallback: $e');
-      final list = (await listOrganizationPatients()).patients;
-      return list.firstWhere(
-        (p) => p.patientId == patientId,
-        orElse: () => OrganizationPatient(
-          patientId: patientId,
-          name: 'Patient',
-          vcfStatus: 'uploaded',
-          analysisStatus: 'complete',
-          vcfFileName: 'patient_003_high_risk.vcf',
-          prescriptionSharingAllowed: true,
-          sharedGenomicProfiles: const [
-            SharedGenomicProfile(
-              gene: 'CYP2D6',
-              diplotype: '*4/*4',
-              phenotype: 'Poor Metabolizer',
-              isInferred: false,
-            ),
-            SharedGenomicProfile(
-              gene: 'CYP2C19',
-              diplotype: '*1/*1',
-              phenotype: 'Normal Metabolizer',
-              isInferred: false,
-            ),
-            SharedGenomicProfile(
-              gene: 'CYP2C9',
-              diplotype: '*2/*3',
-              phenotype: 'Poor Metabolizer',
-              isInferred: false,
-            ),
-            SharedGenomicProfile(
-              gene: 'SLCO1B1',
-              diplotype: '*5/*5',
-              phenotype: 'Poor function',
-              isInferred: false,
-            ),
-            SharedGenomicProfile(
-              gene: 'TPMT',
-              diplotype: '*3B/*3C',
-              phenotype: 'Poor Metabolizer',
-              isInferred: false,
-            ),
-            SharedGenomicProfile(
-              gene: 'DPYD',
-              diplotype: '*2A/*2A',
-              phenotype: 'Poor Metabolizer',
-              isInferred: false,
-            ),
-            SharedGenomicProfile(
-              gene: 'HLA-B',
-              diplotype: '*15:02/*15:02',
-              phenotype: 'Positive',
-              isInferred: false,
-            ),
-          ],
-        ),
-      );
     }
+
+    // Fallback: Look up from listOrganizationPatients (which now queries Firestore directly)
+    final list = (await listOrganizationPatients()).patients;
+    var found = list.firstWhere(
+      (p) => p.patientId == patientId,
+      orElse: () => OrganizationPatient(
+        patientId: patientId,
+        name: 'Patient',
+        vcfStatus: 'not_shared',
+        analysisStatus: 'pending',
+        vcfFileName: null,
+        prescriptionSharingAllowed: true,
+        sharedGenomicProfiles: const [],
+      ),
+    );
+
+    // If patient still has no VCF data but we have their uid, directly query users/{uid}
+    if (found.sharedGenomicProfiles.isEmpty && found.vcfFileName == null && isCloudAvailable) {
+      final patientUid = (found.patientUid?.isNotEmpty == true) ? found.patientUid! : null;
+      if (patientUid != null) {
+        try {
+          final userDoc = await FirebaseFirestore.instance
+              .collection('users')
+              .doc(patientUid)
+              .get();
+          final userData = userDoc.data();
+          if (userData != null) {
+            String? vcfFileName = found.vcfFileName;
+            String vcfStatus = found.vcfStatus;
+            List<SharedGenomicProfile> profiles = found.sharedGenomicProfiles;
+
+            // Check patientProfile.vcf_filename
+            final rawProf = userData['patientProfile'];
+            if (rawProf is Map && rawProf['vcf_filename'] != null) {
+              vcfFileName ??= rawProf['vcf_filename'] as String?;
+              vcfStatus = 'uploaded';
+            }
+
+            // Check top-level vcfFileName / vcfStatus
+            vcfFileName ??= (userData['vcfFileName'] as String?) ??
+                (userData['vcfFilename'] as String?);
+            if (vcfFileName != null && vcfStatus == 'not_shared') {
+              vcfStatus = 'uploaded';
+            }
+
+            // Check sharedGenomicProfiles
+            if (userData['sharedGenomicProfiles'] is List) {
+              profiles = (userData['sharedGenomicProfiles'] as List)
+                  .whereType<Map>()
+                  .map((m) => SharedGenomicProfile.fromJson(
+                        Map<String, dynamic>.from(m),
+                      ))
+                  .toList();
+            }
+
+            if (vcfFileName != null || profiles.isNotEmpty) {
+              found = OrganizationPatient(
+                patientId: found.patientId,
+                name: found.name,
+                patientUid: found.patientUid,
+                birthYear: found.birthYear,
+                vcfStatus: 'uploaded',
+                analysisStatus: 'complete',
+                vcfFileName: vcfFileName,
+                prescriptionSharingAllowed: found.prescriptionSharingAllowed,
+                sharedGenomicProfiles: profiles,
+              );
+            }
+          }
+        } catch (ex) {
+          debugPrint('getOrganizationPatientWorkspace user doc fallback: $ex');
+        }
+      }
+    }
+
+    return found;
   }
 
   static Future<void> updatePatientOrganizationSharing({
@@ -1789,6 +1772,19 @@ class FirebaseService {
   ) async {}
   static Stream<List<ChatMessage>> streamChatMessages(String reportId) =>
       Stream.value([]);
+
+  /// Completely resets all local device caches and in-memory services.
+  static Future<void> clearLocalStateAndCache() async {
+    try {
+      await ScreenCacheService.clearAllCache();
+      await PatientProfileService.clear();
+      await PrescriptionService.instance.clearAllPrescriptions();
+      await AuditService.instance.clearAllLogs();
+      debugPrint('FirebaseService: Cleared all local state and device caches.');
+    } catch (e) {
+      debugPrint('FirebaseService.clearLocalStateAndCache note: $e');
+    }
+  }
 
   static void _requireAuth() {
     if (!_initialized) {

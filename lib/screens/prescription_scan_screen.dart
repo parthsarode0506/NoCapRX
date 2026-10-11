@@ -154,7 +154,7 @@ class _PrescriptionScanScreenState
       }
 
       final candidates = _extractMedicineCandidates(text);
-      _editController.text = candidates.join(', ');
+      _populateEditField(text, candidates);
 
       setState(() {
         _rawText = text;
@@ -162,14 +162,9 @@ class _PrescriptionScanScreenState
         _phase = _ScanPhase.verifying;
       });
     } catch (e) {
-      _setError(
-        'OCR processing failed. Ensure Google ML Kit is available on this device.\n'
-        'Details: ${e.toString()}',
-      );
+      _setError('Failed to scan prescription: $e');
     }
   }
-
-  // ─── Medicine candidate extraction ───────────────────────────────────────
 
   List<String> _extractMedicineCandidates(String text) {
     final found = <String>{};
@@ -179,7 +174,7 @@ class _PrescriptionScanScreenState
         .split(RegExp(r'[\r\n,;:\.]+'))
         .map((line) => line
             .replaceAll(
-                RegExp(r'\b\d+(?:\.\d+)?\s*(?:mg|mcg|g|ml|%|tab|tabs|cap|caps|ml)\b',
+                RegExp(r'\b\d+(?:\.\d+)?\s*(?:mg|mcg|g|ml|%|tab|tabs|cap|caps|ml|x|Q\d+H?|BD|TDS|OD|QID)\b',
                     caseSensitive: false),
                 '')
             .trim())
@@ -210,6 +205,23 @@ class _PrescriptionScanScreenState
     }
 
     return found.toList();
+  }
+
+  /// Populate the edit field with raw OCR text content — medicines identified
+  /// + any remaining words — so the user sees the actual prescription text.
+  void _populateEditField(String rawText, List<String> identified) {
+    if (identified.isNotEmpty) {
+      _editController.text = identified.join(', ');
+    } else {
+      // No medicines auto-identified: put cleaned lines in edit field
+      // so the user can easily pick out medicine names themselves
+      final cleaned = rawText
+          .split(RegExp(r'[\r\n]+'))
+          .map((l) => l.trim())
+          .where((l) => l.isNotEmpty && l.length > 2)
+          .join('\n');
+      _editController.text = cleaned;
+    }
   }
 
   // ─── Helpers ─────────────────────────────────────────────────────────────

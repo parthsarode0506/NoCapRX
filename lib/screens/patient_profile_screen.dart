@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -87,7 +88,11 @@ class _PatientProfileScreenState extends ConsumerState<PatientProfileScreen> {
       _nameController.text = profile.fullName.isNotEmpty
           ? profile.fullName
           : FirebaseService.currentUser?.displayName ?? '';
-      _patientIdController.text = profile.patientId;
+      _patientIdController.text = profile.patientId.isNotEmpty
+          ? profile.patientId
+          : (FirebaseService.currentUser?.uid != null
+              ? 'PAT_${FirebaseService.currentUser!.uid.substring(0, min(6, FirebaseService.currentUser!.uid.length)).toUpperCase()}'
+              : '');
       _emailController.text = profile.email.isNotEmpty
           ? profile.email
           : FirebaseService.currentUser?.email ?? '';

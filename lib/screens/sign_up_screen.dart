@@ -179,6 +179,11 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
         );
         ref.read(userProfileProvider.notifier).state = profile;
         await ScreenCacheService.cacheUserProfile(profile);
+        ref.read(selectedVcfFilenameProvider.notifier).state = null;
+        ref.read(selectedVcfContentProvider.notifier).state = null;
+        ref.read(vcfParseResultProvider.notifier).state = null;
+        await ScreenCacheService.clearVcfCache();
+        await FirebaseService.clearLocalStateAndCache();
       }
 
       if (mounted) {
@@ -293,6 +298,13 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
         }
 
         if (mounted) {
+          ref.read(selectedVcfFilenameProvider.notifier).state = null;
+          ref.read(selectedVcfContentProvider.notifier).state = null;
+          ref.read(vcfParseResultProvider.notifier).state = null;
+          ref.read(genomicScanReportProvider.notifier).state = null;
+          await ScreenCacheService.clearVcfCache();
+          await FirebaseService.clearLocalStateAndCache();
+          if (!mounted) return;
           Navigator.of(context).pushAndRemoveUntil(
             MaterialPageRoute(
               builder: (_) => _organizationAccount

@@ -34,6 +34,14 @@ class PrescriptionService {
 
   }
 
+  Future<void> clearAllPrescriptions() async {
+    _inMemoryCache.clear();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_localPrescriptionsKey);
+    } catch (_) {}
+  }
+
   Future<void> _persistLocal() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -59,8 +67,6 @@ class PrescriptionService {
                   (patientUid != null &&
                       patientUid.isNotEmpty &&
                       p.patientUid == patientUid) ||
-                  (pid == 'PATIENT_001' && p.patientId.toUpperCase().startsWith('PAT')) ||
-                  (pid.startsWith('PAT') && p.patientId.toUpperCase().startsWith('PAT')) ||
                   pid == 'ALL'))
           .toList()
         ..sort((a, b) => (b.issuedAt ?? b.createdAt).compareTo(a.issuedAt ?? a.createdAt));

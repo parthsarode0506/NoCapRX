@@ -44,28 +44,6 @@ class _OrganizationInvitationsScreenState
         // Fallback for demonstration / offline workspace
       }
 
-      if (list.isEmpty) {
-        list.addAll([
-          OrganizationAccessRequest(
-            organizationId: 'ORG_ACTIVE',
-            organizationName: 'Active Clinical Center',
-            patientUid: 'UID_001',
-            patientId: 'PATIENT_001',
-            patientName: 'Alex Mercer',
-            status: 'pending_org_review',
-            requestedAt: DateTime.now().subtract(const Duration(hours: 4)),
-          ),
-          OrganizationAccessRequest(
-            organizationId: 'ORG_ACTIVE',
-            organizationName: 'Active Clinical Center',
-            patientUid: 'UID_002',
-            patientId: 'PATIENT_002',
-            patientName: 'Priya Sharma',
-            status: 'accepted',
-            requestedAt: DateTime.now().subtract(const Duration(days: 2)),
-          ),
-        ]);
-      }
 
       if (mounted) {
         setState(() {
@@ -94,6 +72,7 @@ class _OrganizationInvitationsScreenState
         patientName: inv.patientName,
         status: accept ? 'accepted' : 'rejected',
         requestedAt: inv.requestedAt,
+        isDirectoryContactRequest: inv.isDirectoryContactRequest,
       );
     });
 

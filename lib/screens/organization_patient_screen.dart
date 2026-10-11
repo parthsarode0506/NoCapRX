@@ -210,43 +210,17 @@ class _PatientVcfCard extends StatelessWidget {
   final VoidCallback onCreatePrescription;
 
   List<SharedGenomicProfile> _getProfiles() {
-    if (patient.sharedGenomicProfiles.isNotEmpty) {
-      return patient.sharedGenomicProfiles;
-    }
-    final file = patient.vcfFileName ?? '';
-    if (file.contains('normal')) {
-      return const [
-        SharedGenomicProfile(gene: 'CYP2D6', diplotype: '*1/*1', phenotype: 'Normal Metabolizer', isInferred: false),
-        SharedGenomicProfile(gene: 'CYP2C19', diplotype: '*1/*1', phenotype: 'Normal Metabolizer', isInferred: false),
-        SharedGenomicProfile(gene: 'CYP2C9', diplotype: '*1/*1', phenotype: 'Normal Metabolizer', isInferred: false),
-        SharedGenomicProfile(gene: 'SLCO1B1', diplotype: '*1/*1', phenotype: 'Normal function', isInferred: false),
-        SharedGenomicProfile(gene: 'TPMT', diplotype: '*1/*1', phenotype: 'Normal Metabolizer', isInferred: false),
-        SharedGenomicProfile(gene: 'DPYD', diplotype: '*1/*1', phenotype: 'Normal Metabolizer', isInferred: false),
-      ];
-    } else if (file.contains('reduced')) {
-      return const [
-        SharedGenomicProfile(gene: 'CYP2D6', diplotype: '*1/*4', phenotype: 'Intermediate Metabolizer', isInferred: false),
-        SharedGenomicProfile(gene: 'CYP2C19', diplotype: '*1/*2', phenotype: 'Intermediate Metabolizer', isInferred: false),
-        SharedGenomicProfile(gene: 'CYP2C9', diplotype: '*1/*2', phenotype: 'Intermediate Metabolizer', isInferred: false),
-        SharedGenomicProfile(gene: 'SLCO1B1', diplotype: '*1/*5', phenotype: 'Decreased function', isInferred: false),
-        SharedGenomicProfile(gene: 'TPMT', diplotype: '*1/*3A', phenotype: 'Intermediate Metabolizer', isInferred: false),
-      ];
-    }
-    return const [
-      SharedGenomicProfile(gene: 'CYP2D6', diplotype: '*4/*4', phenotype: 'Poor Metabolizer', isInferred: false),
-      SharedGenomicProfile(gene: 'CYP2C19', diplotype: '*1/*1', phenotype: 'Normal Metabolizer', isInferred: false),
-      SharedGenomicProfile(gene: 'CYP2C9', diplotype: '*2/*3', phenotype: 'Poor Metabolizer', isInferred: false),
-      SharedGenomicProfile(gene: 'SLCO1B1', diplotype: '*5/*5', phenotype: 'Poor function', isInferred: false),
-      SharedGenomicProfile(gene: 'TPMT', diplotype: '*3B/*3C', phenotype: 'Poor Metabolizer', isInferred: false),
-      SharedGenomicProfile(gene: 'DPYD', diplotype: '*2A/*2A', phenotype: 'Poor Metabolizer', isInferred: false),
-      SharedGenomicProfile(gene: 'HLA-B', diplotype: '*15:02/*15:02', phenotype: 'Positive', isInferred: false),
-    ];
+    return patient.sharedGenomicProfiles;
   }
 
   @override
   Widget build(BuildContext context) {
     final profiles = _getProfiles();
-    final vcfName = patient.vcfFileName ?? 'patient_003_high_risk.vcf';
+    final hasVcf = profiles.isNotEmpty ||
+        patient.vcfFileName != null ||
+        patient.vcfStatus == 'uploaded';
+    final vcfName = patient.vcfFileName ??
+        (hasVcf ? 'Shared Genomic Record' : 'No VCF File Uploaded');
 
     return Card(
       elevation: 0,
@@ -281,15 +255,19 @@ class _PatientVcfCard extends StatelessWidget {
                     children: [
                       Text(
                         'VCF File: $vcfName',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                         style: GoogleFonts.inter(
                           fontWeight: FontWeight.w700,
                           fontSize: 15,
                         ),
                       ),
                       const SizedBox(height: 2),
-                      const Text(
-                        'Format: VCFv4.2 · Quality: PASS (Q>99) · 30x Coverage',
-                        style: TextStyle(
+                      Text(
+                        hasVcf
+                            ? 'Format: VCFv4.2 · Quality: PASS (Q>99) · 30x Coverage'
+                            : 'Patient has not uploaded their VCF file yet',
+                        style: const TextStyle(
                           fontSize: 11.5,
                           color: Colors.grey,
                         ),
@@ -297,19 +275,25 @@ class _PatientVcfCard extends StatelessWidget {
                     ],
                   ),
                 ),
+                const SizedBox(width: 8),
                 Container(
                   padding:
                       const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
-                    color: AppTheme.primaryEmerald.withValues(alpha: 0.1),
+                    color: (hasVcf
+                            ? AppTheme.primaryEmerald
+                            : AppTheme.warningAmber)
+                        .withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(6),
                   ),
-                  child: const Text(
-                    'PARSED',
+                  child: Text(
+                    hasVcf ? 'UPLOADED' : 'NOT UPLOADED',
                     style: TextStyle(
                       fontSize: 10,
                       fontWeight: FontWeight.w800,
-                      color: AppTheme.primaryEmerald,
+                      color: hasVcf
+                          ? AppTheme.primaryEmerald
+                          : AppTheme.warningAmber,
                     ),
                   ),
                 ),
@@ -319,17 +303,42 @@ class _PatientVcfCard extends StatelessWidget {
             const Divider(height: 1),
             const SizedBox(height: 14),
 
-            Text(
-              'Pharmacogene Profile (${profiles.length} Target Genes):',
-              style: GoogleFonts.inter(
-                fontWeight: FontWeight.w700,
-                fontSize: 13,
-                color: AppTheme.deepInk,
+            if (!hasVcf) ...[
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: AppTheme.mintSurface,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.info_outline, color: AppTheme.primaryEmerald, size: 20),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'This patient has not uploaded a genomic VCF file yet. The patient must upload their VCF file from the patient portal.',
+                        style: GoogleFonts.inter(
+                          fontSize: 12,
+                          color: AppTheme.deepInk,
+                          height: 1.3,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: 10),
+            ] else if (profiles.isNotEmpty) ...[
+              Text(
+                'Pharmacogene Profile (${profiles.length} Target Genes):',
+                style: GoogleFonts.inter(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                  color: AppTheme.deepInk,
+                ),
+              ),
+              const SizedBox(height: 10),
 
-            // Gene items
+              // Gene items
             ...profiles.map((profile) {
               final isPoor = profile.phenotype.toLowerCase().contains('poor') ||
                   profile.phenotype.toLowerCase().contains('decreased') ||
@@ -363,23 +372,31 @@ class _PatientVcfCard extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(width: 10),
-                    Text(
-                      profile.gene,
-                      style: GoogleFonts.inter(
-                        fontWeight: FontWeight.w800,
-                        fontSize: 14,
+                    Flexible(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            profile.gene,
+                            overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.inter(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 14,
+                            ),
+                          ),
+                          Text(
+                            profile.diplotype,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: Colors.grey.shade700,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                     const SizedBox(width: 8),
-                    Text(
-                      profile.diplotype,
-                      style: TextStyle(
-                        color: Colors.grey.shade700,
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const Spacer(),
                     Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 8,
@@ -391,6 +408,7 @@ class _PatientVcfCard extends StatelessWidget {
                       ),
                       child: Text(
                         profile.phenotype,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           color: statusColor,
                           fontSize: 11,
@@ -430,10 +448,11 @@ class _PatientVcfCard extends StatelessWidget {
               ),
             ),
           ],
-        ),
+        ],
       ),
-    );
-  }
+    ),
+  );
+}
 }
 
 class _PatientPrescriptionSection extends StatelessWidget {

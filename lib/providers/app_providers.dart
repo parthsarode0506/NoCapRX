@@ -5,6 +5,7 @@ import '../models/app_user.dart';
 import '../models/pgx_report.dart';
 import '../models/genomic_drug_scan_report.dart';
 import '../models/patient_profile.dart';
+import '../models/uploaded_vcf_file.dart';
 import '../parser/vcf_parser.dart';
 import '../services/firebase_service.dart';
 
@@ -28,6 +29,9 @@ final patientProfileProvider = StateProvider<PatientProfile>(
 // where the selected file does not have a filesystem path.
 final selectedVcfFilenameProvider = StateProvider<String?>((ref) => null);
 final selectedVcfContentProvider = StateProvider<String?>((ref) => null);
+final uploadedVcfFilesProvider = StateProvider<List<UploadedVcfFile>>(
+  (ref) => const [],
+);
 
 // VCF Parsing Result State
 final vcfParseResultProvider = StateProvider<VcfParseResult?>((ref) => null);
